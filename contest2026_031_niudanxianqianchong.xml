@@ -12,5 +12,9 @@
     <linkfile src="app/hello_app" dest="packages/demos/contest2026_031_hello_app"/>
     <linkfile src="quickapp/hello_quickapp" dest="packages/apps/contest2026_031_hello_quickapp"/>
     <linkfile src="board/contest_board" dest="vendor/openvela/boards/contest2026_031_board"/>
+
+    <linkfile src="packages/cAGENT" dest="packages/cAGENT"/>
+    <linkfile src="demos/smart_home" dest="packages/demos/smart_home"/>
+    <linkfile src="app/audio_event" dest="apps/examples/audio_event"/>
   </project>
 </manifest>
