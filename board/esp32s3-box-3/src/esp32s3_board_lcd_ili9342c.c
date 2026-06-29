@@ -279,9 +279,9 @@ static const struct ili9342c_config_data g_lcd_config[] =
     ILI9341_DISPLAY_ON, 0
   },
   {
-    /* Invert colors */
+    /* Invert colors (ILI9342C needs INVERSION_ON, unlike ILI9341) */
 
-    ILI9341_DISP_INVERSION_OFF, 0,
+    ILI9341_DISP_INVERSION_ON, 0,
   },
   {
     ILI9341_MEMORY_ACCESS_CONTROL, 1,
