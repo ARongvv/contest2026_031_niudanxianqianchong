@@ -423,10 +423,17 @@ static int ili9342c_sendgram(struct ili9341_lcd_s *lcd,
 
   lcdinfo("lcd:%p, wd=%p, nwords=%" PRIu32 "\n", lcd, wd, nwords);
 
+  /* When LV_COLOR_16_SWAP is enabled, LVGL already outputs big-endian
+   * RGB565 — no per-pixel byte swap needed here.  When it is disabled,
+   * we must swap manually before sending over SPI.
+   */
+
+#if !defined(LV_COLOR_16_SWAP) || LV_COLOR_16_SWAP == 0
   for (uint32_t i = 0; i < nwords; i++)
     {
       ((uint16_t *)wd)[i] = swap16(wd[i]);
     }
+#endif
 
   SPI_SETBITS(priv->spi_dev, 16);
 
