@@ -1,0 +1,6 @@
+/bootloader
+/esp-nuttx-bootloader
+/*.zip
+/esp-hal-3rdparty
+/esp-hal-3rdparty.incomplete-local-copy
+/ulp
