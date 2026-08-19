@@ -236,6 +236,7 @@ endif
 # Fetch source files and add them to build
 
 ESP_HAL_3RDPARTY_REPO   = esp-hal-3rdparty
+ESP32P4_HAL_PATCH       = $(ESP32P4_COMMON_DIR)$(DELIM)patches$(DELIM)0001-nuttx-platform-openvela-nxtask-init.patch
 ifndef ESP_HAL_3RDPARTY_VERSION
 	ESP_HAL_3RDPARTY_VERSION = b90b1837cb5ad24747deb4c895246037cc206ce5
 endif
@@ -284,6 +285,8 @@ ifneq ($(USE_NXTMPDIR_ESP_REPO_DIRECTLY),y)
 	$(Q) git -C chip/$(ESP_HAL_3RDPARTY_REPO) checkout --quiet $(ESP_HAL_3RDPARTY_VERSION)
 	$(Q) git -C chip/$(ESP_HAL_3RDPARTY_REPO) submodule --quiet update --init $(GIT_DEPTH_PARAMETER) components/mbedtls/mbedtls
 endif
+	$(Q) git -C chip/$(ESP_HAL_3RDPARTY_REPO) apply --check $(ESP32P4_HAL_PATCH)
+	$(Q) git -C chip/$(ESP_HAL_3RDPARTY_REPO) apply $(ESP32P4_HAL_PATCH)
 ifeq ($(CONFIG_ESPRESSIF_WIRELESS),y)
 ifneq ($(USE_NXTMPDIR_ESP_REPO_DIRECTLY),y)
 	$(Q) echo "Espressif HAL for 3rd Party Platforms: initializing submodules..."
