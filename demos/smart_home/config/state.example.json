@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "devices": [
+    {
+      "id": 1,
+      "room": "living_room",
+      "name": "Living Light",
+      "type": "light",
+      "on": false,
+      "brightness": 0
+    },
+    {
+      "id": 2,
+      "room": "bedroom",
+      "name": "Bedroom Light",
+      "type": "light",
+      "on": false,
+      "brightness": 0
+    },
+    {
+      "id": 3,
+      "room": "bedroom",
+      "name": "Bedroom AC",
+      "type": "ac",
+      "on": false,
+      "temperature": 26,
+      "mode": "cool",
+      "fan_speed": "auto"
+    }
+  ],
+  "environment": {
+    "temperature": 26,
+    "humidity": 45,
+    "ambient_light": 300
+  }
+}

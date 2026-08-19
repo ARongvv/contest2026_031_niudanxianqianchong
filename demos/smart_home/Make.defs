@@ -1,0 +1,3 @@
+ifneq ($(CONFIG_SMART_HOME_DEMO),)
+CONFIGURED_APPS += $(APPDIR)/packages/demos/smart_home
+endif

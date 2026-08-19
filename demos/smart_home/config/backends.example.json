@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "backends": [
+    {
+      "backend_id": "deepseek",
+      "label": "DeepSeek",
+      "host": "api.deepseek.com",
+      "path": "/v1/chat/completions",
+      "port": "443",
+      "default_model": "deepseek-v4-flash",
+      "default_timeout_ms": 30000
+    },
+    {
+      "backend_id": "mimo",
+      "label": "MiMo",
+      "host": "api.xiaomimimo.com",
+      "path": "/v1/chat/completions",
+      "port": "443",
+      "default_model": "mimo-v2.5",
+      "default_timeout_ms": 30000
+    },
+    {
+      "backend_id": "qwen",
+      "label": "Qwen",
+      "host": "dashscope.aliyuncs.com",
+      "path": "/compatible-mode/v1/chat/completions",
+      "port": "443",
+      "default_model": "qwen-turbo",
+      "default_timeout_ms": 30000
+    },
+    {
+      "backend_id": "openai",
+      "label": "OpenAI",
+      "host": "api.openai.com",
+      "path": "/v1/chat/completions",
+      "port": "443",
+      "default_model": "gpt-4o-mini",
+      "default_timeout_ms": 30000
+    },
+    {
+      "backend_id": "custom",
+      "label": "Custom",
+      "host": "",
+      "path": "",
+      "port": "443",
+      "default_model": "",
+      "default_timeout_ms": 30000
+    }
+  ]
+}

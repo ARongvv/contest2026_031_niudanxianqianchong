@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "local_tools": {
+    "get_home_status": true,
+    "get_weather": true,
+    "list_timers": true,
+    "set_light": true,
+    "set_ac": true,
+    "run_scene": true,
+    "set_timer": true,
+    "cancel_timer": true,
+    "read_skill": true
+  },
+  "remote_tool_defaults": {
+    "node": false,
+    "mcp": false
+  }
+}

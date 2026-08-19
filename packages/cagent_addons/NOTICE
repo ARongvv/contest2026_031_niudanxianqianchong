@@ -1,0 +1,11 @@
+cagent_addons
+Copyright 2024 Xiaomi Corporation
+
+This product includes software developed at
+Xiaomi Corporation (https://www.mi.com/).
+
+cagent_addons is an in-tree optional addon package for the cAGENT
+embedded Agent core. Its OpenClaw Node protocol frames are designed for
+wire compatibility with the openvela packages/ai_agent node
+implementation, which is distributed under the Apache License 2.0;
+the code in this package is an independent minimal implementation.

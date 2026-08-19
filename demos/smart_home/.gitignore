@@ -1,0 +1,17 @@
+build/
+
+CODEBUDDY.md
+
+.trae/
+
+*.o
+
+# Runtime secrets must never be committed. The tracked file is only a template.
+config/secrets.json
+# 实际 LittleFS/Goldfish 部署输入；已被 Git 跟踪的历史文件需单独迁移后才会生效。
+res/config/secrets.json
+# Runtime MCP server config (may reference ${VAR} from secrets; deploy-time file).
+config/mcp_bridge.json
+
+
+demos/smart_home/docs/espidf-iot-contest-proposal.md

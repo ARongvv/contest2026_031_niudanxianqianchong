@@ -1,0 +1,1 @@
+{"type":"req","id":"result-0001","method":"node.invoke.result","params":{"id":"invoke-0001","nodeId":"temp-01","ok":true,"payloadJSON":"{\"on\":true,\"speed\":2}"}}

@@ -1,0 +1,1 @@
+{"type":"evt","event":"node.invoke.request","payload":{"id":"invoke-0001","nodeId":"temp-01","command":"set_fan","paramsJSON":"{\"on\":true,\"speed\":2}"}}

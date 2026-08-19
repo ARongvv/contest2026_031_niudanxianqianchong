@@ -1,0 +1,180 @@
+menuconfig CAGENT_ADDONS
+    bool "cAGENT addons: node protocol and MCP bridge"
+    default n
+    help
+      Optional addon package for cAGENT: OpenClaw Node protocol
+      (multi-device collaboration, contest task B) and MCP gateway
+      bridge (contest task C).
+
+      Layering rule: the node protocol layer (CAGENT_ADDONS_NODE)
+      builds without CAGENT so cAGENT-less node-role devices (e.g.
+      demos/sensor_node) can use it; the gateway/glue and MCP modules
+      depend on CAGENT public API only.
+
+      See openvela_smarthome/docs/cagent-addons-design-rev2.md.
+
+if CAGENT_ADDONS
+
+menu "Modules"
+
+config CAGENT_ADDONS_NODE
+    bool "OpenClaw Node protocol layer (WebSocket + frames)"
+    default y
+    help
+      Platform-independent protocol layer: WebSocket framing and
+      OpenClaw Node frame codec. Does not depend on CAGENT.
+    select NETUTILS_CJSON
+
+config CAGENT_ADDONS_NODE_CLIENT
+    bool "Node role (connect to a gateway, serve invokes)"
+    default n
+    depends on CAGENT_ADDONS_NODE
+    help
+      Node-role endpoint: connects to a gateway over WebSocket,
+      answers connect.challenge, serves node.invoke requests from a
+      local command table. No CAGENT dependency.
+
+config CAGENT_ADDONS_NODE_GATEWAY
+    bool "Gateway role (accept nodes, expose remote tools to cAGENT)"
+    default n
+    depends on CAGENT_ADDONS_NODE && CAGENT
+    help
+      Gateway role: accepts node connections, registers node tools
+      into a cAGENT agent as node_<id>_<command>, dispatches invokes.
+
+config CAGENT_ADDONS_MCP
+    bool "Standard MCP Streamable HTTP client"
+    default n
+    depends on CAGENT
+    select NETUTILS_CJSON
+    help
+      Standard MCP Streamable HTTP tools-only client. Connects directly
+      to one configured MCP Server, runs initialize/tools/list/tools/call,
+      and registers allowlisted external tools into cAGENT as
+      mcp_<server>_<tool>. Does not support stdio, SSE streams or OAuth.
+
+endmenu
+
+menu "Capacity limits"
+
+config CAGENT_ADDONS_MAX_NODES
+    int "Maximum connected nodes (gateway)"
+    default 4
+    range 1 8
+    depends on CAGENT_ADDONS_NODE_GATEWAY
+
+config CAGENT_ADDONS_MAX_NODE_COMMANDS
+    int "Maximum commands per node"
+    default 8
+    range 1 16
+    depends on CAGENT_ADDONS_NODE
+
+config CAGENT_ADDONS_RECV_BUF_SIZE
+    int "Single WebSocket frame receive buffer size"
+    default 4096
+    range 512 16384
+    depends on CAGENT_ADDONS_NODE
+
+config CAGENT_ADDONS_WS_CONNECT_TIMEOUT_MS
+    int "WebSocket TCP/Upgrade timeout in ms"
+    default 5000
+    range 500 30000
+    depends on CAGENT_ADDONS_NODE
+
+config CAGENT_ADDONS_WS_IO_TIMEOUT_MS
+    int "WebSocket control-frame I/O timeout in ms"
+    default 2000
+    range 100 10000
+    depends on CAGENT_ADDONS_NODE
+
+config CAGENT_ADDONS_TRANSPORT_STACK_SIZE
+    int "WebSocket accept/reader thread stack size"
+    default 8192
+    range 4096 32768
+    depends on CAGENT_ADDONS_NODE
+
+config CAGENT_ADDONS_NODE_CLIENT_STACK_SIZE
+    int "Node client supervisor/command worker stack size"
+    default 8192
+    range 4096 32768
+    depends on CAGENT_ADDONS_NODE_CLIENT
+
+config CAGENT_ADDONS_NODE_QUEUE_SIZE
+    int "Node client invoke queue depth"
+    default 4
+    range 1 16
+    depends on CAGENT_ADDONS_NODE_CLIENT
+
+config CAGENT_ADDONS_MAX_PENDING
+    int "Maximum concurrent invokes (gateway)"
+    default 4
+    range 1 16
+    depends on CAGENT_ADDONS_NODE_GATEWAY
+
+config CAGENT_ADDONS_INVOKE_TIMEOUT_MS
+    int "Node invoke timeout in ms"
+    default 10000
+    range 100 60000
+    depends on CAGENT_ADDONS_NODE_GATEWAY
+
+config CAGENT_ADDONS_GATEWAY_STACK_SIZE
+    int "Gateway control worker stack size"
+    default 8192
+    range 4096 32768
+    depends on CAGENT_ADDONS_NODE_GATEWAY
+
+config CAGENT_ADDONS_MCP_RESPONSE_BUF_SIZE
+    int "MCP HTTP response buffer size"
+    default 4096
+    range 512 16384
+    depends on CAGENT_ADDONS_MCP
+
+config CAGENT_ADDONS_MCP_PROTOCOL_VERSION
+    string "MCP protocol version"
+    default "2025-03-26"
+    depends on CAGENT_ADDONS_MCP
+    help
+      Dated protocol version used by the direct MCP Client Profile.
+      Changing this requires matching JSON-RPC fixtures and server tests.
+
+config CAGENT_ADDONS_MAX_NODE_TOOLS
+    int "Maximum globally registered Node tools"
+    default 8
+    range 0 32
+    depends on CAGENT_ADDONS_NODE_GATEWAY
+
+config CAGENT_ADDONS_MAX_MCP_TOOLS
+    int "Maximum globally registered MCP tools"
+    default 4
+    range 0 16
+    depends on CAGENT_ADDONS_MCP
+
+config CAGENT_ADDONS_MAX_REMOTE_TOOLS
+    int "Maximum globally registered remote tools"
+    default 12
+    range 1 48
+    depends on CAGENT_ADDONS_NODE_GATEWAY || CAGENT_ADDONS_MCP
+
+config CAGENT_ADDONS_MAX_PUBLIC_NAME_SIZE
+    int "Maximum public tool name length"
+    default 64
+    range 32 128
+
+config CAGENT_ADDONS_MAX_DESCRIPTION_SIZE
+    int "Maximum remote tool description length"
+    default 256
+    range 64 1024
+
+config CAGENT_ADDONS_MAX_SCHEMA_SIZE
+    int "Maximum remote tool input schema length"
+    default 1024
+    range 128 4096
+
+config CAGENT_ADDONS_MAX_RESULT_SIZE
+    int "Maximum remote tool result length"
+    default 4096
+    range 512 16384
+
+endmenu
+
+endif
