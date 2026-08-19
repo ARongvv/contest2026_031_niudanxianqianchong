@@ -9,8 +9,8 @@
 
 openvela 官方新平台适配文档强调通过 `vendor` 仓库隔离厂商定制代码。路线 A 遵循该思路，不把 ESP32-P4 的芯片层直接合入 `nuttx/arch/risc-v/src/esp32p4`，而是在项目目录维护源码、经 manifest 链接到 vendor 位置的方式接入。
 
-本路线的验收对象是板级移植本身。SmartHome、audio_event 等应用均不属于
-最小 bring-up 的前置条件，只能在相应板载外设验证完成后作为可选集成目标。
+本路线的验收对象是板级移植本身。任何应用集成都不属于最小 bring-up 的前置条件，
+只能在相应板载外设验证完成后单独规划。
 
 ```text
 vendor/espressif/
@@ -41,7 +41,7 @@ CONFIG_ARCH_BOARD_CUSTOM_DIR_RELPATH=y
 
 ## 二、移植目标
 
-第一阶段目标不是直接运行 SmartHome，而是点亮最小系统:
+第一阶段目标是点亮最小系统:
 
 1. ESP32-P4 能完成 RISC-V 启动并进入 `nx_start()`
 2. 串口或 USB console 能输出启动日志
@@ -81,9 +81,7 @@ vendor/espressif/boards/esp32p4/esp32p4-function-ev-board/
 │   ├── nsh/
 │   │   └── defconfig
 │   ├── ethernet/
-│   │   └── defconfig                    # 第二阶段
-│   └── smart_home/
-│       └── defconfig                    # 第三阶段
+│   │   └── defconfig                    # 后续外设阶段
 ├── include/
 │   └── board.h
 ├── scripts/
@@ -491,14 +489,10 @@ ESP32-P4 EV Board 的显示通常走 MIPI-DSI，触摸通常走 I2C。该阶段�
 4. 触摸 IC 型号、I2C 地址、reset/int GPIO
 5. LVGL 使用 `/dev/lcd0` 和 `/dev/input0` 的配置
 
-### Phase 4: SmartHome 应用
+### Phase 4: 可选应用集成
 
-最后迁移 SmartHome:
-
-1. 网络从 ESP32-S3 片内 WiFi 切换到以太网或 ESP-Hosted
-2. LVGL 布局从 320x240 调整到 1024x600
-3. 文件系统挂载路径保持和应用资源路径一致
-4. cAGENT 任务栈、TLS、HTTP client、DNS、socket buffer 根据 P4 内存重新配置
+在板级验收完成后，如需接入上层应用，应单独确认网络链路、显示分辨率、文件系统
+资源路径和任务栈/内存预算；这些工作不属于本次 P4 最小移植。
 
 ## 十、路线 A 风险和规避
 
@@ -521,7 +515,7 @@ ESP32-P4 EV Board 的显示通常走 MIPI-DSI，触摸通常走 I2C。该阶段�
 4. `vendor/espressif: enable gpio/i2c/spi for esp32p4 ev board`
 5. `vendor/espressif: enable ethernet for esp32p4 ev board`
 6. `vendor/espressif: add display and touchscreen bringup`
-7. `contest: add smart_home config for esp32p4 ev board`
+7. `contest: add optional application config for esp32p4 ev board`
 
 ## 十二、结论
 
@@ -532,4 +526,4 @@ custom chip = RISC-V 启动 + 中断 + timer + serial + heap + HAL + cache/PSRAM
 custom board = pinmux + 外设注册 + defconfig + bringup
 ```
 
-建议先完成最小 `nsh`，确认 custom chip 路径可用后，再逐步打开以太网、I2S、MIPI-DSI、触摸和 SmartHome。
+建议先完成最小 `nsh`，确认 custom chip 路径可用后，再逐步打开以太网、I2S、MIPI-DSI 和触摸。
