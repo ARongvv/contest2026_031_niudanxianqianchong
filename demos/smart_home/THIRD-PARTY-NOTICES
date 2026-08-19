@@ -1,0 +1,169 @@
+Smart Home Demo Third-Party Notices
+====================================
+
+This file contains notices and license information for third-party software
+and assets used by the Smart Home Demo. The demo uses the in-tree cAGENT core
+from this project; cAGENT is project code and is described in the repository
+NOTICE instead of being listed as a third-party dependency here.
+
+LVGL
+----
+When built with CONFIG_SMART_HOME_DEMO_UI_LVGL, the Smart Home Demo links
+against LVGL (Light and Versatile Graphics Library) for the graphical UI.
+
+  Copyright (c) 2021 LVGL Kft
+  SPDX-License-Identifier: MIT
+
+  Permission is hereby granted, free of charge, to any person obtaining a
+  copy of this software and associated documentation files (the "Software"),
+  to deal in the Software without restriction, including without limitation
+  the rights to use, copy, modify, merge, publish, distribute, sublicense,
+  and/or sell copies of the Software, and to permit persons to whom the
+  Software is furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.
+
+libuv
+-----
+The LVGL UI runtime uses libuv for event loop integration when the platform
+configuration enables CONFIG_LV_USE_NUTTX_LIBUV.
+
+  Copyright (c) 2015-present libuv project contributors.
+  SPDX-License-Identifier: MIT
+
+  Permission is hereby granted, free of charge, to any person obtaining a
+  copy of this software and associated documentation files (the "Software"),
+  to deal in the Software without restriction, including without limitation
+  the rights to use, copy, modify, merge, publish, distribute, sublicense,
+  and/or sell copies of the Software, and to permit persons to whom the
+  Software is furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.
+
+mbedTLS
+-------
+When built with CONFIG_CAGENT_RUNTIME_OPENVELA_TLS, the Smart Home Demo uses
+mbedTLS through the cAGENT openvela runtime adapter for TLS support.
+
+  Copyright The Mbed TLS Contributors
+  SPDX-License-Identifier: Apache-2.0
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+
+FreeType
+--------
+When built with CONFIG_SMART_HOME_DEMO_UI_LVGL and CJK font support, the
+Smart Home Demo uses FreeType to render MiSans and other TrueType fonts.
+
+  Copyright (c) 2000-2023 The FreeType Project
+  SPDX-License-Identifier: FTL OR GPL-2.0-or-later
+
+  For this project, FreeType is treated as a third-party font rendering
+  library distributed under its upstream license terms.
+
+MiSans Font
+-----------
+The MiSans font files bundled in res/fonts/ are provided by Xiaomi
+Corporation / Hanyi Fonts for use with this demo. The subset font files in
+the same directory are generated subsets of those MiSans font files.
+
+  Copyright (c) 2020-2021 Beijing Xiaomi Mobile Software Co., Ltd.
+  Font name: MiSans
+  Upstream font page: https://hyperos.mi.com/font/
+
+  MiSans is distributed under the Xiaomi MiSans Font License. The font files
+  and generated subsets remain under the MiSans license terms.
+
+Font Awesome Free
+-----------------
+The generated LVGL icon font source files under src/ui/lvgl/icons/ contain
+glyph data generated from Font Awesome 6 Free font files, including Font
+Awesome 6 Free-Solid-900.otf and Font Awesome 6 Free-Regular-400.otf.
+
+  Copyright Fonticons, Inc.
+  Source: https://fontawesome.com/
+  License page: https://fontawesome.com/license/free
+  SPDX-License-Identifier: OFL-1.1
+
+  The Font Awesome Free font files are licensed under the SIL Open Font
+  License 1.1 with the reserved font name "Font Awesome". Generated or
+  subsetted font data derived from those font files remains subject to the
+  Font Awesome Free font license terms.
+
+Smart Home PNG Icons
+--------------------
+The PNG icon files under res/icons/ are project application assets used by the
+LVGL UI. They are distributed with this project under the same Apache License
+2.0 terms as the project unless a more specific source notice is added for an
+individual asset.
+
+OpenAI-Compatible API Protocol
+------------------------------
+The Smart Home Demo uses an OpenAI-compatible Chat Completions HTTP protocol
+for model communication. This is a public HTTP API protocol and does not
+introduce bundled code licensing obligations by itself.
+
+lodepng / libpng
+----------------
+When built with CONFIG_SMART_HOME_DEMO_UI_LVGL, PNG icon decoding uses either
+lodepng (bundled with LVGL) or libpng, as selected by LV_USE_LIBPNG or
+LV_USE_LODEPNG.
+
+lodepng:
+
+  Copyright (c) 2005-2020 Lode Vandevenne
+
+  This software is provided 'as-is', without any express or implied warranty.
+  In no event will the authors be held liable for any damages arising from the
+  use of this software.
+
+  Permission is granted to anyone to use this software for any purpose,
+  including commercial applications, and to alter it and redistribute it
+  freely, subject to the following restrictions:
+
+  1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software in
+     a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+
+  2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+
+  3. This notice may not be removed or altered from any source distribution.
+
+libpng:
+
+  Copyright (c) 1998-2024 Glenn Randers-Pehrson
+  Copyright (c) 1996-1997 Andreas Dilger
+  Copyright (c) 1995-1996 Guy Eric Schalnat, Group 42, Inc.
+
+  libpng is distributed under the libpng license, a permissive license. See
+  the libpng source distribution for the full license text.

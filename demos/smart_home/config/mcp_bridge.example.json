@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "mcp_bridge": {
+    "scheme": "https",
+    "host": "mcp-weather.caiyunapp.com",
+    "port": 443,
+    "path": "/mcp",
+    "server_id": "caiyun",
+    "authorization": "",
+    "headers": {
+      "X-Caiyun-API-Key": "${CAIYUN_KEY}"
+    },
+    "tools": [
+      {
+        "name": "get_realtime_weather",
+        "risk": "read_only",
+        "timeout_ms": 10000
+      },
+      {
+        "name": "get_weekly_forecast",
+        "risk": "read_only",
+        "timeout_ms": 10000
+      }
+    ]
+  }
+}

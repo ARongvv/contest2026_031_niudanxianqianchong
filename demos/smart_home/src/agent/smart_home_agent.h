@@ -1,0 +1,115 @@
+#pragma once
+
+#include "../device/smart_home_device_service.h"
+#include "../net/smart_home_network.h"
+#include "../skills/smart_home_skill_loader.h"
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include <agent.h>
+
+typedef struct {
+    char backend_id[32];
+    char host[128];
+    char path[128];
+    char port[8];
+    char api_key[256];
+    char model[64];
+    int timeout_ms;
+    uint32_t request_buffer_size;
+    uint32_t response_buffer_size;
+    uint32_t max_output_tokens;
+} smart_home_model_config_t;
+
+#define SMART_HOME_STATUS_UNKNOWN 1
+
+typedef struct {
+    smart_home_network_status_t network_status;
+    int agent_status;
+    int skills_status;
+    int tools_status;
+    int model_status;
+    int node_gateway_status;
+    int mcp_bridge_status;
+    size_t skills_loaded;
+    char last_error[96];
+} smart_home_system_status_t;
+
+/* 本地工具的用户访问策略；底层工具是否可用仍由 cAGENT enabled 表示。 */
+#define SMART_HOME_LOCAL_TOOL_ACCESS_MAX CAGENT_MAX_TOOLS
+#define SMART_HOME_LOCAL_TOOL_NAME_SIZE  64u
+
+typedef struct {
+    char name[SMART_HOME_LOCAL_TOOL_NAME_SIZE];
+    int allowed;
+} smart_home_local_tool_access_t;
+
+#if defined(CONFIG_SMART_HOME_NODE_GATEWAY) || defined(CONFIG_SMART_HOME_MCP_BRIDGE) || \
+    defined(CONFIG_SMART_HOME_APP_BRIDGE)
+#include <pthread.h>
+#endif
+
+#ifdef CONFIG_SMART_HOME_NODE_GATEWAY
+typedef struct smart_home_node_gateway smart_home_node_gateway_t;
+#endif
+#ifdef CONFIG_SMART_HOME_MCP_BRIDGE
+typedef struct smart_home_mcp_bridge smart_home_mcp_bridge_t;
+#endif
+#ifdef CONFIG_SMART_HOME_APP_BRIDGE
+typedef struct smart_home_app_bridge smart_home_app_bridge_t;
+typedef struct smart_home_agent_run_service smart_home_agent_run_service_t;
+#endif
+
+typedef struct smart_home_agent_app {
+    agent_t *agent;
+    smart_home_state_t device_state;
+    smart_home_device_service_t device_service;
+    smart_home_skill_store_t skill_store;
+    smart_home_model_config_t model_config;
+    smart_home_system_status_t system_status;
+    smart_home_local_tool_access_t
+        local_tool_access[SMART_HOME_LOCAL_TOOL_ACCESS_MAX];
+    size_t local_tool_access_count;
+    uint64_t run_start_ms;
+#if defined(CONFIG_SMART_HOME_NODE_GATEWAY) || defined(CONFIG_SMART_HOME_MCP_BRIDGE) || \
+    defined(CONFIG_SMART_HOME_APP_BRIDGE)
+    pthread_mutex_t agent_mutex;
+    int agent_mutex_initialized;
+#endif
+#ifdef CONFIG_SMART_HOME_NODE_GATEWAY
+    smart_home_node_gateway_t *node_gateway;
+#endif
+#ifdef CONFIG_SMART_HOME_MCP_BRIDGE
+    smart_home_mcp_bridge_t *mcp_bridge;
+#endif
+#ifdef CONFIG_SMART_HOME_APP_BRIDGE
+    smart_home_app_bridge_t *app_bridge;
+    smart_home_agent_run_service_t *run_service;
+#endif
+} smart_home_agent_app_t;
+
+int smart_home_agent_app_init(smart_home_agent_app_t *app);
+void smart_home_agent_app_deinit(smart_home_agent_app_t *app);
+void smart_home_agent_app_set_network_status(
+    smart_home_agent_app_t *app,
+    const smart_home_network_status_t *status);
+int smart_home_agent_app_apply_model_config(
+    smart_home_agent_app_t *app,
+    const smart_home_model_config_t *config);
+int smart_home_agent_run(smart_home_agent_app_t *app,
+                         const char *input,
+                         char *output,
+                         size_t output_size);
+/** 遍历当前 agent registry；回调内不得修改 agent 或保存字符串指针。 */
+int smart_home_agent_app_enumerate_tools(
+    const smart_home_agent_app_t *app,
+    agent_tool_enumerate_fn callback,
+    void *user_data);
+/** 设置本地工具的用户访问策略；拒绝时工具不会执行，但仍向模型声明。 */
+int smart_home_agent_app_set_local_tool_access(smart_home_agent_app_t *app,
+                                               const char *tool_name,
+                                               int allowed);
+/** 查询本地工具的用户访问策略；未显式配置的本地工具默认允许。 */
+int smart_home_agent_app_local_tool_access_allowed(
+    const smart_home_agent_app_t *app, const char *tool_name, int *allowed);

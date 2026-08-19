@@ -1,0 +1,41 @@
+if(CADDONS_NODE)
+    add_executable(test_ws_frame test_ws_frame.c)
+    target_link_libraries(test_ws_frame PRIVATE cagent_addons)
+    add_test(NAME ws_frame COMMAND test_ws_frame)
+
+    add_executable(test_ws_transport_loopback test_ws_transport_loopback.c)
+    target_link_libraries(test_ws_transport_loopback PRIVATE cagent_addons)
+    add_test(NAME ws_transport_loopback COMMAND test_ws_transport_loopback)
+
+    add_executable(test_node_proto test_node_proto.c)
+    target_link_libraries(test_node_proto PRIVATE cagent_addons)
+    target_compile_definitions(test_node_proto PRIVATE
+        CADDONS_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+    add_test(NAME node_proto COMMAND test_node_proto)
+endif()
+
+if(CADDONS_GATEWAY OR CADDONS_MCP)
+    add_executable(test_remote_tool_lifecycle test_remote_tool_lifecycle.c)
+    target_link_libraries(test_remote_tool_lifecycle PRIVATE cagent_addons)
+    add_test(NAME remote_tool_lifecycle COMMAND test_remote_tool_lifecycle)
+
+    if(CADDONS_GATEWAY)
+        add_executable(test_node_gateway test_node_gateway.c)
+        target_link_libraries(test_node_gateway PRIVATE cagent_addons)
+        target_include_directories(test_node_gateway PRIVATE "${CADDONS_CJSON_DIR}")
+        add_test(NAME node_gateway COMMAND test_node_gateway)
+
+        if(CADDONS_NODE_CLIENT)
+            add_executable(test_node_end_to_end test_node_end_to_end.c)
+            target_link_libraries(test_node_end_to_end PRIVATE cagent_addons)
+            add_test(NAME node_end_to_end COMMAND test_node_end_to_end)
+        endif()
+    endif()
+
+    if(CADDONS_MCP)
+        add_executable(test_mcp_bridge test_mcp_bridge.c)
+        target_link_libraries(test_mcp_bridge PRIVATE cagent_addons)
+        target_include_directories(test_mcp_bridge PRIVATE "${CADDONS_CJSON_DIR}")
+        add_test(NAME mcp_bridge COMMAND test_mcp_bridge)
+    endif()
+endif()

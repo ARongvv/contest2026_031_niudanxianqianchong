@@ -1,0 +1,1 @@
+{"type":"req","id":"a1b2c3d4-e5f6","method":"connect","params":{"minProtocol":3,"maxProtocol":3,"client":{"id":"temp-01","displayName":"Bedroom sensor","version":"1.0.0","platform":"vela","deviceFamily":"sensor","mode":"node"},"caps":["node.invoke"],"commands":["get_temperature","set_fan"],"role":"node","scopes":[],"auth":{"token":"test-token"}}}
