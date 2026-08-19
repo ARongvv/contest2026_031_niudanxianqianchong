@@ -42,13 +42,10 @@ config ARCH_CHIP_ESP32P4
 
 if ARCH_CHIP_ESP32P4
 
-config ESPRESSIF_CHIP_SERIES
-	string
-	default "esp32p4"
-
-config ESPRESSIF_SIMPLE_BOOT
-	bool
-	default y
+# ESP32-P4 shares the generic Espressif flash, bootloader and SDK options.
+# This source is required so the selected flash size reaches .config and the
+# generic image rule can derive FLASH_SIZE for esptool.
+source "arch/risc-v/src/chip/common/espressif/Kconfig"
 
 config ESP32P4_SELECTS_REV_LESS_V3
 	bool "Select ESP32-P4 revisions <3.0 (No >=3.x Support)"
