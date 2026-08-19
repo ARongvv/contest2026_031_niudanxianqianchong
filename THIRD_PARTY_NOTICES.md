@@ -18,23 +18,6 @@
 本仓受跟踪源代码提交；其兼容补丁位于
 `chips/esp32p4/common/espressif/patches/`，补丁本身随本仓以 Apache-2.0 发布。
 
-## 可选 audio_event 应用
-
-以下依赖只在 manifest 启用 `app/audio_event`，且相应 Kconfig 选项被选择时进入
-构建；它们不属于 P4 最小 `nsh` bring-up。
-
-| 组件 | 用途与版本 | 许可证 | 来源/声明 |
-| --- | --- | --- | --- |
-| TensorFlow Lite for Microcontrollers | 推理运行时；提交 `cfa4c91d1b36c37c7c104b9c664615e59f1abfe3` | Apache-2.0 | `apps/mlearning/tflite-micro/tflite-micro/LICENSE` |
-| Kiss FFT | 音频特征的 FFT；v130 | BSD-3-Clause | `apps/math/kissfft/kissfft/COPYING`，Copyright (c) 2003-2010 Mark Borgerding |
-| gemmlowp | TFLM 量化矩阵运算；提交 `719139ce755a0f31cbf1c37f7f98adcc7fc9f425` | Apache-2.0 | `apps/math/gemmlowp/gemmlowp/LICENSE` |
-| ruy | TFLM 矩阵乘法；提交 `d37128311b445e758136b8602d1bbd2a755e115d` | Apache-2.0 | `apps/math/ruy/ruy/LICENSE` |
-| LVGL | 仅在 `CONFIG_EXAMPLES_AUDIO_EVENT_UI=y` 时使用；v9.2.1 | MIT | 由 `apps/graphics/lvgl/Makefile` 获取；须随发布物保留其上游许可证 |
-
-`app/audio_event/model/model_int8.tflite`、训练数据和生成的字体文件的权利来源
-不由上述软件许可证自动覆盖。发布含有这些材料的版本前，必须补充数据集、模型、
-字体及图标的来源、版权人和许可证明；无法确认时不得将其声明为 Apache-2.0。
-
 ## 本仓许可证范围
 
 除保留自身许可证或版权声明的第三方材料外，本仓新增的原创代码、构建配置、

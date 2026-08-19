@@ -28,7 +28,6 @@ openvela 构建树；不要手工复制这些文件到 `nuttx/` 或 `vendor/`。
 | `chips/esp32p4/` | `vendor/espressif/chips/esp32p4/` | P4 custom chip 层、共享 Espressif 代码及 HAL 集成 |
 | `board/esp32p4/common/` | `vendor/espressif/boards/esp32p4/common/` | P4 板级共享代码与链接脚本 |
 | `board/esp32p4/esp32p4-function-ev-board/` | `vendor/espressif/boards/esp32p4/esp32p4-function-ev-board/` | Function EV Board 的配置和 bring-up |
-| `app/audio_event/` | `apps/examples/audio_event/` | 独立的应用代码；不属于最小 P4 bring-up 前置条件 |
 
 `packages/cAGENT` 与 `demos/smart_home` 的 manifest 链接已关闭，不参与当前
 P4 最小系统构建。
@@ -90,7 +89,7 @@ chips/esp32p4/common/espressif/patches/
 | [Route A 移植方案](docs/esp32p4-function-ev-board-route-a-porting.md) | custom chip / board 架构与移植路径 |
 | [开发记录](docs/dev.md) | 历史构建问题与处理依据；不是当前构建成功的证明 |
 | [AI Coding 日志说明](logs/README.md) | 对话日志的目录与提交格式 |
-| [第三方依赖与许可证声明](THIRD_PARTY_NOTICES.md) | P4 最小构建与可选 audio_event 的依赖、版本及许可证 |
+| [第三方依赖与许可证声明](THIRD_PARTY_NOTICES.md) | P4 最小构建的依赖、版本及许可证 |
 
 ## 开发约定
 
