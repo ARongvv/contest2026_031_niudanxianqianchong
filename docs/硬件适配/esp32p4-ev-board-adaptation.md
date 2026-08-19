@@ -1,10 +1,14 @@
 # ESP32-P4 Function EV Board 适配 openvela 技术文档
 
-> **文档版本**: v1.1
+> **文档版本**: v1.2
 > **创建日期**: 2026-06-30
 > **最近修订**: 2026-08-19
 > **适用项目**: contest2026_031_niudanxianqianchong / openvela
 > **目标硬件**: ESP32-P4 Function EV Board (乐鑫官方开发板)
+>
+> **阅读范围**：本文以 P4 最小 `nsh` bring-up 为准。文中涉及 SmartHome、
+> ESP32-S3 或尚未存在的 P4 应用配置的内容，均为早期规划或对比
+> 材料，不是当前实现项，也不能作为构建、烧录或验收依据。
 
 ---
 
@@ -14,11 +18,8 @@
 
 当前目标是将 **ESP32-P4 Function EV Board** 的芯片层和板级层适配到
 openvela，并建立可重复的构建、烧录和外设验证路径。第一阶段验收是
-最小 NSH 可在实板启动，不绑定 SmartHome、audio_event 或其他应用。
-
-SmartHome、audio_event 等均属于后续应用迁移或外设验收载体。本文件中
-较早章节出现的 SmartHome UI 示例仅作应用阶段参考，不能替代板级适配
-的验收标准。
+最小 NSH 可在实板启动，不绑定任何应用集成。后续应用迁移或外设验收必须在
+板级能力验证之后单独立项，不能替代板级适配的验收标准。
 
 ### 1.2 ESP32-P4 vs ESP32-S3 关键差异
 
@@ -1006,6 +1007,7 @@ nsh> smart_home   # 进入交互模式
 ```
 contest2026_031_niudanxianqianchong/
 ├── board/
+│   ├── contest_board/                    # 通用竞赛板级骨架
 │   └── esp32p4/
 │       ├── common/                         # ESP32-P4 多板共享层
 │       └── esp32p4-function-ev-board/      # ★ EV Board 板级适配
@@ -1016,35 +1018,23 @@ contest2026_031_niudanxianqianchong/
 │           ├── src/
 │           │   ├── esp32p4_boot.c
 │           │   ├── esp32p4_bringup.c
-│           │   ├── esp32p4_board_mipi_lcd.c
-│           │   ├── esp32p4_board_touch_gt911.c
-│           │   └── esp32p4_appinit.c
+│           │   ├── esp32p4_gpio.c
+│           │   ├── esp32p4_ethernet.c
+│           │   └── esp32p4_reset.c
 │           ├── scripts/
 │           │   └── Make.defs
 │           └── configs/
-│               ├── nsh/defconfig
-│               └── smart_home/defconfig    # ★ SmartHome 专用配置
-│   │
-│   ├── esp32s3-box-3/                      # ESP32-S3-BOX-3 (已有)
-│   ├── esp32s3-box/                        # ESP32-S3-BOX (已有)
-│   └── goldfish-arm64/                     # QEMU 模拟器 (已有)
+│               └── nsh/defconfig            # 当前最小 bring-up
 │
-├── scripts/
-│   ├── make_evboard_littlefs_data_image.sh # ★ EV Board 数据镜像脚本
-│   ├── fix_box3_mbedtls_*.sh               # (已有)
-│   └── subset_font.sh                      # (已有)
+├── chips/esp32p4/                          # P4 custom chip 与 HAL 集成
 │
 ├── docs/
-│   ├── esp32p4-ev-board-adaptation.md      # ★ 本文档
-│   ├── deliverable_preliminary.md          # (已有)
-│   └── ESP32S3-BOX3-SCH.MD                # (已有)
+│   ├── README.md                            # 当前文档索引
+│   ├── esp32p4-ev-board-adaptation.md      # 本文档
+│   ├── esp32p4-function-ev-board-route-a-porting.md
+│   └── archive/                             # 仅供历史追溯
 │
-├── demos/smart_home/                       # SmartHome 应用
-│   └── src/
-│       ├── net/smart_home_wifi.c           # 需增加 ESP32-P4 适配
-│       └── ui/lvgl/smart_home_lvgl.c       # 需增加分辨率适配
-│
-└── contest2026_031_niudanxianqianchong.xml  # 需增加 linkfile
+└── contest2026_031_niudanxianqianchong.xml  # P4 manifest 映射
 ```
 
 ### 5.2 构建系统映射关系
@@ -1207,10 +1197,10 @@ CONFIG_ESPRESSIF_STORAGE_MTD_SIZE=0x36000
 
 | 文件 | 说明 |
 |------|------|
-| [esp32s3-box defconfig](../board/esp32s3-box/configs/audio_event/defconfig) | ESP32-S3 参考配置 |
-| [contest_board 骨架](../board/contest_board/) | 板级适配骨架样例 |
-| [deliverable_preliminary.md](./deliverable_preliminary.md) | 项目整体说明 |
-| [ESP32S3-BOX3-SCH.MD](./ESP32S3-BOX3-SCH.MD) | ESP32-S3-BOX-3 原理图参考 |
+| [P4 Function EV Board `nsh` defconfig](../../board/esp32p4/esp32p4-function-ev-board/configs/nsh/defconfig) | 当前最小 bring-up 配置 |
+| [contest_board 骨架](../../board/contest_board/) | 板级适配骨架样例 |
+| [Route A 移植方案](./esp32p4-function-ev-board-route-a-porting.md) | P4 custom chip / board 集成方案 |
+| [文档索引](../README.md) | 当前文档边界与阅读顺序 |
 
 ### 8.3 工具链
 
@@ -1264,7 +1254,7 @@ CONFIG_ESPRESSIF_STORAGE_MTD_SIZE=0x36000
 | 板载 ES8311、麦克风与扬声器 | 未完成 | 需补 codec board glue，通用 I2S 不足以验证板载音频 |
 | LCD/MIPI-DSI、触摸屏 | 未完成 | 属于 boot 之后的板级外设阶段 |
 | 板载 C6 / ESP-Hosted | 未完成 | P4 无内置 Wi-Fi；需验证本板 C6 固件和互联路径 |
-| 应用迁移 | 未完成 | SmartHome、audio_event 等均在板级能力完成后再选择 |
+| 应用迁移 | 未完成 | 板级能力完成后再单独评估 |
 
 ### 10.2 当前目录结构
 
@@ -1800,8 +1790,8 @@ I2C bus -> touch chip probe -> input device register -> LVGL indev
 工作内容：
 
 - 选择具体应用作为板级验收之外的后续目标。
-- SmartHome 需要单独准备网络、LVGL、资源文件与 cAGENT 依赖。
-- audio_event 可用于验证音频链路，但不取代 ES8311 独立录放音测试。
+- 上层应用需要单独准备网络、显示资源与运行时依赖。
+- 音频链路应先使用独立录放音测试验证。
 
 知识补充：
 
