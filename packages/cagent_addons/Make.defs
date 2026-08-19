@@ -1,0 +1,10 @@
+############################################################################
+# packages/cagent_addons/Make.defs
+#
+# cAGENT addon package: OpenClaw Node protocol and MCP bridge.
+############################################################################
+
+ifneq ($(CONFIG_CAGENT_ADDONS),)
+CONFIGURED_APPS += $(APPDIR)/packages/cagent_addons
+CFLAGS += ${INCDIR_PREFIX}$(APPDIR)/packages/cagent_addons/include
+endif

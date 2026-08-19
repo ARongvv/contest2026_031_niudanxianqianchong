@@ -1,0 +1,312 @@
+config SMART_HOME_DEMO
+    bool "Smart home demo"
+    select CAGENT
+    select CAGENT_PROFILE_REACT_DEFAULTS
+    select CAGENT_MODEL_OPENAI
+    select CAGENT_RUNTIME_OPENVELA_DEFAULTS
+    select CAGENT_RUNTIME_OPENVELA_TLS
+    default n
+    help
+      Smart home cAGENT demo skeleton with separated agent, tool, skill,
+      device and console UI modules.
+
+if SMART_HOME_DEMO
+
+config SMART_HOME_DEMO_DEBUG_LOG
+    bool "Enable smart_home debug logging"
+    default y
+    help
+      Print user input, agent replies, tool-call events and LVGL lifecycle
+      steps to the console. Useful for debugging on QEMU; disable to reduce
+      output in production.
+
+config SMART_HOME_DEMO_STACKSIZE
+    int "Smart home demo task stack size"
+    default 32768
+
+config SMART_HOME_DEMO_PRIORITY
+    int "Smart home demo task priority"
+    default 100
+
+config SMART_HOME_AHT30_TOOL
+    bool "Enable Box3 AHT30 indoor environment tool"
+    depends on ARCH_CHIP_ESP32S3 && ESP32S3_BOX3_SENSOR
+    default y
+    help
+      Register get_indoor_environment as a local, read-only tool. It samples
+      the ESP32-S3-BOX-3-SENSOR-01 AHT30 at /dev/aht0 for each call. The tool
+      is intentionally unavailable on non-ESP32-S3 targets and does not
+      replace the demo's simulated environment state.
+
+config SMART_HOME_MAX_BACKENDS
+    int "Maximum LLM backend presets in backends.json"
+    default 8
+    help
+      Upper bound for the backends array in /data/smart_home/backends.json.
+      backends.json is loaded by smart_home_config_store; exceeding this
+      limit causes the file to be rejected and built-in presets to be used.
+
+config SMART_HOME_MODEL_SECRETS_PATH
+    string "Model API key secrets JSON path"
+    default "/data/smart_home/secrets.json"
+    help
+      Version 1 secrets JSON containing model_api_keys, indexed by backend ID.
+      This file is read only: absent, malformed, or empty keys leave only the
+      affected cloud model unavailable; smart_home never falls back to a
+      compiled credential or writes a replacement file.
+
+config SMART_HOME_MODEL_SECRETS_MAX_FILE_SIZE
+    int "Maximum model secrets JSON size"
+    default 4096
+    range 512 16384
+    help
+      Bounded read limit for the dedicated model credential loader. Keep this
+      small because the file contains credentials and only model_api_keys is
+      needed by this consumer.
+
+config SMART_HOME_APP_BRIDGE
+    bool "Mobile app HTTP/WebSocket bridge"
+    default n
+    select CAGENT_ADDONS
+    select CAGENT_ADDONS_NODE
+    help
+      Expose the smart-home snapshot and controls to a trusted mobile app on
+      the local network. The bridge requires app_bridge.shared_token in the
+      configured secrets JSON and never compiles credentials into firmware.
+
+if SMART_HOME_APP_BRIDGE
+
+config SMART_HOME_APP_BRIDGE_SECRETS_PATH
+    string "Mobile app bridge secrets JSON path"
+    default "/data/smart_home/secrets.json"
+
+config SMART_HOME_APP_BRIDGE_PORT
+    int "Mobile app bridge HTTP/WebSocket port"
+    default 8080
+    range 1 65535
+
+config SMART_HOME_APP_BRIDGE_STACKSIZE
+    int "Mobile app bridge worker stack size"
+    default 8192
+    range 4096 32768
+
+config SMART_HOME_APP_BRIDGE_WORKER
+    bool "Enable mobile app bridge HTTP worker"
+    default y
+    help
+      Create the HTTP/WebSocket accept worker for the mobile app bridge.
+
+if SMART_HOME_APP_BRIDGE_WORKER
+
+config SMART_HOME_APP_BRIDGE_WORKER_ACCEPT
+    bool "Enable mobile app bridge accept loop"
+    default y
+    help
+      Let the bridge worker accept HTTP/WebSocket connections.
+
+endif
+
+config SMART_HOME_APP_BRIDGE_CHAT
+    bool "Enable mobile app chat service"
+    default n
+    help
+      Create the background worker that executes cloud AI requests received
+      from the mobile app. It is disabled by default temporarily while
+      isolating the bridge worker's runtime footprint.
+
+config SMART_HOME_APP_BRIDGE_RUN_STACKSIZE
+    int "Mobile app bridge AI run worker stack size"
+    default 65536
+    range 16384 98304
+    help
+      Stack for the worker that runs cAGENT, TLS and the cloud LLM request
+      on behalf of a mobile chat message. This is intentionally separate
+      from the small HTTP accept worker; mbedTLS does not fit in its stack.
+
+endif
+
+config SMART_HOME_NODE_GATEWAY
+    bool "OpenClaw Node gateway"
+    default n
+    select CAGENT_ADDONS
+    select CAGENT_ADDONS_NODE
+    select CAGENT_ADDONS_NODE_GATEWAY
+    help
+      Make smart_home the trusted OpenClaw Node gateway. Connected Node
+      commands are dynamically registered into the local cAGENT instance.
+      The shared token is read from SMART_HOME_NODE_GATEWAY_SECRETS_PATH;
+      it is never compiled into the firmware.
+
+if SMART_HOME_NODE_GATEWAY
+
+config SMART_HOME_NODE_GATEWAY_SECRETS_PATH
+    string "Node gateway secrets JSON path"
+    default "/data/smart_home/secrets.json"
+    help
+      Version 1 secrets JSON containing node_gateway.shared_token. The
+      gateway refuses to listen if this file is absent, malformed, or has an
+      empty token. Unless SMART_HOME_NODE_GATEWAY_REQUIRED is selected, the
+      rest of smart_home continues to run in this case.
+
+config SMART_HOME_NODE_GATEWAY_REQUIRED
+    bool "Require Node gateway during smart_home startup"
+    default n
+    help
+      Fail smart_home startup if the Node gateway cannot read credentials,
+      allocate its worker, or listen on its configured port. Leave disabled
+      for normal product and UI use: the gateway becomes unavailable but
+      local tools and AI chat remain available. Enable for CI or dedicated
+      Node bring-up to fail fast on an invalid environment.
+
+config SMART_HOME_NODE_GATEWAY_BIND_HOST
+    string "Node gateway bind address"
+    default "0.0.0.0"
+
+config SMART_HOME_NODE_GATEWAY_PORT
+    int "Node gateway WebSocket port"
+    default 18790
+    range 1 65535
+
+config SMART_HOME_NODE_GATEWAY_WORKER_STACKSIZE
+    int "Node gateway catalog worker stack size"
+    default 8192
+    range 4096 32768
+    help
+      Stack for the smart_home worker that serializes remote-tool registry
+      mutations with agent runs. WebSocket transport threads are configured
+      separately by cAGENT addons.
+
+endif
+
+config SMART_HOME_MCP_BRIDGE
+    bool "Standard MCP Streamable HTTP client"
+    default n
+    select CAGENT_ADDONS
+    select CAGENT_ADDONS_MCP
+    help
+      Connect smart_home directly to one configured standard MCP Server.
+      Non-sensitive endpoint/tool config comes from
+      SMART_HOME_MCP_BRIDGE_CONFIG_PATH; sensitive header values (e.g. API
+      keys) are referenced as ${VAR} and resolved from
+      SMART_HOME_MCP_BRIDGE_SECRETS_PATH.
+
+if SMART_HOME_MCP_BRIDGE
+
+config SMART_HOME_MCP_BRIDGE_CONFIG_PATH
+    string "MCP bridge server config JSON path"
+    default "/data/smart_home/mcp_bridge.json"
+    help
+      Version 1 JSON describing the MCP server: scheme (http/https), host,
+      port, path, server_id, optional authorization, headers (values may be
+      ${VAR} placeholders resolved from secrets) and the tool allowlist.
+      The bridge is disabled when this file is absent, malformed, or its
+      allowlist is empty.
+
+config SMART_HOME_MCP_BRIDGE_SECRETS_PATH
+    string "MCP bridge secrets JSON path"
+    default "/data/smart_home/secrets.json"
+    help
+      Version 1 secrets JSON containing mcp_bridge.header_values used to
+      resolve ${VAR} placeholders in the server config. The bridge is
+      disabled when the config file is absent, malformed, or its allowlist
+      is empty.
+
+config SMART_HOME_MCP_BRIDGE_HTTP_HEADER_SIZE
+    int "MCP HTTP response header buffer size"
+    default 2048
+    range 512 4096
+    help
+      Bounded HTTP/1.1 header buffer for the direct plain-TCP MVP client.
+      Servers with larger headers are rejected instead of consuming memory.
+
+config SMART_HOME_MCP_BRIDGE_DISCOVERY_STACKSIZE
+    int "MCP manual operation worker stack size"
+    default 16384
+    range 8192 65536
+    help
+      Stack for the worker that performs a manually requested TLS handshake
+      and initialize/tools/list exchange. The worker starts idle, so MCP
+      network I/O never delays the LVGL first screen. mbedTLS plus bounded
+      response parsing does not fit the default pthread stack. Use 65536
+      while diagnosing TLS stack usage on memory-rich targets.
+
+config SMART_HOME_MCP_BRIDGE_REQUEST_TIMEOUT_MS
+    int "MCP discovery request deadline in ms"
+    default 30000
+    range 1000 120000
+    help
+      Total deadline for the direct MCP initialize, initialized notification,
+      and tools/list exchange. This is one shared deadline for a discovery
+      operation, rather than a per-request timeout.
+
+endif
+
+config SMART_HOME_DEMO_DATA_ROOT
+    string "Smart home demo data root"
+    default "/data"
+    help
+      Root directory used by the LVGL UI to load resources.
+      Fonts:      <root>/res/fonts/MiSans-Normal.ttf
+      Icons:      <root>/res/icons/*.png  (25 PNG files from res/icons/)
+      The icon search path is <root>/res/icons.
+
+choice SMART_HOME_DEMO_UI_BACKEND
+    prompt "Smart home UI backend"
+    default SMART_HOME_DEMO_UI_CONSOLE
+    help
+      Select the user interface backend. Console is the current runnable
+      backend. LVGL is the product UI direction and uses an async worker to
+      call the shared smart_home agent app API.
+
+config SMART_HOME_DEMO_UI_CONSOLE
+    bool "Console UI"
+
+config SMART_HOME_DEMO_UI_LVGL
+    bool "LVGL UI"
+    depends on GRAPHICS_LVGL
+    depends on LV_USE_LIBPNG || LV_USE_LODEPNG
+    help
+      Build the LVGL UI for panel/chat/settings screens. Chat requests are
+      sent to cAGENT from a worker thread and results are posted back to the
+      LVGL thread with lv_async_call().
+
+endchoice
+
+if SMART_HOME_DEMO_UI_LVGL
+
+config SMART_HOME_DEMO_UI_LVGL_ICONS
+    string "LVGL UI icons directory"
+    default "/data/res/icons"
+    help
+      Filesystem path where PNG icons are installed. The 25 icon files
+      from res/icons/ should be copied to this directory via ROMFS mount
+      or data partition pre-population.
+
+endif
+
+config SMART_HOME_WIFI_SSID
+    string "Default WiFi SSID"
+    default "123"
+    depends on SMART_HOME_DEMO
+    help
+        Compile-time default WiFi SSID. Used when /data/wapi.conf does not
+        exist or cannot be parsed. Users can override at runtime by writing
+        a JSON config to /data/wapi.conf (see docs/esp32s3-box.md).
+
+config SMART_HOME_WIFI_PASSWORD
+    string "Default WiFi password"
+    default "88888888"
+    depends on SMART_HOME_DEMO
+    help
+        Compile-time default WPA2 password. Used when /data/wapi.conf does
+        not exist or cannot be parsed.
+
+config SMART_HOME_WIFI_RETRY_COUNT
+    int "WiFi connection retry count"
+    default 3
+    range 1 10
+    depends on SMART_HOME_DEMO
+    help
+        Number of times to retry WiFi connection before giving up.
+
+endif
