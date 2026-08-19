@@ -38,20 +38,29 @@ defconfig 中应逐项手工维护的选项。
 
 问题的顺序如下：
 
-1. `build.sh` 配置板级目录后继续执行 Make，但不会替代一次成功的
-   `olddefconfig`。因此已有的、未展开的 `.config` 会被继续用于编译。
-2. 初次执行 `make -C nuttx olddefconfig` 时系统没有 `kconfig-conf`。安装
-   `kconfig-frontends-nox` 后，Kconfig 才实际开始解析；该安装不是根因，只是
-   让原有配置问题可见。
-3. 解析暴露了两项基础树问题：
+1. `configure.sh -e` 会将当前板级 `defconfig` 与 `nuttx/defconfig` 的备份
+   逐字比较。两者相同便输出 `No configuration change.` 并提前结束；这个判断
+   不代表已有的 `nuttx/.config` 已完成 Kconfig 展开。
+2. 当时的 `nuttx/.config` 仅 77 行，实质上是板级 defconfig 的副本，未包含
+   `CONFIG_NCPUS`、per-CPU 与 stream buffer 的默认配置。随后 Make 使用这份
+   未展开配置进行编译，产生了前述错误。
+3. 初次直接执行 `make -C nuttx olddefconfig` 时，交互 shell 没有加载
+   `build/envsetup.sh`。`nuttx/tools/Unix.mk` 因找不到 `menuconfig`，退回到系统
+   `/usr/bin/kconfig-conf`，而不是 openvela 自带的 Python `kconfiglib`。
+4. 系统 kconfig-frontends 不支持工作区实际使用的 `osource` 扩展，因而在
+   `external/zblue`、LVGL、multimedia、quickapp 等目录报告大量语法、跨文件
+   `endif`/`endmenu` 错误。`tricoreht/Kconfig` 和 `ril/Kconfig` 中的成对
+   `if`/`endif` 也被误报为跨文件，故这些日志不能作为逐项修改基础树源码的依据。
+5. 在较早的排障中还发现两项独立的基础树卫生问题：
    - `nuttx/arch/tricore/Kconfig` 第 116、122 行将帮助标记写成 `--help--`；
-     NuttX 语法应为 `---help---`。解析器在此失步后出现的跨文件
-     `endif`/`endmenu` 报错均为连锁现象。
+     NuttX 语法应为 `---help---`。这是独立的语法规范性修正；在错误前端下
+     出现的跨文件 `endif`/`endmenu` 报错不应据此逐项归因。
    - 自动生成的 `apps/examples/Kconfig` 仍 `source` 不存在的
      `apps/examples/audio_record/Kconfig`，属于过期索引，不是本板需要启用
      `audio_record`。
-4. 因 `olddefconfig` 未成功结束，`.config` 没有生成 `CONFIG_NCPUS`、stream
-   buffer 默认值及相应的 per-CPU 配置，最终表现为前述 C 编译错误。
+6. 因此前没有一次使用正确前端成功完成 `olddefconfig`，`.config` 没有生成
+   `CONFIG_NCPUS`、stream buffer 默认值及相应的 per-CPU 配置，最终表现为前述
+   C 编译错误。
 
 因此，先补写 `CONFIG_NCPUS` 等宏只能掩盖失败，后续仍会出现更多缺失的默认值。
 
@@ -65,15 +74,41 @@ defconfig 中应逐项手工维护的选项。
 - 随后在 `apps/examples` 目录使用已有的 `../tools/mkkconfig.sh -m Examples`
   再生 examples 索引，生成结果已移除失效的 `audio_record/Kconfig` 引用。
   `apps/examples/Kconfig` 是生成且忽略的工作区文件，不应作为手写功能修改提交。
+- 已使用正确的 openvela 环境执行：
 
-完成上述处理后，尚未重新执行 `olddefconfig` 或完整 P4 构建；当前状态只能说明
-已消除已知的两个首要 Kconfig 阻塞点，不能据此宣称构建已通过。
+  ```bash
+  source build/envsetup.sh
+  make -C nuttx olddefconfig
+  ```
+
+  此时 `menuconfig`、`olddefconfig` 和 `kconfiglib` 均来自
+  `prebuilts/tools/python`；命令以 `Loaded configuration '.config'` 与
+  `Configuration saved to '.config'` 成功结束。
+- 成功后 `.config` 从 77 行展开为 2409 行，已实际生成：
+
+  ```ini
+  CONFIG_NCPUS=1
+  CONFIG_PERCPU_ARRAY=y
+  CONFIG_SMP_NCPUS=1
+  CONFIG_STREAM_OUT_BUFFER_SIZE=64
+  CONFIG_STREAM_HEXDUMP_BUFFER_SIZE=128
+  CONFIG_STREAM_BASE64_BUFFER_SIZE=128
+  ```
+
+  `nuttx/include/nuttx/config.h` 会在下一次正式 Make 编译开始时重新生成；
+  `olddefconfig` 的 `clean_context` 阶段不存在该文件是正常现象。
 
 ## 建议的复测顺序
 
-在工作区根目录执行。每一步成功后再进入下一步，以保留第一个真实错误：
+在工作区根目录执行。必须先加载 openvela 环境，再进入下一步：
 
 ```bash
+source build/envsetup.sh
+
+command -v menuconfig
+command -v olddefconfig
+python3 -c 'import kconfiglib; print(kconfiglib.__file__)'
+
 make -C nuttx olddefconfig
 
 grep -E '^CONFIG_(UP|PERCPU_ARRAY|NCPUS|SMP_NCPUS|STREAM_OUT_BUFFER_SIZE|STREAM_HEXDUMP_BUFFER_SIZE|STREAM_BASE64_BUFFER_SIZE)=' nuttx/.config
@@ -83,8 +118,12 @@ grep -E '^CONFIG_(UP|PERCPU_ARRAY|NCPUS|SMP_NCPUS|STREAM_OUT_BUFFER_SIZE|STREAM_
 
 判断原则：
 
-- `olddefconfig` 必须以成功状态结束；若失败，只处理其报告的第一处 Kconfig
-  解析或缺失文件问题，不要立即继续编译。
+- `menuconfig`、`olddefconfig` 应来自 `prebuilts/tools/python/bin`，且
+  `kconfiglib` 应来自 `prebuilts/tools/python/dist-packages`。若它们落到
+  `/usr/bin/kconfig-conf`，先重新 `source build/envsetup.sh`，不要据该前端的
+  `osource`、跨文件 `endif` 等报错批量修改源码。
+- `olddefconfig` 必须以成功状态结束；若使用正确前端后仍失败，只处理其报告的
+  第一处 Kconfig 解析或缺失文件问题，不要立即继续编译。
 - `grep` 用于确认关键配置已由 Kconfig 写入 `.config`；具体取值由依赖关系和
   默认值决定，不应手工猜测或修改。
 - 只有配置生成成功后，才判断后续 C/汇编错误是否属于 P4 HAL、custom chip 或
@@ -96,10 +135,10 @@ grep -E '^CONFIG_(UP|PERCPU_ARRAY|NCPUS|SMP_NCPUS|STREAM_OUT_BUFFER_SIZE|STREAM_
 
 | 项目 | 状态 |
 | --- | --- |
-| `kconfig-conf` 可用 | 已具备（系统安装 `kconfig-frontends-nox`） |
-| Tricore 两处 Kconfig 语法 | 已修正，待重新解析验证 |
-| examples 过期 `audio_record` 索引 | 已再生并移除，待完整 Kconfig 流程验证 |
-| `make -C nuttx olddefconfig` | 待复测 |
+| Kconfig 前端 | 已确认使用 openvela Python `kconfiglib`；不使用系统 `/usr/bin/kconfig-conf` 直接排障 |
+| Tricore 两处 Kconfig 语法 | 已修正 |
+| examples 过期 `audio_record` 索引 | 已再生并移除 |
+| `make -C nuttx olddefconfig` | 已通过；关键默认配置已生成 |
 | ESP32-P4 最小 `nsh` 完整构建 | 待复测 |
 | 烧录与串口 `nsh>` | 未开始 |
 
