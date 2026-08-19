@@ -90,9 +90,12 @@ chips/esp32p4/common/espressif/patches/
 | [Route A 移植方案](docs/esp32p4-function-ev-board-route-a-porting.md) | custom chip / board 架构与移植路径 |
 | [开发记录](docs/dev.md) | 历史构建问题与处理依据；不是当前构建成功的证明 |
 | [AI Coding 日志说明](logs/README.md) | 对话日志的目录与提交格式 |
+| [第三方依赖与许可证声明](THIRD_PARTY_NOTICES.md) | P4 最小构建与可选 audio_event 的依赖、版本及许可证 |
 
 ## 开发约定
 
 - 只修改 `contest2026_031_niudanxianqianchong/` 内的项目源码、文档和补丁。
 - 不将 `nuttx/`、`apps/`、`vendor/` 等工作区公共目录的临时改动混入本仓提交。
 - 保持提交可审阅：板级移植、第三方 HAL 兼容补丁和文档应分开提交。
+- 本仓新增内容采用 [Apache License 2.0](LICENSE)；发布前按
+  [第三方依赖声明](THIRD_PARTY_NOTICES.md) 复核随附材料的授权。
