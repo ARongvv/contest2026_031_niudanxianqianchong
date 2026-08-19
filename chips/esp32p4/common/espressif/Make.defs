@@ -236,7 +236,10 @@ endif
 # Fetch source files and add them to build
 
 ESP_HAL_3RDPARTY_REPO   = esp-hal-3rdparty
-ESP32P4_HAL_PATCH       = $(ESP32P4_COMMON_DIR)$(DELIM)patches$(DELIM)0001-nuttx-platform-openvela-nxtask-init.patch
+# This path is passed to "git -C chip/esp-hal-3rdparty apply" below.  It
+# must therefore be absolute: Git resolves relative patch paths from the HAL
+# worktree after -C changes its working directory.
+ESP32P4_HAL_PATCH       = $(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)$(ESP32P4_COMMON_DIR)$(DELIM)patches$(DELIM)0001-nuttx-platform-openvela-nxtask-init.patch
 ifndef ESP_HAL_3RDPARTY_VERSION
 	ESP_HAL_3RDPARTY_VERSION = b90b1837cb5ad24747deb4c895246037cc206ce5
 endif
