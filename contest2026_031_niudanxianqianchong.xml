@@ -14,8 +14,13 @@
     <linkfile src="board/contest_board" dest="vendor/openvela/boards/contest2026_031_board"/>
     <linkfile src="board/esp32s3-box-3" dest="vendor/espressif/boards/esp32s3/esp32s3-box-3"/>
 
-    <linkfile src="packages/cAGENT" dest="packages/cAGENT"/>
-    <linkfile src="demos/smart_home" dest="packages/demos/smart_home"/>
+    <!-- ESP32-P4 chip and board -->
+    <linkfile src="chips/esp32p4" dest="vendor/espressif/chips/esp32p4"/>
+    <linkfile src="board/esp32p4/common" dest="vendor/espressif/boards/esp32p4/common"/>
+    <linkfile src="board/esp32p4/esp32p4-function-ev-board" dest="vendor/espressif/boards/esp32p4/esp32p4-function-ev-board"/>
+
+    <!-- <linkfile src="packages/cAGENT" dest="packages/cAGENT"/> -->
+    <!-- <linkfile src="demos/smart_home" dest="packages/demos/smart_home"/> -->
     <linkfile src="app/audio_event" dest="apps/examples/audio_event"/>
   </project>
 </manifest>
