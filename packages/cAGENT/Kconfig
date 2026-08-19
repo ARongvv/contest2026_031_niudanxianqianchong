@@ -1,0 +1,273 @@
+menuconfig CAGENT
+    bool "cAGENT core library"
+    default n
+    help
+      Portable C Agent core library for embedded and host platforms.
+
+if CAGENT
+
+menu "Configuration profile"
+
+config CAGENT_PROFILE_TINY_DEFAULTS
+    bool
+    default n
+
+config CAGENT_PROFILE_REACT_DEFAULTS
+    bool
+    default n
+
+choice CAGENT_CONFIG_PROFILE
+    prompt "cAGENT configuration profile"
+    default CAGENT_CONFIG_PROFILE_TINY if CAGENT_PROFILE_TINY_DEFAULTS
+    default CAGENT_CONFIG_PROFILE_REACT if CAGENT_PROFILE_REACT_DEFAULTS
+    default CAGENT_CONFIG_PROFILE_DEFAULT
+    help
+      Select a default tuning profile. Applications may select one of the
+      hidden *_DEFAULTS symbols to request a profile without forcing users
+      to edit every buffer and capacity option manually.
+
+config CAGENT_CONFIG_PROFILE_TINY
+    bool "Tiny embedded"
+    help
+      Lower memory defaults for simple single-tool or mock-model tests.
+
+config CAGENT_CONFIG_PROFILE_DEFAULT
+    bool "Default chat"
+    help
+      Balanced defaults for small chat and tool demos.
+
+config CAGENT_CONFIG_PROFILE_REACT
+    bool "ReAct tools"
+    help
+      Larger defaults for multi-tool ReAct demos, OpenAI-compatible tool
+      schemas, Markdown skills and short conversation history.
+
+config CAGENT_CONFIG_PROFILE_CUSTOM
+    bool "Custom"
+    help
+      Keep profile defaults disabled so each option can be tuned directly.
+
+endchoice
+
+config CAGENT_ADVANCED_CONFIG
+    bool "Show advanced cAGENT tuning options"
+    default n
+    help
+      Show detailed capacity, buffer and runtime knobs. Leave disabled for
+      the common profile-based configuration path.
+
+endmenu
+
+menu "Capacity limits"
+    visible if CAGENT_ADVANCED_CONFIG
+
+config CAGENT_MAX_TOOLS
+    int "Maximum registered tools"
+    default 8 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 16 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 12
+
+config CAGENT_MAX_SKILLS
+    int "Maximum registered skills"
+    default 4 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 8 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 8
+
+config CAGENT_MAX_CONTEXT_PROVIDERS
+    int "Maximum context providers"
+    default 4 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 8 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 8
+
+config CAGENT_MAX_SESSIONS
+    int "Maximum sessions"
+    default 2 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 4 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 4
+
+config CAGENT_MAX_SESSION_MESSAGES
+    int "Maximum messages per session"
+    default 12 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 24 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 24
+
+endmenu
+
+menu "Context and buffer budget"
+    visible if CAGENT_ADVANCED_CONFIG
+
+config CAGENT_CONTEXT_BUFFER_SIZE
+    int "Context buffer size"
+    default 2048 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 4096 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 4096
+    help
+      Compatibility base size used as the default for all split buffers
+      below when they are not set explicitly.
+
+config CAGENT_SYSTEM_CONTEXT_BUFFER_SIZE
+    int "System/context buffer size"
+    default 2048 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 4096 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default CAGENT_CONTEXT_BUFFER_SIZE
+
+config CAGENT_TOOL_SCHEMA_BUFFER_SIZE
+    int "Tool schema buffer size"
+    default 4096 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 8192 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default CAGENT_CONTEXT_BUFFER_SIZE
+
+config CAGENT_MESSAGES_BUFFER_SIZE
+    int "Session messages buffer size"
+    default 2048 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 4096 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default CAGENT_CONTEXT_BUFFER_SIZE
+
+config CAGENT_HTTP_REQUEST_BUFFER_SIZE
+    int "OpenAI-compatible HTTP request buffer size"
+    default 4096 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 12288 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default CAGENT_CONTEXT_BUFFER_SIZE
+
+config CAGENT_HTTP_RESPONSE_BUFFER_SIZE
+    int "OpenAI-compatible HTTP response buffer size"
+    default 4096 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 8192 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default CAGENT_CONTEXT_BUFFER_SIZE
+
+config CAGENT_REQUEST_ARENA_EXTRA_SIZE
+    int "Request arena extra margin"
+    default 0
+    help
+      Extra bytes added to the automatically computed request arena.
+      The base arena is derived from system/context, tool schema and
+      messages buffers, so changing those buffers no longer requires
+      updating another total-size option manually.
+
+config CAGENT_SESSION_CONTENT_MAX_SIZE
+    int "Maximum bytes per stored session message"
+    default 1024 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 2048 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 2048
+
+config CAGENT_SESSION_TOOL_CALL_MAX_SIZE
+    int "Maximum bytes per stored session tool call arguments"
+    default 128 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 512 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 256
+
+config CAGENT_SESSION_MAX_TOOL_CALLS
+    int "Maximum tool calls in one assistant message"
+    default 2 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 8 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 4
+
+config CAGENT_TOOL_ARGS_MAX_SIZE
+    int "Maximum tool input JSON size"
+    default 512 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 2048 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 1024
+
+config CAGENT_TOOL_OUTPUT_MAX_SIZE
+    int "Maximum tool output JSON size"
+    default 512 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 2048 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 1024
+
+endmenu
+
+menu "Runtime limits"
+    visible if CAGENT_ADVANCED_CONFIG
+
+config CAGENT_DEFAULT_MAX_STEPS
+    int "Default ReAct max steps"
+    default 4 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 10 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 8
+
+config CAGENT_DEFAULT_TIMEOUT_MS
+    int "Default agent_run timeout in ms"
+    default 15000 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 45000 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 30000
+
+config CAGENT_DEFAULT_MODEL_TIMEOUT_MS
+    int "Default per-model timeout in ms"
+    default 10000 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 30000 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 15000
+
+config CAGENT_DEFAULT_TOOL_TIMEOUT_MS
+    int "Default per-tool timeout in ms"
+    default 2000 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 5000 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 3000
+
+config CAGENT_DEFAULT_MAX_OUTPUT_TOKENS
+    int "Default model output token budget"
+    default 256 if CAGENT_CONFIG_PROFILE_TINY || CAGENT_PROFILE_TINY_DEFAULTS
+    default 768 if CAGENT_CONFIG_PROFILE_REACT || CAGENT_PROFILE_REACT_DEFAULTS
+    default 512
+
+endmenu
+
+menu "Model providers"
+
+config CAGENT_MODEL_OPENAI
+    bool "Enable OpenAI-compatible model provider"
+    default y
+
+config CAGENT_MODEL_OPENAI_COMPAT
+    bool "Enable legacy OpenAI-compatible adapter API"
+    default y
+    select CAGENT_MODEL_OPENAI
+
+config CAGENT_MODEL_MOCK
+    bool "Enable mock model provider"
+    default y
+
+endmenu
+
+menu "Runtime platform"
+
+config CAGENT_RUNTIME_OPENVELA_DEFAULTS
+    bool
+    default n
+
+choice CAGENT_RUNTIME_PLATFORM
+    prompt "cAGENT runtime platform"
+    default CAGENT_RUNTIME_OPENVELA
+    help
+      Select the default runtime adapter used to fill agent_runtime_t when
+      applications do not provide their own callbacks.
+
+config CAGENT_RUNTIME_FALLBACK
+    bool "No platform adapter (fallback callbacks only)"
+    help
+      Use libc/POSIX-style fallback callbacks only. http_post remains
+      unsupported unless the application injects it.
+
+config CAGENT_RUNTIME_OPENVELA
+    bool "openvela/NuttX runtime"
+    help
+      Use the openvela/NuttX runtime adapter for allocator, time, sleep,
+      logging, mutexes and optional HTTPS http_post.
+
+endchoice
+
+if CAGENT_RUNTIME_OPENVELA
+
+config CAGENT_RUNTIME_OPENVELA_TLS
+    bool "Enable mbedTLS HTTPS support in openvela runtime"
+    default y
+    select CRYPTO_MBEDTLS
+    help
+      Compile mbedTLS-based HTTPS http_post callback into the
+      openvela runtime adapter.  When disabled, http_post remains
+      NULL and must be provided by the application.
+
+endif
+
+endmenu
+
+endif
