@@ -1,0 +1,4 @@
+ifneq ($(CONFIG_CAGENT),)
+CONFIGURED_APPS += $(APPDIR)/packages/cAGENT
+CFLAGS += ${INCDIR_PREFIX}$(APPDIR)/packages/cAGENT/include
+endif

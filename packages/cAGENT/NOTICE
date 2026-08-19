@@ -1,0 +1,9 @@
+cAGENT
+Copyright 2024 Xiaomi Corporation
+
+This product includes software developed at
+Xiaomi Corporation (https://www.mi.com/).
+
+cAGENT is an in-tree embedded Agent core built for this project. Its
+architecture and selected runtime techniques reference the openvela
+packages/ai_agent project, which is distributed under the Apache License 2.0.
