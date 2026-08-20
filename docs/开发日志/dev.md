@@ -557,3 +557,100 @@ CPPFLAGS -> 链接脚本 .ld 预处理
 ### 后续建议
 
 这仍然是最小补丁路线。更规范的长期方案，是把 `CONFIG_ESPRESSIF_FLASH_FREQ_80M`、`CONFIG_ESPRESSIF_FLASH_MODE_DIO`、`CONFIG_ESPRESSIF_CPU_FREQ_MHZ` 等配置通过 Kconfig 正式进入 `.config` 和 `config.h`，减少 Make 侧手动 `-D` 兜底。
+
+## 2026-08-19：Flash 镜像配置与 SPI2 Kconfig 冲突修复
+
+### 构建结果
+
+使用当前板级配置构建：
+
+```bash
+cd ~/openvela
+export PATH="$PWD/prebuilts/gcc/linux-x86_64/riscv-none-elf/bin:$PATH"
+
+./build.sh \
+  vendor/espressif/boards/esp32p4/esp32p4-function-ev-board/configs/nsh \
+  -j"$(nproc)"
+```
+
+编译、链接和镜像生成均已成功完成。日志确认镜像参数来自正式配置：
+
+```text
+esptool.py -c esp32p4 elf2image --ram-only-header \
+  -fs 16MB -fm dio -ff 80m -o nuttx.bin nuttx
+Successfully created ESP32-P4 image.
+Generated: nuttx.bin
+```
+
+这说明此前的 `Missing Flash memory size configuration.` 已解决。Flash
+容量、模式和频率现在由通用 Espressif Kconfig 进入 `.config`，不再依赖
+Makefile 侧的临时宏兜底。
+
+### 新问题：`savedefconfig` 失败
+
+镜像生成后，`build.sh` 继续执行 `make savedefconfig`，出现：
+
+```text
+warning: default on the choice symbol ESPRESSIF_SPI2_SLAVE ...
+warning: the choice symbol ESPRESSIF_SPI2_SLAVE ... is defined with a prompt
+outside the choice
+make: *** [tools/Unix.mk:749: savedefconfig] Error 1
+```
+
+因此当时 `build.sh` 的最终返回值为失败；但失败发生在**配置导出阶段**，
+不是 C/C++ 编译、链接或 `nuttx.bin` 生成阶段。
+
+### 根因
+
+同一个 Kconfig symbol 被定义成了两种不同语义：
+
+```text
+arch/risc-v/src/common/espressif/Kconfig
+  config ESPRESSIF_SPI2_SLAVE            # 普通 bool，供 C3/C6/H2 使用
+
+chips/esp32p4/common/espressif/Kconfig
+  choice ESPRESSIF_SPI2_MODE
+    config ESPRESSIF_SPI2_SLAVE          # choice 成员，供 P4 使用
+```
+
+RISC-V 配置树会解析 C3/C6/H2 的通用 Kconfig；即使这些芯片条件对 P4 不
+成立，Kconfig 仍会收集 symbol 定义。于是 P4 的同名 choice 成员与通用
+普通 bool 冲突，只有在严格导出最小 defconfig 时暴露出来。
+
+### 正式修复
+
+不修改通用 C3/C6/H2 Kconfig，也不跳过 `savedefconfig`。P4 的 SPI2 模式
+配置改用 P4 专属命名空间：
+
+```text
+ESPRESSIF_ESP32P4_SPI2_MODE
+ESPRESSIF_ESP32P4_SPI2_MODE_MASTER
+ESPRESSIF_ESP32P4_SPI2_MODE_SLAVE
+ESPRESSIF_ESP32P4_SPI2_SLAVE_BUFSIZE
+```
+
+同步修改：
+
+```text
+chips/esp32p4/common/espressif/Kconfig
+chips/esp32p4/common/espressif/esp_spi_slave.c
+chips/esp32p4/common/espressif/esp_spi_bitbang.c
+board/esp32p4/esp32p4-function-ev-board/configs/spislv/defconfig
+```
+
+其中 `esp_spi_slave.c` 使用新的 P4 从机 buffer 配置，`esp_spi_bitbang.c`
+的自动回环判断也改用新的 P4 从机开关；`spislv` defconfig 随之迁移到
+`CONFIG_ESPRESSIF_ESP32P4_SPI2_MODE_SLAVE=y`。
+
+### 验证与后续
+
+修复后已执行：
+
+```bash
+make -C nuttx savedefconfig
+git -C contest2026_031_niudanxianqianchong diff --check
+```
+
+两者均成功，且不再出现 `ESPRESSIF_SPI2_SLAVE` 的 choice 警告。后续应由
+开发者重新执行完整 `nsh` 构建，并额外构建 `spislv` 配置，确认 SPI2
+slave 示例仍能完成编译和实板验证。
