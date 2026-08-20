@@ -32,14 +32,16 @@ I2C master
 | LCD 模组 | AML070JGI50-07403L，7 英寸，1024 x 600 |
 | LCD 控制器 | EK79007AD + EK73217BCGA |
 | 显示接口 | MIPI-DSI |
+| P4 DSI 能力 | 1 个 Host，最多 2 条 data lane；面板实际 lane 数和 bit rate 待按资料确认 |
+| D-PHY 供电 | 需要独立稳定的 2.5 V；实际 LDO VO 通道与上电顺序以 P4X 原理图为准 |
 | 触摸控制器 | GT911，I2C 接口 |
 | 面板复位 | 主板 GPIO27 -> LCD Adapter `RST_LCD` |
 | 背光 PWM | 主板 GPIO26 -> LCD Adapter `PWM` |
 
 LCD 是配套可选组件。开始软件适配前，必须确认 LCD adapter 已使用反向 FPC
-线缆接至主板 MIPI-DSI 接口，并完成 GPIO27、GPIO26、5V 与 GND 接线。P4X
-板级 LDO_VO3/LDO_VO4 的电压与使能状态也必须按参考设计配置，否则面板可能
-保持黑屏。
+线缆接至主板 MIPI-DSI 接口，并完成 GPIO27、GPIO26、5V 与 GND 接线。DSI
+D-PHY 的 2.5 V 供电必须按参考设计配置；不得在未核对原理图前假定使用某一
+固定 LDO VO 通道，否则面板可能保持黑屏。
 
 ## 3. 当前代码状态与缺口
 
@@ -50,7 +52,9 @@ device 的抽象、DCS 命令封装以及设备注册接口。
 
 | 缺口 | 影响 |
 | --- | --- |
-| ESP32-P4 MIPI-DSI host | 无法操作 P4 的 MIPI-DSI 控制器、DMA 或中断 |
+| ESP32-P4 MIPI-DSI command Host | 无法操作 P4 的 D-PHY、MIPI-DSI 控制器或发送 DCS packet |
+| ESP32-P4 MIPI-DSI video pipeline | 无法建立 DPI 时序、framebuffer、DMA、cache 同步与 vsync/error 中断 |
+| P4 DSI/LDO 构建与封装 | vendor HAL 源和 LDO API 尚未形成 NuttX errno 风格、Make/CMake 对称的芯片层入口 |
 | EK79007 通用面板驱动 | 无法下发面板初始化序列，也无法建立 1024 x 600 视频时序 |
 | GT911 通用触摸驱动 | 无法经 I2C 读取坐标并上报输入事件 |
 | P4X 板级显示装配 | 未配置 LDO、复位、背光、DSI host 和面板实例 |
@@ -79,7 +83,8 @@ NuttX 通用驱动层
     └─ GT911 I2C 触摸
              │
 ESP32-P4 芯片层
-    └─ MIPI-DSI host、I2C、DMA、中断
+    ├─ MIPI-DSI command Host、I2C
+    └─ MIPI-DSI video/DMA/中断（在 command Host 通过后实施）
              │
 P4X 板级装配层
     ├─ LDO、电源、GPIO27 Reset、GPIO26 PWM
@@ -90,9 +95,11 @@ P4X 板级装配层
 
 | 层级 | 计划文件 | 职责 |
 | --- | --- | --- |
-| P4 芯片层 | `chips/esp32p4/common/espressif/esp_mipi_dsi.c` | 实现 P4 MIPI-DSI host ops、时钟、DMA 和中断 |
-| P4 芯片层 | `chips/esp32p4/common/espressif/esp_mipi_dsi.h` | host 初始化与板级调用接口 |
+| P4 芯片层 | `chips/esp32p4/common/espressif/esp_ldo.c/.h` | 将 P4 vendor LDO 生命周期封装为 NuttX 风格接口 |
+| P4 芯片层 | `chips/esp32p4/common/espressif/esp_mipi_dsi.c/.h` | MIPI-DSI command Host、PHY 与 DCS transfer（M1） |
+| P4 芯片层 | `chips/esp32p4/common/espressif/esp_mipi_dsi_video.c/.h` | DPI 视频、framebuffer、DMA、vsync（M2，后续新增） |
 | P4 芯片层 | `chips/esp32p4/common/espressif/Kconfig`、`Make.defs`、`CMakeLists.txt` | 建立 MIPI-DSI host 配置与构建入口 |
+| P4 HAL 构建 | `chips/esp32p4/hal_esp32p4.{mk,cmake}` | 条件加入 MIPI-DSI 与 video 所需 vendor HAL 源，保持双入口一致 |
 | 竞赛驱动覆盖层 | `drivers/nuttx/drivers/lcd/{ek79007.c,ek79007.h}` | EK79007 面板 DCS 初始化、视频模式、休眠与恢复 |
 | 竞赛驱动覆盖层 | `drivers/nuttx/drivers/input/{gt911.c,gt911.h}` | GT911 I2C 寄存器访问、触点解析、输入事件上报 |
 | NuttX 工作树映射 | `nuttx/drivers/{lcd,input}/` | 由 `scripts/link_nuttx_display_drivers.sh` 创建相对软链接，供 NuttX 正常构建 |
@@ -103,6 +110,7 @@ P4X 板级装配层
 | P4X 板级层 | `src/esp32p4_bringup.c` | 按 Kconfig 调用显示和触摸初始化 |
 | P4X 板级层 | `src/{Make.defs,CMakeLists.txt}`、`Kconfig` | 加入板级源文件和开关 |
 | P4X 配置 | `configs/lvgl/defconfig`（新增） | 固化 USB console、DSI、LCD、GT911、LVGL 配置 |
+| P4X 配置 | `configs/dsi_probe/defconfig`、`app/dsi_probe/`（新增） | 在 LVGL 前独立验证 DSI command Host |
 
 > 注：EK79007 与 GT911 的规范源码当前保存在竞赛目录的 `drivers/nuttx/`，并以
 > 相对软链接映射至 NuttX 工作树。该脚本不修改 Kconfig、Make.defs、CMakeLists；
@@ -117,22 +125,38 @@ P4X 板级装配层
 2. 核对 LCD adapter 与 P4X 的反向 FPC、GPIO27、GPIO26、5V、GND 接线。
 3. 从 P4X 参考设计确认 GT911 的 I2C 控制器、SCL/SDA 引脚、I2C 地址、reset
    和 interrupt 引脚连接；不得凭 ESP-IDF 示例猜测这些参数。
-4. 核对 LDO_VO3/LDO_VO4 所需电压和上电顺序。
+4. 核对 D-PHY 2.5 V 所使用的实际 LDO 通道、所需电压和上电顺序。
+5. 核对面板支持的 lane 数（只能选 1/2 lane）、lane bit rate、像素格式和完整
+   video timing；不得按 FPC 引脚数推断 P4 可用 lane 数。
 
 通过标准：硬件连接表与可引用的原理图页码齐全；屏幕供电、复位和背光线路
 可用。
 
-### P1：ESP32-P4 MIPI-DSI host 最小验证
+### P1：ESP32-P4 MIPI-DSI command Host 最小验证
 
-1. 在 P4 芯片层实现 host 初始化、时钟、PHY、DMA 和必要中断。
+1. 在 P4 芯片层实现 LDO、host 初始化、时钟、PHY、command transport 和必要
+   错误中断；不在本阶段引入 framebuffer/DMA 视频扫描。
 2. 接入 `drivers/video/mipidsi/` 的 `mipi_dsi_host_register()` 接口。
-3. 提供只含 DSI host 的独立 defconfig 或测试命令，不引入 LVGL。
+3. 提供 `dsi_probe` 独立 defconfig 或测试命令，不引入 LVGL、面板 framebuffer
+   或网络业务。
 4. 验证 host 能创建 DSI device，发送 DCS short/long packet 并获得明确日志。
 
-通过标准：DSI host 注册成功；失败路径可返回具体 errno；无 DMA 对齐、时钟或
+通过标准：DSI host 注册成功；失败路径可返回具体 errno；无时钟、PHY、传输或
 中断异常。
 
-### P2：EK79007 面板最小显示
+### P2：ESP32-P4 MIPI-DSI video pipeline 最小验证
+
+1. 在 command Host 已通过的基础上增加 DPI video、完整 video timing、DMA、
+   cache 同步与 vsync/error 中断。
+2. 以 RGB565 单 framebuffer 输出纯色或色条；DMA 描述符放置和 PSRAM 可访问性
+   必须以实测为准。
+3. 将 video 状态机与 command transfer 并发规则写入芯片层实现，避免 ISR 直接
+   调用面板或 LVGL。
+
+通过标准：稳定扫描 1024 x 600 测试画面；连续启动十次不花屏、不 DMA abort，
+异常状态可完整停止并恢复。
+
+### P3：EK79007 面板最小显示
 
 1. 新增通用 EK79007 面板驱动，使用 P4X 确认过的初始化序列和 1024 x 600
    时序；寄存器常量和时序必须以芯片资料为准。
@@ -144,7 +168,7 @@ P4X 板级装配层
 通过标准：屏幕完成 reset、背光可控，稳定显示 1024 x 600 测试画面；连续重启
 十次不出现黑屏、花屏或内存泄漏。
 
-### P3：GT911 触摸最小验证
+### P4：GT911 触摸最小验证
 
 1. 先评估 NuttX 现有 `gt9xx` 通用驱动；确有能力缺口时，再完善当前 GT911 I2C
    驱动，读取设备 ID、状态和触点坐标。
@@ -155,7 +179,7 @@ P4X 板级装配层
 通过标准：`/dev/inputX` 注册成功；单指、多指、抬起事件可重复读取；坐标范围
 与 1024 x 600 面板一致。
 
-### P4：LVGL 最小应用
+### P5：LVGL 最小应用
 
 1. 新增 `configs/lvgl/defconfig`，基于已验证的 `usbconsole`，保留
    `/dev/ttyACM0` 作为故障诊断通道。
@@ -166,7 +190,7 @@ P4X 板级装配层
 通过标准：冷启动进入 LVGL 画面；按钮可被触摸点击；串口日志可报告显示/触摸
 初始化状态；故障时仍可从 USB console 进入 NSH。
 
-### P5：压力、恢复与上游准备
+### P6：压力、恢复与上游准备
 
 1. 验证背光开关、面板休眠/唤醒、连续重启和异常恢复。
 2. 检查 DMA buffer 对齐、PSRAM 可访问性和 framebuffer 生命周期。
@@ -197,6 +221,7 @@ P4X 板级装配层
 ```text
 CONFIG_MIPI_DSI=y
 CONFIG_ESPRESSIF_MIPI_DSI=y             # 计划新增
+CONFIG_ESPRESSIF_MIPI_DSI_VIDEO=y       # 计划新增，依赖 command Host
 CONFIG_LCD_EK79007=y                    # 计划新增
 CONFIG_INPUT_GT911=y                    # 计划新增
 CONFIG_I2C=y
@@ -215,10 +240,13 @@ CONFIG_ESPRESSIF_USBSERIAL=y            # 保留 USB console
 | --- | --- |
 | 将 P4X 当作旧 P4 板处理 | 固定 revision >= 3.1；每次构建检查 revision Kconfig |
 | LCD 未供电或未接 GPIO27/GPIO26 | 在软件排障前先完成硬件接线检查表 |
-| 无 P4 DSI host 却直接写面板代码 | P1 必须先独立通过，P2 不得跳过 |
+| 无 P4 DSI host 却直接写面板代码 | P1、P2 必须依序独立通过，P3 不得跳过底层验证 |
+| 将 command DCS 误认为已支持视频显示 | P1/P2 分离验收；P2 前不注册 `/dev/fb0` |
+| P4 DSI lane 与面板模式不匹配 | 固定 P4 最多 2 lane，P0 按面板资料确认实际模式 |
+| D-PHY 2.5 V 或 LDO 通道错误 | 以 P4X 原理图确认通道和上电顺序，启动日志记录结果 |
 | ESP-IDF 代码与 NuttX 模型混用 | ESP-IDF 仅用于寄存器/时序参考；NuttX 使用其 MIPI、LCD、input 框架 |
 | framebuffer 超出 SRAM 或 DMA 不可访问 | 首期 RGB565 单缓冲；记录 DMA 可访问内存和对齐要求 |
-| 触摸坐标方向错误 | P3 独立打印坐标并完成旋转/镜像校准后再接 LVGL |
+| 触摸坐标方向错误 | P4 独立打印坐标并完成旋转/镜像校准后再接 LVGL |
 | LVGL 在 ISR 或 bring-up 中阻塞 | 触摸 ISR 只采样/唤醒，LVGL 仅在任务上下文运行 |
 
 ## 8. 提交与测试策略
@@ -226,7 +254,10 @@ CONFIG_ESPRESSIF_USBSERIAL=y            # 保留 USB console
 建议按以下顺序提交，避免将仍不可显示的 UI 变更和底层驱动混在一起：
 
 ```text
-feat(esp32p4): 新增 MIPI-DSI host 支持
+feat(esp32p4): 新增 LDO 与 MIPI-DSI command Host 支持
+build(esp32p4): 接入 MIPI-DSI vendor HAL 与双构建入口
+test(esp32p4x): 新增 dsi_probe command Host 验证配置
+feat(esp32p4): 新增 MIPI-DSI video、DMA 与 framebuffer 管理
 feat(lcd): 新增 EK79007 MIPI-DSI 面板驱动
 feat(input): 新增 GT911 I2C 触摸驱动
 feat(esp32p4x): 装配 LCD 与触摸设备
@@ -237,6 +268,9 @@ test(esp32p4x): 补充显示与触摸实板测试证据
 每个阶段至少保留以下证据：构建命令与成功末尾、`git diff --check`、USB console
 日志、对应硬件现象或截图。P4X 的 Simple Boot 镜像仍应按已验证规则写入
 `0x2000`，直到构建系统的正式 flash offset 修复完成。
+
+ESP32-P4 MIPI-DSI Host 的状态机、接口约束、DMA/video 分期和验收矩阵见
+[ESP32-P4 MIPI-DSI Host 设计与实施方案](ESP32-P4-MIPI-DSI-Host设计与实施方案.md)。
 
 ## 9. 驱动覆盖层与软链接约定
 
