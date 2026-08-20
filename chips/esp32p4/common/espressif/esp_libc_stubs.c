@@ -37,6 +37,7 @@
 #include <unistd.h>
 
 #include <nuttx/signal.h>
+#include <nuttx/kmalloc.h>
 #include <nuttx/mutex.h>
 #include <nuttx/lib/lib.h>
 
