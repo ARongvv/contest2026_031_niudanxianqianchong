@@ -8,6 +8,9 @@
 以 P4X revision v3.x、EK79007 MIPI-DSI 面板和 GT911 触摸屏为前提，必须在本
 文档的最小启动验收完成后实施。
 
+其中 ESP32-P4 MIPI-DSI Host 的芯片层边界、接口、DMA/video 分期与验收门见
+[ESP32-P4 MIPI-DSI Host 设计与实施方案](ESP32-P4-MIPI-DSI-Host设计与实施方案.md)。
+
 ## 当前验收目标
 
 最小 `nsh` 固件完成构建，并在 ESP32-P4 Function EV Board 上获得可交互的
