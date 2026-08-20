@@ -3,6 +3,11 @@
 本文档只记录当前 ESP32-P4 Function EV Board 最小 bring-up 的工作顺序。状态以
 实际构建输出和实板串口日志为准，不以计划项的存在视为完成。
 
+显示与触摸扩展的独立计划见
+[ESP32-P4X-LVGL显示与触摸适配计划](ESP32-P4X-LVGL显示与触摸适配计划.md)。该计划
+以 P4X revision v3.x、EK79007 MIPI-DSI 面板和 GT911 触摸屏为前提，必须在本
+文档的最小启动验收完成后实施。
+
 ## 当前验收目标
 
 最小 `nsh` 固件完成构建，并在 ESP32-P4 Function EV Board 上获得可交互的
