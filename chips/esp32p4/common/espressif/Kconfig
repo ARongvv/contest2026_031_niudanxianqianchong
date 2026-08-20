@@ -3542,17 +3542,17 @@ config ESPRESSIF_SPI2_DMATHRESHOLD
 		When SPI GDMA is enabled, GDMA transfers whose size are below the
 		defined threshold will be performed by polling logic.
 
-choice ESPRESSIF_SPI2_MODE
+choice ESPRESSIF_ESP32P4_SPI2_MODE
 	prompt "SPI2 mode"
-	default ESPRESSIF_SPI2_MODE_MASTER
+	default ESPRESSIF_ESP32P4_SPI2_MODE_MASTER
 
-config ESPRESSIF_SPI2_MODE_MASTER
+config ESPRESSIF_ESP32P4_SPI2_MODE_MASTER
 	bool "SPI2 Master mode"
 	depends on SPI_DRIVER
 	---help---
 		Configure SPI2 to operate in Master mode.
 
-config ESPRESSIF_SPI2_SLAVE
+config ESPRESSIF_ESP32P4_SPI2_MODE_SLAVE
 	bool "SPI2 Slave mode"
 	depends on SPI_SLAVE
 	select ESPRESSIF_GPIO_IRQ
@@ -3560,12 +3560,12 @@ config ESPRESSIF_SPI2_SLAVE
 	---help---
 		Configure SPI2 to operate in Slave mode.
 
-endchoice # ESPRESSIF_SPI2_MODE
+endchoice # ESPRESSIF_ESP32P4_SPI2_MODE
 
-config ESPRESSIF_SPI2_SLAVE_BUFSIZE
+config ESPRESSIF_ESP32P4_SPI2_SLAVE_BUFSIZE
 	int "SPI2 Slave buffer size"
 	default 2048
-	depends on ESPRESSIF_SPI2_SLAVE
+	depends on ESPRESSIF_ESP32P4_SPI2_MODE_SLAVE
 	---help---
 		Configure the size of SPI2 Slave controller's internal buffers.
 
