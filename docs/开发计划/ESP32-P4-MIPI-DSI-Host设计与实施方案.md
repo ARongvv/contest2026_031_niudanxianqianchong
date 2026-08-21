@@ -238,7 +238,7 @@ Kconfig 或板级静态配置。所有新增 C 源必须同时更新对应 `Kcon
 | `chips/esp32p4/common/espressif/esp_ldo.c/.h` | M1，已实现 | LDO 生命周期、errno 转换 |
 | `chips/esp32p4/common/espressif/esp_mipi_dsi.c/.h` | M1/M2a/M2b | Host、PHY、DCS transfer、DPI pattern、私有 GDMA/LLI 生命周期与 DMA scanout API |
 | `chips/esp32p4/common/espressif/{Kconfig,Make.defs,CMakeLists.txt}` | M1/M2，M1 已实现 | 芯片层开关和构建 |
-| `chips/esp32p4/hal_esp32p4.{mk,cmake}` | M1/M2，已实现 | 条件纳入 vendor DSI HAL 源；DW-GDMA 基础源已随 P4 HAL 构建，M2b 直接复用。 |
+| `chips/esp32p4/hal_esp32p4.{mk,cmake}` | M1/M2，已实现 | 条件纳入 vendor DSI HAL 源；M2b 额外且仅在 `ESPRESSIF_MIPI_DSI_VIDEO_DMA` 开启时纳入 `upper_hal_dma/src/dw_gdma.c`，为 DSI Bridge 提供 DW-GDMA 上层实现。 |
 | `board/.../src/esp32p4_lcd.c` | M1/M2a/M2b | P4X D-PHY LDO、GPIO27 reset、DPI timing、GPIO26 静态背光、PSRAM 色条 buffer；面板实例留待 M3 |
 | `app/dsi_probe/`、`configs/dsi_probe/defconfig` | M1/M2a/M2b | 与 LVGL 解耦的 command Host 与 M2b DMA 色条验证入口；DCS read 为可选诊断 |
 
