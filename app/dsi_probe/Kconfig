@@ -1,0 +1,15 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+config LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE
+	bool "ESP32-P4X MIPI-DSI command Host probe"
+	default n
+	select ESPRESSIF_MIPI_DSI
+	---help---
+		Build dsi_probe, a command-only validation program for the
+		ESP32-P4X Function EV Board MIPI-DSI Host.  It initializes the
+		board PHY and panel reset line, then verifies generic short/long
+		packets and a DCS read without enabling framebuffer scanout or
+		backlight.
