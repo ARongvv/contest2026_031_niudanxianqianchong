@@ -66,6 +66,27 @@
 #define ESP_MIPI_DSI_DMA_BUFFER_ALIGNMENT        64
 #define ESP_MIPI_DSI_DMA_CHANNEL                  0
 
+/* Keep transfer completion separate from faults in the diagnostic output.
+ * The channel status bits are latched for polling only; DMA global interrupt
+ * delivery remains disabled because this M1 scanout has no ISR yet.
+ */
+
+#define ESP_MIPI_DSI_DMA_DONE_EVENTS \
+  (DW_GDMA_LL_CHANNEL_EVENT_BLOCK_TFR_DONE | \
+   DW_GDMA_LL_CHANNEL_EVENT_DMA_TFR_DONE)
+
+#define ESP_MIPI_DSI_DMA_ERROR_EVENTS \
+  (DW_GDMA_LL_CHANNEL_EVENT_SRC_DEC_ERR | \
+   DW_GDMA_LL_CHANNEL_EVENT_DST_DEC_ERR | \
+   DW_GDMA_LL_CHANNEL_EVENT_SRC_SLV_ERR | \
+   DW_GDMA_LL_CHANNEL_EVENT_DST_SLV_ERR | \
+   DW_GDMA_LL_CHANNEL_EVENT_LLI_RD_DEC_ERR | \
+   DW_GDMA_LL_CHANNEL_EVENT_LLI_WR_DEC_ERR | \
+   DW_GDMA_LL_CHANNEL_EVENT_LLI_RD_SLV_ERR | \
+   DW_GDMA_LL_CHANNEL_EVENT_LLI_WR_SLV_ERR | \
+   DW_GDMA_LL_CHANNEL_EVENT_SHADOWREG_OR_LLI_INVALID_ERR | \
+   DW_GDMA_LL_CHANNEL_EVENT_ABORTED)
+
 /* The P4 DSI DPI clock defaults to PLL_F240M.  A requested 52 MHz pixel
  * clock therefore becomes 48 MHz with divider 5; the timing helper applies
  * the matching horizontal compensation to preserve the frame rate.
@@ -689,8 +710,14 @@ static int esp_mipi_dsi_video_dma_prepare(
     dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, 2);
   dw_gdma_ll_channel_set_dst_periph_status_addr(
     dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, MIPI_DSI_BRG_MEM_BASE);
+
+  /* Latch every channel event in its status register for polling.  Global
+   * interrupt delivery stays disabled, so this does not install or invoke an
+   * ISR during the M1 display probe.
+   */
+
   dw_gdma_ll_channel_enable_intr_generation(
-    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, UINT32_MAX, false);
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, UINT32_MAX, true);
   dw_gdma_ll_channel_set_link_list_master_port(
     dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, DW_GDMA_LL_MASTER_PORT_MEMORY);
   dw_gdma_ll_channel_set_link_list_head_addr(
@@ -856,6 +883,78 @@ static void esp_mipi_dsi_dump_video_state(
          stage, bridge->pixel_type.val, bridge->dma_flow_ctrl.val,
          bridge->raw_num_cfg.val, bridge->int_raw.val, bridge->int_st.val);
 }
+
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+/****************************************************************************
+ * Name: esp_mipi_dsi_dump_dma_status
+ *
+ * Description:
+ *   Capture the state which distinguishes a correctly programmed scanout
+ *   from one that is actually consuming pixels.  This function is read-only:
+ *   it deliberately does not clear DMA or Bridge event bits.
+ ****************************************************************************/
+
+static void esp_mipi_dsi_dump_dma_status(
+  FAR struct esp_mipi_dsi_s *priv, FAR const char *stage)
+{
+  FAR dw_gdma_dev_t *dma_dev = priv->dma_dev;
+  FAR dsi_brg_dev_t *bridge = priv->hal.bridge;
+  uint32_t transfer_items;
+  uint32_t fifo_remaining;
+  uint32_t channel_status;
+  uint32_t bridge_raw;
+  uint32_t bridge_status;
+  uint64_t transfer_bytes;
+  intptr_t current_lli;
+  bool channel_enabled;
+
+  if (dma_dev == NULL || bridge == NULL)
+    {
+      syslog(LOG_WARNING,
+             "WARNING: MIPI-DSI DMA status stage=%s unavailable\n", stage);
+      return;
+    }
+
+  channel_enabled = (dma_dev->chen0.val &
+                     (1u << ESP_MIPI_DSI_DMA_CHANNEL)) != 0;
+  current_lli = dw_gdma_ll_channel_get_current_link_list_item_addr(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL);
+  transfer_items = dw_gdma_ll_channel_get_trans_amount(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL);
+  fifo_remaining = dw_gdma_ll_channel_get_fifo_remain(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL);
+  channel_status = dw_gdma_ll_channel_get_intr_status(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL);
+  bridge_raw = bridge->int_raw.val;
+  bridge_status = mipi_dsi_brg_ll_get_interrupt_status(bridge);
+  transfer_bytes = (uint64_t)transfer_items *
+                   ESP_MIPI_DSI_DMA_TRANSFER_WIDTH_BYTES;
+
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI DMA status stage=%s enabled=%d controller=%08"
+         PRIx32 " lli=%08" PRIxPTR " transferred_items=%" PRIu32
+         " transferred_bytes=%" PRIu64 " fifo_left=%" PRIu32 "\n",
+         stage, channel_enabled, dma_dev->cfg0.val,
+         (uintptr_t)current_lli, transfer_items, transfer_bytes,
+         fifo_remaining);
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI DMA events stage=%s enable=%08" PRIx32
+         " status=%08" PRIx32 " done=%08" PRIx32 " errors=%08" PRIx32
+         " channel_cfg0=%08" PRIx32 " channel_cfg1=%08" PRIx32 "\n",
+         stage, dma_dev->ch[ESP_MIPI_DSI_DMA_CHANNEL].int_st_ena0.val,
+         channel_status, channel_status & ESP_MIPI_DSI_DMA_DONE_EVENTS,
+         channel_status & ESP_MIPI_DSI_DMA_ERROR_EVENTS,
+         dma_dev->ch[ESP_MIPI_DSI_DMA_CHANNEL].cfg0.val,
+         dma_dev->ch[ESP_MIPI_DSI_DMA_CHANNEL].cfg1.val);
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI Bridge events stage=%s raw=%08" PRIx32
+         " enable=%08" PRIx32 " status=%08" PRIx32
+         " underrun_raw=%d underrun_status=%d\n",
+         stage, bridge_raw, bridge->int_ena.val, bridge_status,
+         (bridge_raw & MIPI_DSI_BRG_LL_EVENT_UNDERRUN) != 0,
+         (bridge_status & MIPI_DSI_BRG_LL_EVENT_UNDERRUN) != 0);
+}
+#endif
 
 /****************************************************************************
  * Name: esp_mipi_dsi_video_stop_locked
@@ -1384,6 +1483,7 @@ int esp_mipi_dsi_video_dma_start(
 
   priv->video_running = true;
   esp_mipi_dsi_dump_video_state(priv, "dma-started");
+  esp_mipi_dsi_dump_dma_status(priv, "dma-started");
   syslog(LOG_INFO,
          "INFO: MIPI-DSI DPI DMA started channel=%u size=%ux%u "
          "pixel_clock_hz=%" PRIu32 " frame_bytes=%zu\n",
@@ -1490,6 +1590,51 @@ void esp_mipi_dsi_dma_buffer_free(FAR void *buffer)
     }
 #else
   (void)buffer;
+#endif
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_dma_dump_status
+ ****************************************************************************/
+
+int esp_mipi_dsi_video_dma_dump_status(FAR struct mipi_dsi_host *host,
+                                       FAR const char *stage)
+{
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+  FAR struct esp_mipi_dsi_s *priv = &g_esp_mipi_dsi;
+  int ret;
+
+  if (host != &priv->host || stage == NULL)
+    {
+      return -EINVAL;
+    }
+
+  ret = nxmutex_lock(&priv->lock);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  if (!priv->ready)
+    {
+      ret = -ESHUTDOWN;
+    }
+  else if (!priv->video_running || priv->dma_dev == NULL)
+    {
+      ret = -EPIPE;
+    }
+  else
+    {
+      esp_mipi_dsi_dump_dma_status(priv, stage);
+      ret = OK;
+    }
+
+  nxmutex_unlock(&priv->lock);
+  return ret;
+#else
+  (void)host;
+  (void)stage;
+  return -ENOTSUP;
 #endif
 }
 
