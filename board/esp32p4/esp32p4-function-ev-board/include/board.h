@@ -103,6 +103,18 @@ int board_mipi_dsi_panel_reset(void);
 int board_mipi_dsi_video_pattern_start(FAR struct mipi_dsi_host *host);
 
 /****************************************************************************
+ * Name: board_mipi_dsi_video_dump_status
+ *
+ * Description:
+ *   Print a board-visible snapshot of the active P4 DSI DMA scanout.  It is
+ *   a bring-up diagnostic and does not clear pending hardware status bits.
+ *
+ ****************************************************************************/
+
+int board_mipi_dsi_video_dump_status(FAR struct mipi_dsi_host *host,
+                                     FAR const char *stage);
+
+/****************************************************************************
  * Name: board_mipi_dsi_video_stop
  *
  * Description:

@@ -344,6 +344,22 @@ int board_mipi_dsi_video_pattern_start(FAR struct mipi_dsi_host *host)
 }
 
 /****************************************************************************
+ * Name: board_mipi_dsi_video_dump_status
+ ****************************************************************************/
+
+int board_mipi_dsi_video_dump_status(FAR struct mipi_dsi_host *host,
+                                     FAR const char *stage)
+{
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+  return esp_mipi_dsi_video_dma_dump_status(host, stage);
+#else
+  (void)host;
+  (void)stage;
+  return -ENOTSUP;
+#endif
+}
+
+/****************************************************************************
  * Name: board_mipi_dsi_video_stop
  ****************************************************************************/
 
