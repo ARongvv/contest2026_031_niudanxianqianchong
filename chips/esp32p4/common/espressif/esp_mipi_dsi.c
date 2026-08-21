@@ -21,6 +21,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
 
@@ -36,7 +37,6 @@
 
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
 #  include "esp_cache.h"
-#  include "esp_heap_caps.h"
 #  include "hal/dw_gdma_ll.h"
 #  include "soc/reg_base.h"
 #endif
@@ -1422,10 +1422,29 @@ int esp_mipi_dsi_dma_buffer_allocate(size_t bytes, FAR void **buffer)
       return -EINVAL;
     }
 
-  *buffer = heap_caps_aligned_calloc(
-    ESP_MIPI_DSI_DMA_BUFFER_ALIGNMENT, 1, bytes,
-    MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
-  return *buffer == NULL ? -ENOMEM : OK;
+  /* The ESP HAL heap_caps compatibility layer maps non-retention requests
+   * to kmm_memalign().  On this board CONFIG_MM_KERNEL_HEAP reserves that
+   * heap for internal SRAM, while CONFIG_ESPRESSIF_SPIRAM_USER_HEAP makes
+   * the standard NuttX user heap the PSRAM heap.  Allocate through memalign
+   * deliberately instead of asking heap_caps for MALLOC_CAP_SPIRAM, so the
+   * 1024x600 RGB888 scanout buffer is not constrained by the small internal
+   * kernel heap.
+   */
+
+  *buffer = memalign(ESP_MIPI_DSI_DMA_BUFFER_ALIGNMENT, bytes);
+  if (*buffer == NULL)
+    {
+      syslog(LOG_ERR,
+             "ERROR: MIPI-DSI DMA PSRAM allocation failed bytes=%zu\n",
+             bytes);
+      return -ENOMEM;
+    }
+
+  memset(*buffer, 0, bytes);
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI DMA PSRAM buffer allocated bytes=%zu alignment=%u\n",
+         bytes, ESP_MIPI_DSI_DMA_BUFFER_ALIGNMENT);
+  return OK;
 #else
   (void)bytes;
   (void)buffer;
@@ -1467,7 +1486,7 @@ void esp_mipi_dsi_dma_buffer_free(FAR void *buffer)
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
   if (buffer != NULL)
     {
-      heap_caps_free(buffer);
+      free(buffer);
     }
 #else
   (void)buffer;
