@@ -4,14 +4,27 @@
 #
 
 config LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE
-	bool "ESP32-P4X MIPI-DSI command Host probe"
+	bool "ESP32-P4X MIPI-DSI Host probe"
 	default n
 	select ESPRESSIF_MIPI_DSI
 	---help---
-		Build dsi_probe, a command-only validation program for the
+		Build dsi_probe, a staged validation program for the
 		ESP32-P4X Function EV Board MIPI-DSI Host.  It initializes the
 		board PHY and panel reset line, then verifies generic short/long
-		packets and the EK79007 initialization write sequence without
-		enabling framebuffer scanout or backlight.  The optional DCS read
-		diagnostic does not determine pass or failure because the panel
-		may not reply before video mode is enabled.
+		packets and the EK79007 initialization write sequence.  The optional
+		DCS read diagnostic does not determine pass or failure because the
+		panel may not reply before video mode is enabled.
+
+if LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE
+
+config LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE_VIDEO_PATTERN
+	bool "Enable dsi_probe DPI colour-bar command"
+	default n
+	select ESPRESSIF_MIPI_DSI_VIDEO
+	help
+		Enable the "dsi_probe video [seconds]" command.  It starts the P4
+		DSI Host's internal vertical colour-bar generator using the P4X
+		panel timing and a static backlight level.  It does not allocate a
+		framebuffer, configure DMA, or start LVGL.
+
+endif # LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE

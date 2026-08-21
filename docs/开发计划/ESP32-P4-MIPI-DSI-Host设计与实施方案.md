@@ -62,8 +62,7 @@ NuttX MIPI-DSI 通用 API
   mipi_dsi_host_register() / packet / DCS
               │
 ESP32-P4 芯片层
-  esp_mipi_dsi.c              命令 Host、PHY、传输、故障状态
-  esp_mipi_dsi_video.c        DPI、framebuffer、DMA、vsync（M2）
+  esp_mipi_dsi.c              Host、PHY、命令传输、DPI video pattern（M1/M2a）
   esp_ldo.c                   LDO vendor API 到 errno 风格的薄封装
               │
 ESP HAL / 寄存器层
@@ -98,8 +97,8 @@ int esp_mipi_dsi_host_shutdown(FAR struct mipi_dsi_host *host);
 ```
 
 返回值统一转换为 NuttX errno 负值；vendor `esp_err_t`、寄存器地址和 HAL 私有
-对象停留在 `.c` 文件内部。M2 在接口稳定后另行增加 video 配置结构，避免在 M1
-将尚未验证的 DMA/framebuffer 设计固定成 ABI。
+对象停留在 `.c` 文件内部。M2a 已增加 framebuffer-free 的 DPI pattern 配置结构；
+DMA/framebuffer API 仍在其硬件路径验证后再增加，避免将未验证的内存模型固定成 ABI。
 
 NuttX 当前只有 `mipi_dsi_host_register()`，没有对应 unregister API。因此 Host
 结构是静态单例：首次 initialize 注册一次；`shutdown()` 只关闭硬件并释放 LDO；
@@ -109,11 +108,11 @@ NuttX 当前只有 `mipi_dsi_host_register()`，没有对应 unregister API。�
 
 ```text
 OFF -> **LDO_READY** -> **PHY_READY** -> **COMMAND_READY**
-  -> VIDEO_CONFIGURED       （M2）
-  -> VIDEO_RUNNING          （M2）
+  -> VIDEO_CONFIGURED       （M2a：DPI pattern）
+  -> VIDEO_RUNNING          （M2a：DPI pattern）
   -> FAULT
 
-shutdown：按相反方向关闭 PHY、时钟并释放 LDO；M2 再补充 DMA 停止。
+shutdown：按相反方向关闭 DPI pattern、PHY、时钟并释放 LDO；M2b 再补充 DMA 停止。
 ```
 
 当前只有 `ready` 布尔状态，只有为真时允许 DCS transfer。PLL/FIFO 超时和 HAL
@@ -166,6 +165,18 @@ Host 明确复制，禁止异步持有调用方临时内存。
 
 ## 6. M2：视频输出、DMA 与内存
 
+### 6.1 M2a：无 framebuffer 的 Host 内建色条
+
+P4 DSI Host 提供 vertical/horizontal bar 与 BER video pattern generator。M2a 将
+video 配置逻辑继续放在 `esp_mipi_dsi.c/.h`，通过
+`esp_mipi_dsi_video_pattern_start()` 配置 DPI 时钟、timing、DSI bridge 和
+packetizer；P4X 板级层提供 1024×600 timing 与 GPIO26 静态背光。
+
+`dsi_probe video [seconds]` 是唯一测试入口。它不接入 LVGL、framebuffer、DMA
+或 `/dev/fb0`，用于把“DSI video 是否能显示”与“内存/DMA/图形栈是否正确”分开。
+
+### 6.2 M2b：framebuffer、DMA 与内存
+
 DSI DBI/DCS 命令只用于控制面板；1024 x 600 的持续像素输出需要 DPI video
 pipeline。M2 必须单独实现并验收：
 
@@ -190,7 +201,7 @@ Kconfig 应表达硬件能力，而不是把某个面板参数提升为全芯片
 CONFIG_ESPRESSIF_LDO                 # M1 已实现；由 DSI Host 自动选择
 CONFIG_ESPRESSIF_MIPI_DSI            # M1 已实现，默认关闭
 CONFIG_ESPRESSIF_MIPI_DSI_TIMEOUT_MS # M1 已实现，默认 100，范围 1--1000 ms
-CONFIG_ESPRESSIF_MIPI_DSI_VIDEO      # M2：DPI + framebuffer，依赖 Host
+CONFIG_ESPRESSIF_MIPI_DSI_VIDEO      # M2a：DPI pattern，依赖 Host
 CONFIG_LCD_EK79007                   # 通用面板
 CONFIG_INPUT_GT911                   # 通用触摸
 ```
@@ -205,12 +216,11 @@ Kconfig 或板级静态配置。所有新增 C 源必须同时更新对应 `Kcon
 | 文件 | M1/M2 | 职责 |
 | --- | --- | --- |
 | `chips/esp32p4/common/espressif/esp_ldo.c/.h` | M1，已实现 | LDO 生命周期、errno 转换 |
-| `chips/esp32p4/common/espressif/esp_mipi_dsi.c/.h` | M1，已实现 | Host、PHY、DCS transfer |
-| `chips/esp32p4/common/espressif/esp_mipi_dsi_video.c/.h` | M2 | DPI/video/DMA/vsync |
+| `chips/esp32p4/common/espressif/esp_mipi_dsi.c/.h` | M1/M2a | Host、PHY、DCS transfer、DPI pattern；M2b 再扩展 framebuffer/DMA API |
 | `chips/esp32p4/common/espressif/{Kconfig,Make.defs,CMakeLists.txt}` | M1/M2，M1 已实现 | 芯片层开关和构建 |
 | `chips/esp32p4/hal_esp32p4.{mk,cmake}` | M1/M2，M1 已实现 | 条件纳入 vendor DSI HAL 源；GDMA HAL 留待 M2 按需接入 |
-| `board/.../src/esp32p4_lcd.c` | M1，命令写已验证 | P4X D-PHY LDO、GPIO27 reset、command Host 装配；面板实例留待 M3 |
-| `app/dsi_probe/`、`configs/dsi_probe/defconfig` | M1，命令写已验证 | 与 LVGL 解耦的 command Host 验证入口；DCS read 为可选诊断 |
+| `board/.../src/esp32p4_lcd.c` | M1/M2a | P4X D-PHY LDO、GPIO27 reset、DPI timing、GPIO26 静态背光；面板实例留待 M3 |
+| `app/dsi_probe/`、`configs/dsi_probe/defconfig` | M1/M2a | 与 LVGL 解耦的 command Host 与内建色条验证入口；DCS read 为可选诊断 |
 
 ## 8. 验收矩阵
 
@@ -220,7 +230,8 @@ Kconfig 或板级静态配置。所有新增 C 源必须同时更新对应 `Kcon
 | M1 启动 | USB console 打印 Host 状态 | 已通过一次：LDO、P4 rev3 clock source、PLL lock、lane stop 与 Host ready 全部成功 |
 | M1 DCS 写 | generic short/long 与 EK79007 初始化写序列 | 已通过一次：不死锁，所有命令由 Host 接受；重复十次 initialize/shutdown 待验收 |
 | M1 DCS 读 | `GET_POWER_MODE` BTA/RX FIFO | 已诊断：Host 完成读请求但面板未返回 payload；非 M1 command-write 阻塞项 |
-| M2 显示 | RGB565 色条/纯色 | 1024 x 600 稳定，无撕裂、花屏或 DMA abort |
+| M2a 显示 | `dsi_probe video 60` 内建垂直色条 | 1024 x 600 稳定，能清晰区分色条，无花屏或 Host/bridge timeout |
+| M2b 显示 | RGB565 framebuffer 色条/纯色 | 1024 x 600 稳定，无撕裂、花屏或 DMA abort |
 | M2 压力 | 背光、sleep/wake、重启、连续刷新 | 无资源泄漏，异常后可从 `FAULT` 完整恢复 |
 
 每次验收至少留存构建命令、`git diff --check`、USB console 日志和屏幕照片/视频。
@@ -231,7 +242,8 @@ Kconfig 或板级静态配置。所有新增 C 源必须同时更新对应 `Kcon
 feat(esp32p4): 增加 LDO 与 MIPI-DSI 命令 Host 基础
 build(esp32p4): 接入 MIPI-DSI vendor HAL 与双构建入口
 test(esp32p4x): 新增 dsi_probe 配置与命令 Host 实板证据
-feat(esp32p4): 增加 MIPI-DSI 视频输出与 framebuffer 管理
+feat(esp32p4): 增加 MIPI-DSI DPI 内建色条验证
+feat(esp32p4): 增加 MIPI-DSI framebuffer 与 DMA 管理
 feat(lcd): 接入 EK79007 面板与 P4X 显示装配
 config(esp32p4x): 新增 LVGL 显示与触摸验证配置
 ```
