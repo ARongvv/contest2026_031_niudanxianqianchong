@@ -40,6 +40,10 @@ if(CONFIG_ESPRESSIF_EMAC)
   list(APPEND SRCS esp32p4_ethernet.c)
 endif()
 
+if(CONFIG_ESPRESSIF_MIPI_DSI)
+  list(APPEND SRCS esp32p4_lcd.c)
+endif()
+
 target_sources(board PRIVATE ${SRCS})
 
 # ##############################################################################
