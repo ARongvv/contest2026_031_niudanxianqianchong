@@ -1,8 +1,9 @@
 # 文档索引
 
 本目录的当前主题是 **ESP32-P4 Function EV Board 的 openvela Route A 移植**。
-当前验收目标是最小 `nsh` 在实板启动；完整 build pass、烧录和串口 `nsh>`
-日志尚待实际验证。
+最小 `usbconsole` 配置已在实板进入 `nsh>`；MIPI-DSI Host Probe 已完成
+M1 命令写链路验收。下一阶段是 DPI video 扫屏与帧缓冲验证，当前仍不包含
+LVGL 或触摸功能验收。
 
 ## 目录骨架
 
@@ -23,6 +24,7 @@ docs/
 | [Route A 移植方案](硬件适配/esp32p4-function-ev-board-route-a-porting.md) | custom chip / custom board 架构、阶段目标和风险 | 评审架构或新增 P4 外设前 |
 | [P4 最小 NSH 操作与测试](硬件适配/esp32p4-nsh-operation-and-test.md) | P4 构建、烧录及最小 NSH 上板验收 | 上板测试时 |
 | [P4 构建与 Kconfig 排障](开发日志/编译/README.md) | 本次构建链路、Kconfig 阻塞与复测顺序 | 配置生成或编译失败时 |
+| [P4X DSI Host Probe 排障](开发日志/编译/2026-08-21-DSI-Host-Probe排障记录.md) | DSI Host、Probe 注册与 USB Console 专项排障 | 验证 DSI 命令链路时 |
 | [P4 移植开发记录](开发日志/dev.md) | 已发生问题的历史记录 | 复现相同错误时；不代表当前构建结论 |
 | [当前开发计划](开发计划/README.md) | P4 最小 bring-up 的阶段与验收条件 | 安排或切换工作项时 |
 | [第三方依赖与许可证声明](../THIRD_PARTY_NOTICES.md) | P4 HAL 与工作区依赖的许可证信息 | 发布或交付前 |
