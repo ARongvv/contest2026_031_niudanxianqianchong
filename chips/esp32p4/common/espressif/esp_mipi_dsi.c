@@ -38,13 +38,10 @@
 
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
 #  include "esp_cache.h"
-#  include "esp_heap_caps.h"
 #  include "esp_irq.h"
-#  include "hal/cache_ll.h"
 #  include "hal/dw_gdma_ll.h"
 #  include "soc/reg_base.h"
 #  include "soc/interrupts.h"
-#  include "soc/soc_caps.h"
 #endif
 
 #include "esp_mipi_dsi.h"
@@ -96,20 +93,6 @@
 #define ESP_MIPI_DSI_DMA_EVENTS \
   (ESP_MIPI_DSI_DMA_DONE_EVENTS | ESP_MIPI_DSI_DMA_ERROR_EVENTS)
 
-/* DW-GDMA fetches a descriptor through the cached alias, but its valid bit
- * is updated by the completion ISR through the P4 L2 non-cache alias.  This
- * follows the vendor DMA list lifetime and avoids a cache write-back on each
- * video frame.
- */
-
-#if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
-#  define ESP_MIPI_DSI_DMA_LLI_NONCACHE(lli) \
-  ((FAR dw_gdma_link_list_item_t *) \
-   (uintptr_t)CACHE_LL_L2MEM_NON_CACHE_ADDR(lli))
-#else
-#  define ESP_MIPI_DSI_DMA_LLI_NONCACHE(lli) (lli)
-#endif
-
 /* The P4 DSI DPI clock defaults to PLL_F240M.  A requested 52 MHz pixel
  * clock therefore becomes 48 MHz with divider 5; the timing helper applies
  * the matching horizontal compensation to preserve the frame rate.
@@ -153,8 +136,7 @@ struct esp_mipi_dsi_s
   soc_module_clk_t           dpi_clk_src;
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
   FAR dw_gdma_dev_t          *dma_dev;
-  FAR dw_gdma_link_list_item_t *dma_lli;
-  FAR dw_gdma_link_list_item_t *dma_lli_nc;
+  dw_gdma_link_list_item_t   dma_lli;
   volatile uint32_t          dma_frame_count;
   volatile uint32_t          dma_error_events;
   int                        dma_cpuint;
@@ -667,8 +649,7 @@ static int esp_mipi_dsi_dma_interrupt(int irq, FAR void *context,
   (void)irq;
   (void)context;
 
-  if (priv == NULL || !priv->video_running || priv->dma_dev == NULL ||
-      priv->dma_lli == NULL || priv->dma_lli_nc == NULL)
+  if (priv == NULL || !priv->video_running || priv->dma_dev == NULL)
     {
       return OK;
     }
@@ -696,10 +677,13 @@ static int esp_mipi_dsi_dma_interrupt(int irq, FAR void *context,
        * every refresh must make it valid again before re-enabling the channel.
        */
 
-      dw_gdma_ll_lli_set_block_markers(priv->dma_lli_nc, false, true, true);
+      dw_gdma_ll_lli_set_block_markers(&priv->dma_lli, false, true, true);
+      esp_cache_msync(&priv->dma_lli, sizeof(priv->dma_lli),
+                      ESP_CACHE_MSYNC_FLAG_DIR_C2M |
+                      ESP_CACHE_MSYNC_FLAG_UNALIGNED);
       dw_gdma_ll_channel_set_link_list_head_addr(
         dma_dev, ESP_MIPI_DSI_DMA_CHANNEL,
-        (uint32_t)(uintptr_t)priv->dma_lli);
+        (uint32_t)(uintptr_t)&priv->dma_lli);
       dw_gdma_ll_channel_enable(dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, true);
       priv->dma_frame_count++;
     }
@@ -740,12 +724,7 @@ static void esp_mipi_dsi_video_dma_release(
       priv->dma_dev = NULL;
     }
 
-  if (priv->dma_lli != NULL)
-    {
-      heap_caps_free(priv->dma_lli);
-      priv->dma_lli = NULL;
-      priv->dma_lli_nc = NULL;
-    }
+  memset(&priv->dma_lli, 0, sizeof(priv->dma_lli));
 
   priv->dma_frame_count = 0;
   priv->dma_error_events = 0;
@@ -770,7 +749,7 @@ static int esp_mipi_dsi_video_dma_prepare(
       return -EINVAL;
     }
 
-  if (priv->dma_dev != NULL || priv->dma_lli != NULL)
+  if (priv->dma_dev != NULL)
     {
       return -EALREADY;
     }
@@ -793,26 +772,11 @@ static int esp_mipi_dsi_video_dma_prepare(
       goto errout;
     }
 
-  /* The frame itself may reside in PSRAM, but the descriptor must use the
-   * kernel heap on this configuration (internal SRAM).  Use the capability
-   * API and an explicit 64-byte alignment to preserve that ownership when
-   * the platform later grows a real capability-aware heap allocator.
-   */
-
-  lli = heap_caps_aligned_calloc(DW_GDMA_LL_LINK_LIST_ALIGNMENT, 1,
-                                 sizeof(*lli), MALLOC_CAP_INTERNAL |
-                                 MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
-  if (lli == NULL)
-    {
-      ret = -ENOMEM;
-      goto errout;
-    }
-
   priv->dma_dev = dma_dev;
-  priv->dma_lli = lli;
-  priv->dma_lli_nc = ESP_MIPI_DSI_DMA_LLI_NONCACHE(lli);
   priv->dma_frame_count = 0;
   priv->dma_error_events = 0;
+  lli = &priv->dma_lli;
+  memset(lli, 0, sizeof(*lli));
 
   dw_gdma_ll_reset(dma_dev);
   dw_gdma_ll_enable_controller(dma_dev, true);
@@ -846,6 +810,10 @@ static int esp_mipi_dsi_video_dma_prepare(
   dw_gdma_ll_channel_clear_intr(dma_dev, ESP_MIPI_DSI_DMA_CHANNEL,
                                 UINT32_MAX);
   dw_gdma_ll_channel_enable_intr_generation(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, UINT32_MAX, false);
+  dw_gdma_ll_channel_enable_intr_propagation(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, UINT32_MAX, false);
+  dw_gdma_ll_channel_enable_intr_generation(
     dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, ESP_MIPI_DSI_DMA_EVENTS, true);
   dw_gdma_ll_channel_enable_intr_propagation(
     dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, ESP_MIPI_DSI_DMA_EVENTS, true);
@@ -854,7 +822,6 @@ static int esp_mipi_dsi_video_dma_prepare(
   dw_gdma_ll_channel_set_link_list_head_addr(
     dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, (uint32_t)(uintptr_t)lli);
 
-  lli = priv->dma_lli_nc;
   dw_gdma_ll_lli_set_src_addr(lli, (uint32_t)(uintptr_t)frame_buffer);
   dw_gdma_ll_lli_set_dst_addr(lli, MIPI_DSI_BRG_MEM_BASE);
   dw_gdma_ll_lli_set_trans_block_size(
@@ -873,6 +840,14 @@ static int esp_mipi_dsi_video_dma_prepare(
   dw_gdma_ll_lli_set_link_list_master_port(
     lli, DW_GDMA_LL_MASTER_PORT_MEMORY);
   dw_gdma_ll_lli_set_next_item_addr(lli, 0);
+
+  ret = esp_mipi_dsi_clock_result(esp_cache_msync(
+    lli, sizeof(*lli), ESP_CACHE_MSYNC_FLAG_DIR_C2M |
+    ESP_CACHE_MSYNC_FLAG_UNALIGNED));
+  if (ret < 0)
+    {
+      goto errout;
+    }
 
   priv->dma_cpuint = esp_setup_irq(ETS_DW_GDMA_INTR_SOURCE,
                                     ESP_IRQ_PRIORITY_DEFAULT,
