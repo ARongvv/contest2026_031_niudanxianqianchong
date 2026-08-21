@@ -16,6 +16,7 @@
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI
 
 #include <errno.h>
+#include <syslog.h>
 
 #include <nuttx/signal.h>
 #include <nuttx/video/mipi_dsi.h>
@@ -73,18 +74,36 @@ int board_mipi_dsi_panel_reset(void)
 {
   int ret;
 
+  syslog(LOG_INFO,
+         "INFO: P4X DSI panel reset configure gpio=%d active_low=1\n",
+         BOARD_MIPI_DSI_PANEL_RESET_GPIO);
   ret = esp_configgpio(BOARD_MIPI_DSI_PANEL_RESET_GPIO, OUTPUT);
   if (ret < 0)
     {
+      syslog(LOG_ERR, "ERROR: P4X DSI panel reset gpio configure ret=%d\n",
+             ret);
       return -EIO;
     }
 
   /* RST_LCD is active low on the P4X LCD adapter. */
 
+  syslog(LOG_INFO, "INFO: P4X DSI panel reset assert delay_us=%d\n",
+         BOARD_MIPI_DSI_RESET_ASSERT_US);
   esp_gpiowrite(BOARD_MIPI_DSI_PANEL_RESET_GPIO, false);
   nxsig_usleep(BOARD_MIPI_DSI_RESET_ASSERT_US);
+
+  syslog(LOG_INFO, "INFO: P4X DSI panel reset release delay_us=%d\n",
+         BOARD_MIPI_DSI_RESET_RELEASE_US);
   esp_gpiowrite(BOARD_MIPI_DSI_PANEL_RESET_GPIO, true);
-  return nxsig_usleep(BOARD_MIPI_DSI_RESET_RELEASE_US);
+  ret = nxsig_usleep(BOARD_MIPI_DSI_RESET_RELEASE_US);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: P4X DSI panel reset release ret=%d\n", ret);
+      return ret;
+    }
+
+  syslog(LOG_INFO, "INFO: P4X DSI panel reset complete\n");
+  return OK;
 }
 
 /****************************************************************************
@@ -101,15 +120,20 @@ int board_mipi_dsi_initialize(FAR struct mipi_dsi_host **host)
     }
 
   *host = NULL;
+  syslog(LOG_INFO, "INFO: P4X DSI host initialize begin\n");
   ret = esp_mipi_dsi_host_initialize(&g_board_mipi_dsi_config, host);
   if (ret < 0)
     {
+      syslog(LOG_ERR, "ERROR: P4X DSI host initialize ret=%d\n", ret);
       return ret;
     }
+
+  syslog(LOG_INFO, "INFO: P4X DSI host initialize complete\n");
 
   ret = board_mipi_dsi_panel_reset();
   if (ret < 0)
     {
+      syslog(LOG_ERR, "ERROR: P4X DSI panel reset ret=%d\n", ret);
       esp_mipi_dsi_host_shutdown(*host);
       *host = NULL;
     }

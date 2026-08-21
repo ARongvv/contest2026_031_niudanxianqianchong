@@ -1894,6 +1894,7 @@ menuconfig ESPRESSIF_MIPI_DSI
 	bool "MIPI DSI host controller"
 	depends on ESP32P4_REV_MIN_301
 	default n
+	select DRIVERS_VIDEO
 	select ESPRESSIF_LDO
 	select MIPI_DSI
 	---help---
