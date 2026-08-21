@@ -35,6 +35,8 @@
 #include "hal/mipi_dsi_phy_ll.h"
 
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+#  include "esp_cache.h"
+#  include "esp_heap_caps.h"
 #  include "esp_private/dw_gdma.h"
 #  include "soc/reg_base.h"
 #endif
@@ -61,6 +63,7 @@
 #define ESP_MIPI_DSI_DMA_TRANSFER_WIDTH_BYTES    8
 #define ESP_MIPI_DSI_DMA_BURST_WORDS           256
 #define ESP_MIPI_DSI_DMA_EMPTY_THRESHOLD       768
+#define ESP_MIPI_DSI_DMA_BUFFER_ALIGNMENT        64
 
 /* The P4 DSI DPI clock defaults to PLL_F240M.  A requested 52 MHz pixel
  * clock therefore becomes 48 MHz with divider 5; the timing helper applies
@@ -1401,6 +1404,70 @@ errout_unlock:
   (void)host;
   (void)config;
   return -ENOTSUP;
+#endif
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_dma_buffer_allocate
+ ****************************************************************************/
+
+int esp_mipi_dsi_dma_buffer_allocate(size_t bytes, FAR void **buffer)
+{
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+  if (buffer == NULL || bytes == 0)
+    {
+      return -EINVAL;
+    }
+
+  *buffer = heap_caps_aligned_calloc(
+    ESP_MIPI_DSI_DMA_BUFFER_ALIGNMENT, 1, bytes,
+    MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+  return *buffer == NULL ? -ENOMEM : OK;
+#else
+  (void)bytes;
+  (void)buffer;
+  return -ENOTSUP;
+#endif
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_dma_buffer_sync_for_device
+ ****************************************************************************/
+
+int esp_mipi_dsi_dma_buffer_sync_for_device(FAR void *buffer, size_t bytes)
+{
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+  esp_err_t result;
+
+  if (buffer == NULL || bytes == 0)
+    {
+      return -EINVAL;
+    }
+
+  result = esp_cache_msync(buffer, bytes,
+                           ESP_CACHE_MSYNC_FLAG_DIR_C2M |
+                           ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+  return esp_mipi_dsi_clock_result(result);
+#else
+  (void)buffer;
+  (void)bytes;
+  return -ENOTSUP;
+#endif
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_dma_buffer_free
+ ****************************************************************************/
+
+void esp_mipi_dsi_dma_buffer_free(FAR void *buffer)
+{
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+  if (buffer != NULL)
+    {
+      heap_caps_free(buffer);
+    }
+#else
+  (void)buffer;
 #endif
 }
 

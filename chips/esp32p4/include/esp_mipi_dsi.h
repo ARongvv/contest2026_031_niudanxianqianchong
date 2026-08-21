@@ -134,6 +134,41 @@ int esp_mipi_dsi_video_dma_start(
   FAR const struct esp_mipi_dsi_video_dma_config_s *config);
 
 /****************************************************************************
+ * Name: esp_mipi_dsi_dma_buffer_allocate
+ *
+ * Description:
+ *   Allocate a P4 DMA-capable PSRAM buffer with the alignment required by
+ *   the DSI Bridge/GDMA scanout path.  This is a chip-layer ownership
+ *   boundary: board code supplies the pixels, but does not include ESP HAL
+ *   heap or cache headers.  The caller must release the buffer only after
+ *   esp_mipi_dsi_video_stop() returns.
+ *
+ ****************************************************************************/
+
+int esp_mipi_dsi_dma_buffer_allocate(size_t bytes, FAR void **buffer);
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_dma_buffer_sync_for_device
+ *
+ * Description:
+ *   Clean CPU-written data to memory before the DSI Bridge/GDMA reads a
+ *   buffer returned by esp_mipi_dsi_dma_buffer_allocate().
+ *
+ ****************************************************************************/
+
+int esp_mipi_dsi_dma_buffer_sync_for_device(FAR void *buffer, size_t bytes);
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_dma_buffer_free
+ *
+ * Description:
+ *   Release a buffer returned by esp_mipi_dsi_dma_buffer_allocate().
+ *
+ ****************************************************************************/
+
+void esp_mipi_dsi_dma_buffer_free(FAR void *buffer);
+
+/****************************************************************************
  * Name: esp_mipi_dsi_video_stop
  *
  * Description:

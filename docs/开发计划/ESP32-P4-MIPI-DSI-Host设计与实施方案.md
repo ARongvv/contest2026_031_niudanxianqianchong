@@ -197,8 +197,10 @@ pipeline。为将 M2a 的“Host 已启动但未显示”与物理链路问题�
 **固定 RGB888 垂直色条**，不引入 LVGL：
 
 1. 板级仍传入完整 video timing；芯片层不写死 EK79007 的分辨率、porch 或 GPIO。
-2. 板级以 `MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT` 分配 64-byte
-   对齐的 1024×600 RGB888 单帧（1,843,200 B），填充八段色条后执行 C2M cache clean。
+2. 板级通过芯片层公开的 `esp_mipi_dsi_dma_buffer_*()` 请求 64-byte 对齐的
+   1024×600 RGB888 PSRAM 单帧（1,843,200 B），填充八段色条后执行 C2M cache
+   clean。ESP HAL 的 heap/cache 头文件、capability 位和错误类型只留在芯片层，
+   不能泄漏到 Board.mk 编译的板级源码。
 3. 芯片层创建一个 DW-GDMA circular LLI，源为该 buffer、目的为
    `MIPI_DSI_BRG_MEM_BASE`；使用 64-bit transfer width、DSI 硬件握手和 DMA flow
    controller，随后才打开 Bridge DPI output 与 Host video mode。

@@ -321,13 +321,25 @@ VSYNC raw interrupt 说明本地 timing loop 在工作，但 bridge flow control
    `esp_mipi_dsi_video_dma_start()`：创建 DW-GDMA channel 与单项 circular LLI，源为
    RGB888 frame buffer，目的为 DSI Bridge FIFO；配置 DMA flow controller、burst、
    empty threshold，并在停止时按 video -> DMA -> bridge/clock 的反向顺序释放资源。
-2. P4X 板级层以 PSRAM 分配 64-byte 对齐的 1024×600 RGB888 单帧
-   （1,843,200 B），填充白/黄/青/绿/品红/红/蓝/黑八段垂直色条，执行 C2M cache
-   clean 后交给芯片层；DMA 完全停止后才释放 buffer。
+2. P4X 板级层通过芯片层的 `esp_mipi_dsi_dma_buffer_*()` 薄封装取得 64-byte
+   对齐的 1024×600 RGB888 PSRAM 单帧（1,843,200 B），填充白/黄/青/绿/品红/红/
+   蓝/黑八段垂直色条，执行 C2M cache clean 后交给芯片层；DMA 完全停止后才释放
+   buffer。
 3. `dsi_probe` 保留原有命令行入口，但输出明确改为 `DMA RGB888 vertical colour
    bars`；`HOST PASS` 仍只表示软件路径完成，只有肉眼可见画面才是显示验收通过。
 4. `dsi_probe` defconfig 增加 `ESPRESSIF_SPIRAM`、`MM_KERNEL_HEAP`、
    `MM_REGIONS=2`，并由 Probe 视频开关选择 M2b DMA Kconfig。
+
+### 构建边界修正
+
+`Board.mk` 只向板级源文件提供 NuttX 和公开 chip 头文件，不继承 ESP HAL 的
+`esp_cache.h`、`esp_heap_caps.h` 搜索路径。M2b 初版在 `esp32p4_lcd.c` 直接包含这两个
+vendor 头，导致 `fatal error: esp_cache.h: No such file or directory`。
+
+修复方式不是向 Board.mk 扩散 ESP HAL include path，而是由 `esp_mipi_dsi.c` 新增
+errno 风格的 DMA buffer allocate/sync/free 薄封装。板级层只负责色条像素内容和 buffer
+生命周期，vendor capability、cache 操作和 `esp_err_t` 保持在芯片层；这也保持了后续
+上游吸收时的层次边界。
 
 ### 当前验证边界
 
