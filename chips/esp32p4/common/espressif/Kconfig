@@ -1912,6 +1912,15 @@ config ESPRESSIF_MIPI_DSI_TIMEOUT_MS
 		Maximum time spent waiting for a command FIFO or PHY PLL operation.
 		The host never uses an unbounded busy-wait loop.
 
+config ESPRESSIF_MIPI_DSI_VIDEO
+	bool "MIPI DSI DPI video pattern mode"
+	default n
+	help
+		Enable the ESP32-P4 MIPI DSI DPI video-mode support.  The first
+		implementation exposes the Host's internal colour-bar/BER pattern
+		generator for board bring-up.  It does not allocate a framebuffer,
+		use DMA, or provide an LVGL display port.
+
 endif # ESPRESSIF_MIPI_DSI
 
 config ESPRESSIF_EFUSE

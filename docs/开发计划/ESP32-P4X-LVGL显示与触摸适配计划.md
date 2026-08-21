@@ -122,15 +122,14 @@ P4X 板级装配层
 | 层级 | 计划文件 | 职责 |
 | --- | --- | --- |
 | P4 芯片层 | `chips/esp32p4/common/espressif/esp_ldo.c/.h` | 将 P4 vendor LDO 生命周期封装为 NuttX 风格接口 |
-| P4 芯片层 | `chips/esp32p4/common/espressif/esp_mipi_dsi.c/.h` | MIPI-DSI command Host、PHY 与 DCS transfer（M1） |
-| P4 芯片层 | `chips/esp32p4/common/espressif/esp_mipi_dsi_video.c/.h` | DPI 视频、framebuffer、DMA、vsync（M2，后续新增） |
+| P4 芯片层 | `chips/esp32p4/common/espressif/esp_mipi_dsi.c/.h` | MIPI-DSI Host、PHY、DCS transfer 与 M2a DPI 内建色条；M2b 再扩展 framebuffer/DMA/vsync |
 | P4 芯片层 | `chips/esp32p4/common/espressif/Kconfig`、`Make.defs`、`CMakeLists.txt` | 建立 MIPI-DSI host 配置与构建入口 |
 | P4 HAL 构建 | `chips/esp32p4/hal_esp32p4.{mk,cmake}` | 条件加入 MIPI-DSI 与 video 所需 vendor HAL 源，保持双入口一致 |
 | 竞赛驱动覆盖层 | `drivers/nuttx/drivers/lcd/{ek79007.c,ek79007.h}` | EK79007 面板 DCS 初始化、视频模式、休眠与恢复 |
 | 竞赛驱动覆盖层 | `drivers/nuttx/drivers/input/{gt911.c,gt911.h}` | GT911 I2C 寄存器访问、触点解析、输入事件上报 |
 | NuttX 工作树映射 | `nuttx/drivers/{lcd,input}/` | 由 `scripts/link_nuttx_display_drivers.sh` 创建相对软链接，供 NuttX 正常构建 |
 | NuttX 构建项 | 对应 `drivers/*/{Kconfig,Make.defs,CMakeLists.txt}` | 注册通用面板和输入驱动 |
-| P4X 板级层 | `board/esp32p4/esp32p4-function-ev-board/src/esp32p4_lcd.c` | M1：LDO、reset、DSI Host 装配；M3 再接背光和面板实例 |
+| P4X 板级层 | `board/esp32p4/esp32p4-function-ev-board/src/esp32p4_lcd.c` | M1：LDO、reset、DSI Host；M2a：DPI timing、GPIO26 静态背光；M3 再接面板实例 |
 | P4X 板级层 | `board/esp32p4/esp32p4-function-ev-board/src/esp32p4_touch.c` | I2C 获取、GT911 复位与注册 |
 | P4X 板级层 | `src/esp32p4-function-ev-board.h` | 板级初始化接口、GPIO 常量 |
 | P4X 板级层 | `src/esp32p4_bringup.c` | 按 Kconfig 调用显示和触摸初始化 |

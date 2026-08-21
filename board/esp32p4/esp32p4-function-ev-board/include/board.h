@@ -29,6 +29,8 @@
 
 #include <nuttx/compiler.h>
 
+#include <stdbool.h>
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -85,6 +87,43 @@ int board_mipi_dsi_initialize(FAR struct mipi_dsi_host **host);
  ****************************************************************************/
 
 int board_mipi_dsi_panel_reset(void);
+
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO
+
+/****************************************************************************
+ * Name: board_mipi_dsi_video_pattern_start
+ *
+ * Description:
+ *   Start the P4 Host's internal colour-bar pattern using the P4X panel
+ *   timing.  This is a framebuffer-free M2a display validation path.
+ *
+ ****************************************************************************/
+
+int board_mipi_dsi_video_pattern_start(FAR struct mipi_dsi_host *host);
+
+/****************************************************************************
+ * Name: board_mipi_dsi_video_stop
+ *
+ * Description:
+ *   Stop the P4X DPI pattern path before command Host shutdown.
+ *
+ ****************************************************************************/
+
+int board_mipi_dsi_video_stop(FAR struct mipi_dsi_host *host);
+
+/****************************************************************************
+ * Name: board_mipi_dsi_backlight_set
+ *
+ * Description:
+ *   Drive the LCD adapter PWM input to a static on/off level for board
+ *   bring-up.  Duty-cycle control is intentionally deferred to the later
+ *   board PWM integration.
+ *
+ ****************************************************************************/
+
+int board_mipi_dsi_backlight_set(bool enable);
+
+#endif /* CONFIG_ESPRESSIF_MIPI_DSI_VIDEO */
 
 /****************************************************************************
  * Name: board_mipi_dsi_shutdown

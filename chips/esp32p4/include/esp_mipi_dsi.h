@@ -17,6 +17,7 @@
 #include <nuttx/config.h>
 #include <nuttx/video/mipi_dsi.h>
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include <arch/chip/esp_ldo.h>
@@ -43,6 +44,35 @@ struct esp_mipi_dsi_host_config_s
   struct esp_ldo_config_s phy_ldo;
 };
 
+/* The P4 DSI Host can generate these patterns internally.  This M2a API is
+ * deliberately framebuffer-free: it verifies the entire DPI/video path
+ * before a board enables DMA-backed framebuffers or LVGL.
+ */
+
+enum esp_mipi_dsi_video_pattern_e
+{
+  ESP_MIPI_DSI_VIDEO_PATTERN_VERTICAL_BARS = 0,
+  ESP_MIPI_DSI_VIDEO_PATTERN_HORIZONTAL_BARS,
+  ESP_MIPI_DSI_VIDEO_PATTERN_BER_VERTICAL,
+};
+
+struct esp_mipi_dsi_video_pattern_config_s
+{
+  uint8_t  channel;
+  uint16_t hactive;
+  uint16_t hsync;
+  uint16_t hback_porch;
+  uint16_t hfront_porch;
+  uint16_t vactive;
+  uint16_t vsync;
+  uint16_t vback_porch;
+  uint16_t vfront_porch;
+  uint32_t pixel_clock_hz;
+  bool     hsync_active_low;
+  bool     vsync_active_low;
+  enum esp_mipi_dsi_video_pattern_e pattern;
+};
+
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
@@ -51,5 +81,28 @@ int esp_mipi_dsi_host_initialize(
   FAR const struct esp_mipi_dsi_host_config_s *config,
   FAR struct mipi_dsi_host **host);
 int esp_mipi_dsi_host_shutdown(FAR struct mipi_dsi_host *host);
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_pattern_start
+ *
+ * Description:
+ *   Configure DPI video mode and start the P4 Host's built-in test-pattern
+ *   generator.  No framebuffer, DMA descriptor, or LVGL object is involved.
+ *
+ ****************************************************************************/
+
+int esp_mipi_dsi_video_pattern_start(
+  FAR struct mipi_dsi_host *host,
+  FAR const struct esp_mipi_dsi_video_pattern_config_s *config);
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_stop
+ *
+ * Description:
+ *   Stop DPI video mode and return the DSI Host to command mode.
+ *
+ ****************************************************************************/
+
+int esp_mipi_dsi_video_stop(FAR struct mipi_dsi_host *host);
 
 #endif /* __ARCH_RISCV_SRC_ESP32P4_INCLUDE_ESP_MIPI_DSI_H */

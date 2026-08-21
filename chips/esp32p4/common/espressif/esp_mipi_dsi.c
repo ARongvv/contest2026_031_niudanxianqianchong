@@ -29,6 +29,7 @@
 #include "esp_private/esp_clk_tree_common.h"
 #include "esp_private/periph_ctrl.h"
 #include "hal/mipi_dsi_hal.h"
+#include "hal/mipi_dsi_brg_ll.h"
 #include "hal/mipi_dsi_host_ll.h"
 #include "hal/mipi_dsi_ll.h"
 #include "hal/mipi_dsi_phy_ll.h"
@@ -49,6 +50,15 @@
 #define ESP_MIPI_DSI_ESCAPE_CLOCK_MHZ      18
 #define ESP_MIPI_DSI_MAX_READ_TIME          6000
 #define ESP_MIPI_DSI_STOP_WAIT_TIME         0x3f
+#define ESP_MIPI_DSI_MIN_DPI_CLOCK_HZ       1000000
+#define ESP_MIPI_DSI_MAX_DPI_CLOCK_HZ     240000000
+
+/* The P4 DSI DPI clock defaults to PLL_F240M.  A requested 52 MHz pixel
+ * clock therefore becomes 48 MHz with divider 5; the timing helper applies
+ * the matching horizontal compensation to preserve the frame rate.
+ */
+
+#define ESP_MIPI_DSI_DPI_CLK_SRC SOC_MOD_CLK_PLL_F240M
 
 /* ESP32-P4 revision 3.0 and later use a different D-PHY PLL reference
  * clock mux.  The P4X board uses a revision 3.x chip, which requires XTAL
@@ -82,6 +92,8 @@ struct esp_mipi_dsi_s
   clock_t                    timeout_ticks;
   bool                       registered;
   bool                       ready;
+  bool                       video_running;
+  soc_module_clk_t           dpi_clk_src;
 };
 
 /****************************************************************************
@@ -116,6 +128,7 @@ static struct esp_mipi_dsi_s g_esp_mipi_dsi =
   .lock = NXMUTEX_INITIALIZER,
   .phy_cfg_clk_src = SOC_MOD_CLK_INVALID,
   .phy_pllref_clk_src = SOC_MOD_CLK_INVALID,
+  .dpi_clk_src = SOC_MOD_CLK_INVALID,
 };
 
 /****************************************************************************
@@ -460,6 +473,134 @@ static void esp_mipi_dsi_configure_command_mode(
   mipi_dsi_phy_ll_set_stop_wait_time(host, ESP_MIPI_DSI_STOP_WAIT_TIME);
 }
 
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_pattern_type
+ ****************************************************************************/
+
+static int esp_mipi_dsi_video_pattern_type(
+  enum esp_mipi_dsi_video_pattern_e pattern,
+  FAR mipi_dsi_pattern_type_t *hal_pattern)
+{
+  switch (pattern)
+    {
+      case ESP_MIPI_DSI_VIDEO_PATTERN_VERTICAL_BARS:
+        *hal_pattern = MIPI_DSI_PATTERN_BAR_VERTICAL;
+        return OK;
+
+      case ESP_MIPI_DSI_VIDEO_PATTERN_HORIZONTAL_BARS:
+        *hal_pattern = MIPI_DSI_PATTERN_BAR_HORIZONTAL;
+        return OK;
+
+      case ESP_MIPI_DSI_VIDEO_PATTERN_BER_VERTICAL:
+        *hal_pattern = MIPI_DSI_PATTERN_BER_VERTICAL;
+        return OK;
+
+      default:
+        return -EINVAL;
+    }
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_enable_dpi_clock
+ ****************************************************************************/
+
+static int esp_mipi_dsi_enable_dpi_clock(
+  FAR struct esp_mipi_dsi_s *priv, uint32_t pixel_clock_hz)
+{
+  uint32_t source_hz;
+  uint32_t divider;
+  int ret;
+
+  ret = esp_mipi_dsi_clock_result(
+    esp_clk_tree_enable_src(ESP_MIPI_DSI_DPI_CLK_SRC, true));
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  ret = esp_mipi_dsi_clock_result(esp_clk_tree_src_get_freq_hz(
+    ESP_MIPI_DSI_DPI_CLK_SRC, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED,
+    &source_hz));
+  if (ret < 0)
+    {
+      esp_clk_tree_enable_src(ESP_MIPI_DSI_DPI_CLK_SRC, false);
+      return ret;
+    }
+
+  divider = mipi_dsi_hal_host_dpi_calculate_divider(
+    &priv->hal, (float)source_hz / 1000000.0f,
+    (float)pixel_clock_hz / 1000000.0f);
+  if (divider == 0 || divider > MIPI_DSI_LL_MAX_DPI_CLK_DIV)
+    {
+      esp_clk_tree_enable_src(ESP_MIPI_DSI_DPI_CLK_SRC, false);
+      return -ERANGE;
+    }
+
+  PERIPH_RCC_ATOMIC()
+    {
+      mipi_dsi_ll_set_dpi_clock_source(
+        ESP_MIPI_DSI_BUS0,
+        (mipi_dsi_dpi_clock_source_t)ESP_MIPI_DSI_DPI_CLK_SRC);
+      mipi_dsi_ll_set_dpi_clock_div(ESP_MIPI_DSI_BUS0, divider);
+      mipi_dsi_ll_enable_dpi_clock(ESP_MIPI_DSI_BUS0, true);
+    }
+
+  priv->dpi_clk_src = ESP_MIPI_DSI_DPI_CLK_SRC;
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI DPI clock source_hz=%" PRIu32
+         " requested_hz=%" PRIu32 " divider=%" PRIu32
+         " actual_hz=%" PRIu32 "\n",
+         source_hz, pixel_clock_hz, divider,
+         (uint32_t)(priv->hal.real_dpi_clock_freq_mhz * 1000000.0f));
+  return OK;
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_disable_dpi_clock
+ ****************************************************************************/
+
+static void esp_mipi_dsi_disable_dpi_clock(
+  FAR struct esp_mipi_dsi_s *priv)
+{
+  PERIPH_RCC_ATOMIC()
+    {
+      mipi_dsi_ll_enable_dpi_clock(ESP_MIPI_DSI_BUS0, false);
+    }
+
+  if (priv->dpi_clk_src != SOC_MOD_CLK_INVALID)
+    {
+      esp_clk_tree_enable_src(priv->dpi_clk_src, false);
+      priv->dpi_clk_src = SOC_MOD_CLK_INVALID;
+    }
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_stop_locked
+ ****************************************************************************/
+
+static void esp_mipi_dsi_video_stop_locked(FAR struct esp_mipi_dsi_s *priv)
+{
+  if (!priv->video_running)
+    {
+      return;
+    }
+
+  mipi_dsi_host_ll_enable_video_mode(priv->hal.host, false);
+  mipi_dsi_host_ll_dpi_set_pattern_type(priv->hal.host,
+                                        MIPI_DSI_PATTERN_NONE);
+  mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, false);
+  mipi_dsi_brg_ll_enable(priv->hal.bridge, false);
+  mipi_dsi_brg_ll_enable_ref_clock(priv->hal.bridge, false);
+  mipi_dsi_brg_ll_force_enable_reg_clock(priv->hal.bridge, false);
+  esp_mipi_dsi_disable_dpi_clock(priv);
+  priv->video_running = false;
+  syslog(LOG_INFO, "INFO: MIPI-DSI DPI video stopped\n");
+}
+
+#endif /* CONFIG_ESPRESSIF_MIPI_DSI_VIDEO */
+
 static bool esp_mipi_dsi_message_is_read(uint8_t type)
 {
   /* A DSI data type, rather than incidental receive-buffer fields, defines
@@ -748,6 +889,9 @@ int esp_mipi_dsi_host_shutdown(FAR struct mipi_dsi_host *host)
       return OK;
     }
 
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO
+  esp_mipi_dsi_video_stop_locked(priv);
+#endif
   mipi_dsi_hal_deinit(&priv->hal);
   esp_mipi_dsi_disable_phy_clock_sources(priv, ESP_MIPI_DSI_BUS0);
   esp_mipi_dsi_enable_clocks(ESP_MIPI_DSI_BUS0, false);
@@ -756,4 +900,137 @@ int esp_mipi_dsi_host_shutdown(FAR struct mipi_dsi_host *host)
   priv->phy_ldo = NULL;
   nxmutex_unlock(&priv->lock);
   return ret;
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_pattern_start
+ ****************************************************************************/
+
+int esp_mipi_dsi_video_pattern_start(
+  FAR struct mipi_dsi_host *host,
+  FAR const struct esp_mipi_dsi_video_pattern_config_s *config)
+{
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO
+  FAR struct esp_mipi_dsi_s *priv = &g_esp_mipi_dsi;
+  mipi_dsi_pattern_type_t pattern;
+  int ret;
+
+  if (host != &priv->host || config == NULL || config->channel > 3 ||
+      config->hactive == 0 || config->vactive == 0 ||
+      config->pixel_clock_hz < ESP_MIPI_DSI_MIN_DPI_CLOCK_HZ ||
+      config->pixel_clock_hz > ESP_MIPI_DSI_MAX_DPI_CLOCK_HZ)
+    {
+      return -EINVAL;
+    }
+
+  ret = esp_mipi_dsi_video_pattern_type(config->pattern, &pattern);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  ret = nxmutex_lock(&priv->lock);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  if (!priv->ready)
+    {
+      ret = -ESHUTDOWN;
+    }
+  else if (priv->video_running)
+    {
+      ret = -EALREADY;
+    }
+  else
+    {
+      ret = esp_mipi_dsi_enable_dpi_clock(priv, config->pixel_clock_hz);
+      if (ret == OK)
+        {
+          mipi_dsi_host_ll_dpi_set_vcid(priv->hal.host, config->channel);
+          mipi_dsi_host_ll_dpi_set_color_coding(priv->hal.host,
+                                                LCD_COLOR_FMT_RGB888, 0);
+          mipi_dsi_host_ll_dpi_enable_loosely18_packet(priv->hal.host,
+                                                        false);
+          mipi_dsi_host_ll_dpi_set_timing_polarity(
+            priv->hal.host, config->hsync_active_low,
+            config->vsync_active_low, false, false, false);
+          mipi_dsi_host_ll_dpi_enable_frame_ack(priv->hal.host, false);
+          mipi_dsi_host_ll_dpi_enable_lp_horizontal_timing(priv->hal.host,
+                                                            false, false);
+          mipi_dsi_host_ll_dpi_enable_lp_vertical_timing(priv->hal.host,
+                                                          false, false,
+                                                          false, false);
+          mipi_dsi_host_ll_dpi_enable_lp_command(priv->hal.host, true);
+          mipi_dsi_host_ll_dpi_set_video_burst_type(
+            priv->hal.host, MIPI_DSI_LL_VIDEO_NON_BURST_WITH_SYNC_PULSES);
+          mipi_dsi_host_ll_dpi_set_null_packet_size(priv->hal.host, 0);
+          mipi_dsi_host_ll_dpi_set_trunks_num(priv->hal.host, 0);
+          mipi_dsi_host_ll_dpi_set_video_packet_pixel_num(priv->hal.host,
+                                                           config->hactive);
+          mipi_dsi_host_ll_dpi_set_pattern_type(priv->hal.host, pattern);
+
+          mipi_dsi_hal_host_dpi_set_horizontal_timing(
+            &priv->hal, config->hsync, config->hback_porch,
+            config->hactive, config->hfront_porch);
+          mipi_dsi_hal_host_dpi_set_vertical_timing(
+            &priv->hal, config->vsync, config->vback_porch,
+            config->vactive, config->vfront_porch);
+
+          mipi_dsi_brg_ll_force_enable_reg_clock(priv->hal.bridge, true);
+          mipi_dsi_brg_ll_enable_ref_clock(priv->hal.bridge, true);
+          mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, true);
+          mipi_dsi_brg_ll_update_dpi_config(priv->hal.bridge);
+          mipi_dsi_brg_ll_enable(priv->hal.bridge, true);
+          mipi_dsi_host_ll_enable_bta(priv->hal.host, false);
+          mipi_dsi_host_ll_set_clock_lane_state(
+            priv->hal.host, MIPI_DSI_LL_CLOCK_LANE_STATE_AUTO);
+          mipi_dsi_host_ll_enable_video_mode(priv->hal.host, true);
+          priv->video_running = true;
+          syslog(LOG_INFO,
+                 "INFO: MIPI-DSI DPI pattern started channel=%u "
+                 "size=%ux%u pixel_clock_hz=%" PRIu32 " pattern=%d\n",
+                 config->channel, config->hactive, config->vactive,
+                 config->pixel_clock_hz, config->pattern);
+        }
+    }
+
+  nxmutex_unlock(&priv->lock);
+  return ret;
+#else
+  (void)host;
+  (void)config;
+  return -ENOTSUP;
+#endif
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_stop
+ ****************************************************************************/
+
+int esp_mipi_dsi_video_stop(FAR struct mipi_dsi_host *host)
+{
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO
+  FAR struct esp_mipi_dsi_s *priv = &g_esp_mipi_dsi;
+  int ret;
+
+  if (host != &priv->host)
+    {
+      return -EINVAL;
+    }
+
+  ret = nxmutex_lock(&priv->lock);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  esp_mipi_dsi_video_stop_locked(priv);
+  nxmutex_unlock(&priv->lock);
+  return OK;
+#else
+  (void)host;
+  return -ENOTSUP;
+#endif
 }

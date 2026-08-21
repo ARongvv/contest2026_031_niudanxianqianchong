@@ -3,8 +3,9 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Command-only MIPI-DSI validation for the ESP32-P4X Function EV Board.
- * No video timing, DMA, framebuffer, panel init table or backlight is used.
+ * Staged MIPI-DSI validation for the ESP32-P4X Function EV Board.
+ * The optional video command uses the Host's internal pattern generator and
+ * never allocates a framebuffer or starts LVGL.
  ****************************************************************************/
 
 /****************************************************************************
@@ -34,6 +35,9 @@
 #define DSI_PROBE_LP_RATE_HZ   10000000
 
 #define DSI_PROBE_SLEEP_EXIT_DELAY_MS 120
+#define DSI_PROBE_DISPLAY_ON_DELAY_MS   20
+#define DSI_PROBE_VIDEO_SECONDS_DEFAULT 30
+#define DSI_PROBE_VIDEO_SECONDS_MAX    600
 
 /****************************************************************************
  * Private Types
@@ -108,6 +112,7 @@ static const struct dsi_probe_dcs_command_s g_dsi_probe_init_cmds[] =
   {0x85, g_dsi_probe_cmd_85, sizeof(g_dsi_probe_cmd_85), 0},
   {0x86, g_dsi_probe_cmd_86, sizeof(g_dsi_probe_cmd_86), 0},
   {MIPI_DCS_EXIT_SLEEP_MODE, NULL, 0, DSI_PROBE_SLEEP_EXIT_DELAY_MS},
+  {MIPI_DCS_SET_DISPLAY_ON, NULL, 0, DSI_PROBE_DISPLAY_ON_DELAY_MS},
 };
 
 /****************************************************************************
@@ -163,6 +168,81 @@ static int dsi_probe_send_init_sequence(FAR struct mipi_dsi_device *device)
 }
 
 /****************************************************************************
+ * Name: dsi_probe_parse_video_request
+ ****************************************************************************/
+
+static int dsi_probe_parse_video_request(int argc, FAR char *argv[],
+                                         FAR unsigned int *seconds)
+{
+  FAR char *endptr;
+  unsigned long value;
+
+  *seconds = DSI_PROBE_VIDEO_SECONDS_DEFAULT;
+  if (argc == 1)
+    {
+      return OK;
+    }
+
+  if (strcmp(argv[1], "video") != 0 || argc > 3)
+    {
+      return -EINVAL;
+    }
+
+  if (argc == 3)
+    {
+      value = strtoul(argv[2], &endptr, 10);
+      if (*argv[2] == '\0' || *endptr != '\0' || value == 0 ||
+          value > DSI_PROBE_VIDEO_SECONDS_MAX)
+        {
+          return -EINVAL;
+        }
+
+      *seconds = (unsigned int)value;
+    }
+
+  return 1;
+}
+
+#ifdef CONFIG_LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE_VIDEO_PATTERN
+
+/****************************************************************************
+ * Name: dsi_probe_run_video_pattern
+ ****************************************************************************/
+
+static int dsi_probe_run_video_pattern(FAR struct mipi_dsi_host *host,
+                                       unsigned int seconds)
+{
+  unsigned int elapsed;
+  int ret;
+
+  ret = board_mipi_dsi_video_pattern_start(host);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  printf("dsi_probe: vertical colour bars active for %u seconds; "
+         "no framebuffer or LVGL is involved\n", seconds);
+  for (elapsed = 0; elapsed < seconds; elapsed++)
+    {
+      ret = nxsig_usleep(1000 * 1000);
+      if (ret < 0)
+        {
+          break;
+        }
+    }
+
+  if (board_mipi_dsi_video_stop(host) < 0 && ret == OK)
+    {
+      ret = -EIO;
+    }
+
+  return ret;
+}
+
+#endif /* CONFIG_LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE_VIDEO_PATTERN */
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -177,15 +257,24 @@ int main(int argc, FAR char *argv[])
   uint8_t short_payload = 0;
   uint8_t long_payload[] = {0, 0, 0};
   uint8_t power_mode;
+  unsigned int video_seconds;
   bool dcs_read_available;
+  bool video_requested;
   ssize_t transferred;
   int ret;
 
-  (void)argc;
-  (void)argv;
+  ret = dsi_probe_parse_video_request(argc, argv, &video_seconds);
+  if (ret < 0)
+    {
+      printf("usage: dsi_probe [video [seconds]]\n");
+      return EXIT_FAILURE;
+    }
 
-  printf("=== ESP32-P4X MIPI-DSI command Host probe ===\n");
-  printf("link: 2 lanes, 1000 Mbps; panel: reset only; video: disabled\n");
+  video_requested = ret > 0;
+
+  printf("=== ESP32-P4X MIPI-DSI Host probe ===\n");
+  printf("link: 2 lanes, 1000 Mbps; panel: EK79007; video: %s\n",
+         video_requested ? "pattern request" : "disabled");
 
   ret = board_mipi_dsi_initialize(&host);
   if (ret < 0)
@@ -264,6 +353,25 @@ int main(int argc, FAR char *argv[])
       printf("dsi_probe: DCS power mode=0x%02x\n", power_mode);
     }
 
+  if (video_requested)
+    {
+#ifdef CONFIG_LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE_VIDEO_PATTERN
+      ret = dsi_probe_run_video_pattern(host, video_seconds);
+      if (ret < 0)
+        {
+          mipi_dsi_detach(&device);
+          board_mipi_dsi_shutdown(host);
+          return dsi_probe_fail("video_pattern", ret);
+        }
+#else
+      printf("dsi_probe: video command is disabled; enable "
+             "CONFIG_LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE_VIDEO_PATTERN\n");
+      mipi_dsi_detach(&device);
+      board_mipi_dsi_shutdown(host);
+      return EXIT_FAILURE;
+#endif
+    }
+
   ret = mipi_dsi_detach(&device);
   if (ret < 0)
     {
@@ -277,8 +385,8 @@ int main(int argc, FAR char *argv[])
       return dsi_probe_fail("host_shutdown", ret);
     }
 
-  printf("dsi_probe: PASS command Host validation completed "
-         "(DCS read=%s)\n",
+  printf("dsi_probe: PASS %s validation completed (DCS read=%s)\n",
+         video_requested ? "DPI pattern" : "command Host",
          dcs_read_available ? "available" : "unavailable");
   return EXIT_SUCCESS;
 }

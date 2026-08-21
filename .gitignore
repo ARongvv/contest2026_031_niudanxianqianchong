@@ -18,3 +18,8 @@ out/
 *.elf
 *.hex
 *.map
+
+# NuttX in-tree application dependency artefacts
+app/*/.built
+app/*/.depend
+app/*/Make.dep
