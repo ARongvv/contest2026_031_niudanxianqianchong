@@ -341,12 +341,16 @@ errno 风格的 DMA buffer allocate/sync/free 薄封装。板级层只负责色�
 生命周期，vendor capability、cache 操作和 `esp_err_t` 保持在芯片层；这也保持了后续
 上游吸收时的层次边界。
 
-后续链接阶段又发现 `dw_gdma_*` 未定义。`gdma.c` 与 `dw_gdma.c` 是两套不同的 ESP HAL
-上层驱动：前者已在 P4 HAL 基础清单中，后者才实现 DSI Bridge 使用的
-`dw_gdma_new_channel()`、LLI 建链和 channel enable/release 接口。修复是在竞赛项目的
-`hal_esp32p4.mk` 与 `hal_esp32p4.cmake` 同步增加
-`upper_hal_dma/src/dw_gdma.c`，并以 `ESPRESSIF_MIPI_DSI_VIDEO_DMA` 条件保护；不修改
-NuttX 或 vendor HAL 源码。
+后续链接阶段曾发现 `dw_gdma_*` 未定义。`gdma.c` 与 `dw_gdma.c` 是两套不同的 ESP HAL
+上层驱动，后者确实提供 DSI Bridge 所需的 channel、LLI 与 enable/release API；但将其纳入
+构建后立即暴露 `freertos/FreeRTOS.h` 缺失。原因是 `upper_hal_dma/src/dw_gdma.c` 是 ESP-IDF
+的 FreeRTOS 上层组件，不是 NuttX 可直接复用的 HAL 源。
+
+最终修复不引入 FreeRTOS 兼容层，也不修改 NuttX 或 vendor HAL：移除该文件的 MK/CMake
+构建引用，改由 `esp_mipi_dsi.c` 使用已纳入构建的 `dw_gdma_ll.h` 配置 DSI 专用的固定
+channel 0 与一个 64-byte 对齐、循环的 LLI。它完成 DMA 时钟/复位、memory-to-DSI 硬件握手、
+burst、LLI cache clean 和 stop 时反向关闭；该最小实现仅服务 M2b probe，尚不是通用
+DW-GDMA 资源管理框架。
 
 ### 当前验证边界
 

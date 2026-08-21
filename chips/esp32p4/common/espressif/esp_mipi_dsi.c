@@ -37,7 +37,7 @@
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
 #  include "esp_cache.h"
 #  include "esp_heap_caps.h"
-#  include "esp_private/dw_gdma.h"
+#  include "hal/dw_gdma_ll.h"
 #  include "soc/reg_base.h"
 #endif
 
@@ -64,6 +64,7 @@
 #define ESP_MIPI_DSI_DMA_BURST_WORDS           256
 #define ESP_MIPI_DSI_DMA_EMPTY_THRESHOLD       768
 #define ESP_MIPI_DSI_DMA_BUFFER_ALIGNMENT        64
+#define ESP_MIPI_DSI_DMA_CHANNEL                  0
 
 /* The P4 DSI DPI clock defaults to PLL_F240M.  A requested 52 MHz pixel
  * clock therefore becomes 48 MHz with divider 5; the timing helper applies
@@ -107,8 +108,8 @@ struct esp_mipi_dsi_s
   bool                       video_running;
   soc_module_clk_t           dpi_clk_src;
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
-  dw_gdma_channel_handle_t   dma_channel;
-  dw_gdma_link_list_handle_t dma_link_list;
+  FAR dw_gdma_dev_t          *dma_dev;
+  dw_gdma_link_list_item_t   dma_lli;
 #endif
 };
 
@@ -603,21 +604,22 @@ static void esp_mipi_dsi_video_configure_bridge(
 static void esp_mipi_dsi_video_dma_release(
   FAR struct esp_mipi_dsi_s *priv)
 {
-  if (priv->dma_channel != NULL)
+  if (priv->dma_dev != NULL)
     {
-      dw_gdma_channel_enable_ctrl(priv->dma_channel, false);
-    }
+      dw_gdma_ll_channel_enable(priv->dma_dev,
+                                 ESP_MIPI_DSI_DMA_CHANNEL, false);
+      dw_gdma_ll_channel_enable_intr_generation(
+        priv->dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, UINT32_MAX, false);
+      dw_gdma_ll_enable_intr_global(priv->dma_dev, false);
+      dw_gdma_ll_enable_controller(priv->dma_dev, false);
 
-  if (priv->dma_link_list != NULL)
-    {
-      dw_gdma_del_link_list(priv->dma_link_list);
-      priv->dma_link_list = NULL;
-    }
+      PERIPH_RCC_ATOMIC()
+        {
+          dw_gdma_ll_enable_bus_clock(ESP_MIPI_DSI_BUS0, false);
+        }
 
-  if (priv->dma_channel != NULL)
-    {
-      dw_gdma_del_channel(priv->dma_channel);
-      priv->dma_channel = NULL;
+      priv->dma_dev = NULL;
+      memset(&priv->dma_lli, 0, sizeof(priv->dma_lli));
     }
 }
 
@@ -629,13 +631,8 @@ static int esp_mipi_dsi_video_dma_prepare(
   FAR struct esp_mipi_dsi_s *priv, FAR const void *frame_buffer,
   size_t frame_buffer_bytes)
 {
-  dw_gdma_channel_static_config_t src_config;
-  dw_gdma_channel_static_config_t dst_config;
-  dw_gdma_channel_alloc_config_t channel_config;
-  dw_gdma_link_list_config_t link_config;
-  dw_gdma_block_transfer_config_t transfer_config;
-  dw_gdma_block_markers_t markers;
-  dw_gdma_lli_handle_t item;
+  FAR dw_gdma_dev_t *dma_dev;
+  FAR dw_gdma_link_list_item_t *lli = &priv->dma_lli;
   esp_err_t result;
   int ret;
 
@@ -646,91 +643,103 @@ static int esp_mipi_dsi_video_dma_prepare(
       return -EINVAL;
     }
 
-  memset(&src_config, 0, sizeof(src_config));
-  src_config.block_transfer_type = DW_GDMA_BLOCK_TRANSFER_LIST;
-  src_config.role = DW_GDMA_ROLE_MEM;
-  src_config.handshake_type = DW_GDMA_HANDSHAKE_HW;
-  src_config.num_outstanding_requests = 5;
+  if (priv->dma_dev != NULL)
+    {
+      return -EALREADY;
+    }
 
-  memset(&dst_config, 0, sizeof(dst_config));
-  dst_config.block_transfer_type = DW_GDMA_BLOCK_TRANSFER_LIST;
-  dst_config.role = DW_GDMA_ROLE_PERIPH_DSI;
-  dst_config.handshake_type = DW_GDMA_HANDSHAKE_HW;
-  dst_config.num_outstanding_requests = 2;
-  dst_config.status_fetch_addr = MIPI_DSI_BRG_MEM_BASE;
+  /* ESP-IDF's dw_gdma.c is a FreeRTOS upper-half driver.  The probe needs
+   * only one DSI-owned circular LLI, so configure the already-built HAL/LL
+   * directly and keep this NuttX adapter independent of FreeRTOS.
+   */
 
-  memset(&channel_config, 0, sizeof(channel_config));
-  channel_config.src = src_config;
-  channel_config.dst = dst_config;
-  channel_config.flow_controller = DW_GDMA_FLOW_CTRL_SELF;
-  channel_config.chan_priority = 1;
+  PERIPH_RCC_ATOMIC()
+    {
+      dw_gdma_ll_enable_bus_clock(ESP_MIPI_DSI_BUS0, true);
+      dw_gdma_ll_reset_register(ESP_MIPI_DSI_BUS0);
+    }
 
-  result = dw_gdma_new_channel(&channel_config, &priv->dma_channel);
+  dma_dev = DW_GDMA_LL_GET_HW(ESP_MIPI_DSI_BUS0);
+  if (dma_dev == NULL)
+    {
+      ret = -ENODEV;
+      goto errout;
+    }
+
+  dw_gdma_ll_reset(dma_dev);
+  dw_gdma_ll_enable_controller(dma_dev, true);
+  dw_gdma_ll_enable_intr_global(dma_dev, false);
+  dw_gdma_ll_channel_set_trans_flow(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, DW_GDMA_ROLE_MEM,
+    DW_GDMA_ROLE_PERIPH_DSI, DW_GDMA_FLOW_CTRL_SELF);
+  dw_gdma_ll_channel_set_src_multi_block_type(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, DW_GDMA_BLOCK_TRANSFER_LIST);
+  dw_gdma_ll_channel_set_dst_multi_block_type(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, DW_GDMA_BLOCK_TRANSFER_LIST);
+  dw_gdma_ll_channel_set_src_handshake_interface(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, DW_GDMA_HANDSHAKE_HW);
+  dw_gdma_ll_channel_set_dst_handshake_interface(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, DW_GDMA_HANDSHAKE_HW);
+  dw_gdma_ll_channel_set_dst_handshake_periph(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, DW_GDMA_ROLE_PERIPH_DSI);
+  dw_gdma_ll_channel_set_priority(dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, 1);
+  dw_gdma_ll_channel_set_src_outstanding_limit(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, 5);
+  dw_gdma_ll_channel_set_dst_outstanding_limit(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, 2);
+  dw_gdma_ll_channel_set_dst_periph_status_addr(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, MIPI_DSI_BRG_MEM_BASE);
+  dw_gdma_ll_channel_enable_intr_generation(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, UINT32_MAX, false);
+  dw_gdma_ll_channel_set_link_list_master_port(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, DW_GDMA_LL_MASTER_PORT_MEMORY);
+  dw_gdma_ll_channel_set_link_list_head_addr(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, (uint32_t)(uintptr_t)lli);
+
+  memset(lli, 0, sizeof(*lli));
+  dw_gdma_ll_lli_set_src_addr(lli, (uint32_t)(uintptr_t)frame_buffer);
+  dw_gdma_ll_lli_set_dst_addr(lli, MIPI_DSI_BRG_MEM_BASE);
+  dw_gdma_ll_lli_set_trans_block_size(
+    lli, frame_buffer_bytes / ESP_MIPI_DSI_DMA_TRANSFER_WIDTH_BYTES);
+  dw_gdma_ll_lli_set_src_master_port(lli, (intptr_t)frame_buffer);
+  dw_gdma_ll_lli_set_dst_master_port(lli, MIPI_DSI_BRG_MEM_BASE);
+  dw_gdma_ll_lli_set_src_trans_width(lli, DW_GDMA_TRANS_WIDTH_64);
+  dw_gdma_ll_lli_set_dst_trans_width(lli, DW_GDMA_TRANS_WIDTH_64);
+  dw_gdma_ll_lli_set_src_burst_mode(lli, DW_GDMA_BURST_MODE_INCREMENT);
+  dw_gdma_ll_lli_set_dst_burst_mode(lli, DW_GDMA_BURST_MODE_FIXED);
+  dw_gdma_ll_lli_set_src_burst_items(lli, DW_GDMA_BURST_ITEMS_512);
+  dw_gdma_ll_lli_set_dst_burst_items(lli, DW_GDMA_BURST_ITEMS_256);
+  dw_gdma_ll_lli_set_src_burst_len(lli, 16);
+  dw_gdma_ll_lli_set_dst_burst_len(lli, 16);
+  dw_gdma_ll_lli_set_block_markers(lli, false, false, true);
+  dw_gdma_ll_lli_set_link_list_master_port(
+    lli, DW_GDMA_LL_MASTER_PORT_MEMORY);
+  dw_gdma_ll_lli_set_next_item_addr(lli, (uint32_t)(uintptr_t)lli);
+
+  result = esp_cache_msync(lli, sizeof(*lli),
+                           ESP_CACHE_MSYNC_FLAG_DIR_C2M |
+                           ESP_CACHE_MSYNC_FLAG_UNALIGNED);
   ret = esp_mipi_dsi_clock_result(result);
   if (ret < 0)
     {
       goto errout;
     }
 
-  memset(&link_config, 0, sizeof(link_config));
-  link_config.num_items = 1;
-  link_config.link_type = DW_GDMA_LINKED_LIST_TYPE_CIRCULAR;
-  result = dw_gdma_new_link_list(&link_config, &priv->dma_link_list);
-  ret = esp_mipi_dsi_clock_result(result);
-  if (ret < 0)
-    {
-      goto errout;
-    }
-
-  item = dw_gdma_link_list_get_item(priv->dma_link_list, 0);
-  if (item == NULL)
-    {
-      ret = -EIO;
-      goto errout;
-    }
-
-  memset(&transfer_config, 0, sizeof(transfer_config));
-  transfer_config.src.addr = (uint32_t)(uintptr_t)frame_buffer;
-  transfer_config.src.burst_mode = DW_GDMA_BURST_MODE_INCREMENT;
-  transfer_config.src.width = DW_GDMA_TRANS_WIDTH_64;
-  transfer_config.src.burst_items = DW_GDMA_BURST_ITEMS_512;
-  transfer_config.src.burst_len = 16;
-  transfer_config.dst.addr = MIPI_DSI_BRG_MEM_BASE;
-  transfer_config.dst.burst_mode = DW_GDMA_BURST_MODE_FIXED;
-  transfer_config.dst.width = DW_GDMA_TRANS_WIDTH_64;
-  transfer_config.dst.burst_items = DW_GDMA_BURST_ITEMS_256;
-  transfer_config.dst.burst_len = 16;
-  transfer_config.size = frame_buffer_bytes /
-                         ESP_MIPI_DSI_DMA_TRANSFER_WIDTH_BYTES;
-
-  result = dw_gdma_lli_config_transfer(item, &transfer_config);
-  ret = esp_mipi_dsi_clock_result(result);
-  if (ret < 0)
-    {
-      goto errout;
-    }
-
-  memset(&markers, 0, sizeof(markers));
-  markers.is_valid = true;
-  result = dw_gdma_lli_set_block_markers(item, markers);
-  ret = esp_mipi_dsi_clock_result(result);
-  if (ret < 0)
-    {
-      goto errout;
-    }
-
-  result = dw_gdma_channel_use_link_list(priv->dma_channel,
-                                          priv->dma_link_list);
-  ret = esp_mipi_dsi_clock_result(result);
-  if (ret < 0)
-    {
-      goto errout;
-    }
-
+  priv->dma_dev = dma_dev;
   return OK;
 
 errout:
-  esp_mipi_dsi_video_dma_release(priv);
+  if (dma_dev != NULL)
+    {
+      dw_gdma_ll_enable_intr_global(dma_dev, false);
+      dw_gdma_ll_enable_controller(dma_dev, false);
+    }
+
+  PERIPH_RCC_ATOMIC()
+    {
+      dw_gdma_ll_enable_bus_clock(ESP_MIPI_DSI_BUS0, false);
+    }
+
   return ret;
 }
 #endif
@@ -1286,7 +1295,6 @@ int esp_mipi_dsi_video_dma_start(
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
   FAR struct esp_mipi_dsi_s *priv = &g_esp_mipi_dsi;
   size_t required_bytes;
-  esp_err_t result;
   int ret;
 
   if (host != &priv->host || config == NULL ||
@@ -1372,12 +1380,7 @@ int esp_mipi_dsi_video_dma_start(
   mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, true);
   mipi_dsi_brg_ll_update_dpi_config(priv->hal.bridge);
 
-  result = dw_gdma_channel_enable_ctrl(priv->dma_channel, true);
-  ret = esp_mipi_dsi_clock_result(result);
-  if (ret < 0)
-    {
-      goto errout_video;
-    }
+  dw_gdma_ll_channel_enable(priv->dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, true);
 
   priv->video_running = true;
   esp_mipi_dsi_dump_video_state(priv, "dma-started");
