@@ -9,4 +9,6 @@ config ARCH_BOARD_ESP32P4_FUNCTION_EV_BOARD
 	bool
 	default y
 
+source "$APPSDIR/packages/demos/contest2026_031_dsi_probe/Kconfig"
+
 endif # ARCH_BOARD_CUSTOM
