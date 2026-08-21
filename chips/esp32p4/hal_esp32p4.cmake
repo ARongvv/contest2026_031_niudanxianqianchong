@@ -477,6 +477,14 @@ if(CONFIG_ESPRESSIF_EMAC)
     arch PRIVATE ${ESP_HAL_3RDPARTY_REPO}/components/esp_eth/include)
 endif()
 
+if(CONFIG_ESPRESSIF_MIPI_DSI)
+  list(
+    APPEND
+    HAL_SRCS
+    ${ESP_HAL_3RDPARTY_REPO}/components/esp_hal_lcd/mipi_dsi_hal.c
+    ${ESP_HAL_3RDPARTY_REPO}/components/esp_hal_lcd/${CHIP_SERIES}/mipi_dsi_periph.c)
+endif()
+
 # Bootloader common
 list(
   APPEND HAL_SRCS
