@@ -20,10 +20,10 @@
 #include <nuttx/signal.h>
 #include <nuttx/video/mipi_dsi.h>
 
-#include <board.h>
+#include <arch/board/board.h>
+#include <arch/chip/esp_mipi_dsi.h>
 
 #include "espressif/esp_gpio.h"
-#include "espressif/esp_mipi_dsi.h"
 
 /****************************************************************************
  * Pre-processor Definitions
