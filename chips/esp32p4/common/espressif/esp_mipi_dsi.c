@@ -139,7 +139,7 @@ static int esp_mipi_dsi_wait_pll(FAR struct esp_mipi_dsi_s *priv)
 static int esp_mipi_dsi_write_packet(
   FAR struct esp_mipi_dsi_s *priv,
   FAR const struct mipi_dsi_packet *packet,
-                                     uint8_t channel, uint8_t type)
+  uint8_t channel, uint8_t type)
 {
   FAR const uint8_t *payload = packet->payload;
   size_t remaining = packet->payload_length;

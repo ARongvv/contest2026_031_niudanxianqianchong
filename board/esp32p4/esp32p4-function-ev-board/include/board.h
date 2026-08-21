@@ -24,6 +24,12 @@
 #define __BOARDS_RISCV_ESP32P4_ESP32P4_FUNCTION_EV_BOARD_INCLUDE_BOARD_H
 
 /****************************************************************************
+ * Included Files
+ ****************************************************************************/
+
+#include <nuttx/compiler.h>
+
+/****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
@@ -37,5 +43,59 @@
 /* BOOT Button */
 
 #define BUTTON_BOOT  35
+
+/* MIPI-DSI panel control pins.  GPIO27 is the active-low RST_LCD signal on
+ * the ESP32-P4X Function EV Board LCD adapter.  GPIO26 controls panel
+ * backlight PWM and remains unused by the command-only DSI probe.
+ */
+
+#define BOARD_MIPI_DSI_PANEL_RESET_GPIO  27
+#define BOARD_MIPI_DSI_BACKLIGHT_GPIO     26
+
+/****************************************************************************
+ * Public Types
+ ****************************************************************************/
+
+struct mipi_dsi_host;
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI
+
+/****************************************************************************
+ * Name: board_mipi_dsi_initialize
+ *
+ * Description:
+ *   Initialize the P4X command-mode MIPI-DSI host using the board PHY LDO
+ *   and link parameters.  This does not enable video scanout or backlight.
+ *
+ ****************************************************************************/
+
+int board_mipi_dsi_initialize(FAR struct mipi_dsi_host **host);
+
+/****************************************************************************
+ * Name: board_mipi_dsi_panel_reset
+ *
+ * Description:
+ *   Apply the board-specific active-low hardware reset sequence for the LCD
+ *   adapter.  This does not send panel DCS commands.
+ *
+ ****************************************************************************/
+
+int board_mipi_dsi_panel_reset(void);
+
+/****************************************************************************
+ * Name: board_mipi_dsi_shutdown
+ *
+ * Description:
+ *   Stop the command-mode Host and release its board-owned D-PHY LDO.
+ *
+ ****************************************************************************/
+
+int board_mipi_dsi_shutdown(FAR struct mipi_dsi_host *host);
+
+#endif /* CONFIG_ESPRESSIF_MIPI_DSI */
 
 #endif /* __BOARDS_RISCV_ESP32P4_ESP32P4_FUNCTION_EV_BOARD_INCLUDE_BOARD_H */
