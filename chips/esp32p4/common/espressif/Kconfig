@@ -1882,6 +1882,37 @@ config ESPRESSIF_DMA
 	default n
 	select ARCH_DMA
 
+config ESPRESSIF_LDO
+	bool "LDO regulator support"
+	default n
+	---help---
+		Expose the ESP32-P4 internal LDO reservation API to chip and board
+		drivers.  A board must still select the correct LDO channel and voltage
+		for its external hardware.
+
+menuconfig ESPRESSIF_MIPI_DSI
+	bool "MIPI DSI host controller"
+	depends on ESP32P4_REV_MIN_301
+	default n
+	select ESPRESSIF_LDO
+	select MIPI_DSI
+	---help---
+		Enable the ESP32-P4 MIPI DSI command-mode host adapter.  The ESP32-P4
+		has one host and supports one or two data lanes.  Video/DPI transfer is
+		configured by a board-level display adapter.
+
+if ESPRESSIF_MIPI_DSI
+
+config ESPRESSIF_MIPI_DSI_TIMEOUT_MS
+	int "MIPI DSI command polling timeout (ms)"
+	default 100
+	range 1 1000
+	---help---
+		Maximum time spent waiting for a command FIFO or PHY PLL operation.
+		The host never uses an unbounded busy-wait loop.
+
+endif # ESPRESSIF_MIPI_DSI
+
 config ESPRESSIF_EFUSE
 	bool "E-Fuse support"
 	select EFUSE

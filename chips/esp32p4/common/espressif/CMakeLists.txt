@@ -186,6 +186,14 @@ if(CONFIG_ESPRESSIF_AES_ACCELERATOR)
   list(APPEND SRCS esp_aes.c)
 endif()
 
+if(CONFIG_ESPRESSIF_LDO)
+  list(APPEND SRCS esp_ldo.c)
+endif()
+
+if(CONFIG_ESPRESSIF_MIPI_DSI)
+  list(APPEND SRCS esp_mipi_dsi.c)
+endif()
+
 if(CONFIG_CRYPTO_CRYPTODEV_HARDWARE)
   list(APPEND SRCS esp_crypto.c)
 endif()
