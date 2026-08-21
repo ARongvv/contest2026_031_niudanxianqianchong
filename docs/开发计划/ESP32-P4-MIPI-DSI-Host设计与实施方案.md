@@ -25,21 +25,22 @@ UI；这些分别属于通用面板驱动、P4X 板级层和输入层。
 
 ## 1.1 实施状态（2026-08-21）
 
-M1 的芯片层、P4X command-mode 板级装配和独立 probe 已完成，但尚未完成构建或
-实板验证。因此本节将状态严格分为“已实现”和“待验收”。
+M1 的芯片层、P4X command-mode 板级装配和独立 Probe 已完成；2026-08-21 已在
+实板完成 command-write 路径验证。该证据不包含 DPI video、framebuffer 或实际
+画面，故状态仍严格区分“命令写已验证”与“显示待验收”。
 
 | 项目 | 状态 | 说明 |
 | --- | --- | --- |
 | LDO 薄封装 | 已实现 | `esp_ldo.c/.h` 封装 ESP HAL channel acquire/release/adjust，向上返回 NuttX 负 errno。 |
-| MIPI DSI command Host | 已实现 | `esp_mipi_dsi.c/.h` 完成 bus 0、1/2 lane、PHY PLL、NuttX Host 注册、short/long packet 和读响应。 |
-| 等待与并发 | 已实现 | PLL 与 generic FIFO 使用超时轮询；Host 初始化、attach、transfer、shutdown 由同一 mutex 串行化。 |
+| MIPI DSI command Host | 已实现并完成命令写实板验证 | `esp_mipi_dsi.c/.h` 完成 bus 0、1/2 lane、P4 rev3 XTAL reference clock、PHY PLL、lane stop、NuttX Host 注册与 short/long/DCS packet。 |
+| 等待与并发 | 已实现并完成路径修正 | PLL、lane stop 与 FIFO 使用超时轮询；Host 初始化、attach、transfer、shutdown 由同一 mutex 串行化；BTA 仅由 DSI read data type 触发。 |
 | Kconfig 与双构建入口 | 已实现 | `ESPRESSIF_MIPI_DSI` 自动选择 `MIPI_DSI`、`ESPRESSIF_LDO`；Make/CMake 同时接入 Host 与 vendor HAL 源。 |
 | DSI error IRQ / `FAULT` 状态机 | 待实现 | 当前仅以 `ready`、`registered` 表达可用状态，传输错误直接返回 errno。 |
-| `dsi_probe` / P4X 板级 command 装配 | 已实现待验收 | `dsi_probe` defconfig 与独立 app 已加入；P4X 固定 LDO3/2.5V、2 lane/1000 Mbps、GPIO27 active-low reset，尚未构建或连接面板验证。 |
+| `dsi_probe` / P4X 板级 command 装配 | 命令写已实板验证 | P4X 固定 LDO3/2.5V、2 lane/1000 Mbps、GPIO27 active-low reset；generic packet 与 EK79007 初始化写序列通过。`GET_POWER_MODE` 未收到 payload，仅作为非阻塞诊断。 |
 | DPI video、DMA、framebuffer | 待实现 | 仍属于 M2，不提供 `/dev/fb0` 或 LVGL 显示能力。 |
 
-> 当前结论：可以进入 M1 的“配置、编译、独立 probe”阶段；不能据此宣称
-> EK79007 已显示或 LVGL 已可运行。
+> 当前结论：M1 的 Host 与 EK79007 command-write 链路已通过一次实板验证；不能
+> 据此宣称 EK79007 已显示、DCS read 已可用或 LVGL 已可运行。
 
 ## 2. 已验证的硬件与软件约束
 
@@ -128,20 +129,26 @@ shutdown：按相反方向关闭 PHY、时钟并释放 LDO；M2 再补充 DMA �
 1. 校验 bus 为 0、`lane_num` 为 1 或 2、bit rate 为 80--1500 Mbps、PHY 参考
    时钟为 5--40 MHz，并要求板级传入的 LDO 电压严格为 2.5 V。
 2. 申请并配置 D-PHY LDO channel。
-3. 在 RCC 原子区开启 DSI bus/PHY 时钟并复位寄存器；随后初始化 vendor HAL、
-   配置 PHY PLL 并等待 lock。
-4. 固定到 command mode，启用 Tx/Rx EoTP，并建立 `mipi_dsi_host_ops`。
-5. 首次成功初始化时调用 `mipi_dsi_host_register()`；再次初始化只重启硬件，
+3. 开启 DSI bus clock；启用 PHY configuration/PLL reference source，在 P4 rev3
+   选择 XTAL reference source、设置 divider，并查询实际参考频率。
+4. 在 RCC 原子区启用 PHY gate、初始化 vendor HAL、配置 PHY PLL，依次等待
+   PLL lock 与有效 lane stop state。
+5. 固定到 command mode，配置 clock lane、switch time、CRC/ECC、EoTP、
+   escape/timeout clock 与最大读时间，并建立 `mipi_dsi_host_ops`。
+6. 首次成功初始化时调用 `mipi_dsi_host_register()`；再次初始化只重启硬件，
    不重复注册 Host。
 
 `transfer()` 通过 `mipi_dsi_create_packet()` 复用 NuttX packet 编码：long packet
 按 32 bit 写 FIFO，short packet 写 header；读请求先发送 Maximum Return Packet
 Size，打开 BTA、设置 RX VC，再读取 RX FIFO。PLL、command FIFO、write FIFO、
 read busy 和 read FIFO 均在超时后返回 `-ETIMEDOUT`，每次轮询调用
-`nxsig_usleep(100)` 让出 CPU。
+`nxsig_usleep(100)` 让出 CPU。是否进入 BTA/read 路径由 DSI packet data type
+决定，而不是由写消息中无协议语义的接收字段决定。
 
-待验收的 M1 项：以独立 `dsi_probe` 在面板 reset 后完成 generic short/long 与
-DCS read 的重复实板测试。DSI error IRQ/首错记录仍待实现。
+已完成一次 M1 实板测试：`dsi_probe` 在面板 reset 后完成 generic short/long 与
+EK79007 初始化写序列。`DCS GET_POWER_MODE` 请求完成但未收到 payload，故其为
+可选诊断，不作为 command-write 通过标准。重复十次 initialize/shutdown、DSI
+error IRQ/首错记录仍待实现。
 
 `attach`/`detach` 负责 DSI device 的 VC、lane、format 约束；`transfer` 负责
 packet 生命周期和超时。一次 transfer 的 buffer 在函数返回前必须完成使用，或由
@@ -202,16 +209,17 @@ Kconfig 或板级静态配置。所有新增 C 源必须同时更新对应 `Kcon
 | `chips/esp32p4/common/espressif/esp_mipi_dsi_video.c/.h` | M2 | DPI/video/DMA/vsync |
 | `chips/esp32p4/common/espressif/{Kconfig,Make.defs,CMakeLists.txt}` | M1/M2，M1 已实现 | 芯片层开关和构建 |
 | `chips/esp32p4/hal_esp32p4.{mk,cmake}` | M1/M2，M1 已实现 | 条件纳入 vendor DSI HAL 源；GDMA HAL 留待 M2 按需接入 |
-| `board/.../src/esp32p4_lcd.c` | M1，已实现待验收 | P4X D-PHY LDO、GPIO27 reset、command Host 装配；面板实例留待 M3 |
-| `app/dsi_probe/`、`configs/dsi_probe/defconfig` | M1，已实现待验收 | 与 LVGL 解耦的 command Host 验证入口 |
+| `board/.../src/esp32p4_lcd.c` | M1，命令写已验证 | P4X D-PHY LDO、GPIO27 reset、command Host 装配；面板实例留待 M3 |
+| `app/dsi_probe/`、`configs/dsi_probe/defconfig` | M1，命令写已验证 | 与 LVGL 解耦的 command Host 验证入口；DCS read 为可选诊断 |
 
 ## 8. 验收矩阵
 
 | 阶段 | 最小测试 | 通过标准 |
 | --- | --- | --- |
-| M1 编译 | `dsi_probe` 构建，Make/CMake 两入口 | 待验收：无链接遗漏、无 warning、Kconfig 依赖可复现 |
-| M1 启动 | USB console 打印 Host 状态 | 待验收：失败能定位到 LDO/PLL/transfer 并返回 errno |
-| M1 DCS | 发 generic short/long packet、面板 reset 后读 DCS power mode | 待验收：不死锁、重复十次初始化/shutdown 稳定 |
+| M1 编译 | `dsi_probe` 构建，Make 入口 | 已通过：无 DSI 新增编译/链接告警；CMake 双入口仍待回归 |
+| M1 启动 | USB console 打印 Host 状态 | 已通过一次：LDO、P4 rev3 clock source、PLL lock、lane stop 与 Host ready 全部成功 |
+| M1 DCS 写 | generic short/long 与 EK79007 初始化写序列 | 已通过一次：不死锁，所有命令由 Host 接受；重复十次 initialize/shutdown 待验收 |
+| M1 DCS 读 | `GET_POWER_MODE` BTA/RX FIFO | 已诊断：Host 完成读请求但面板未返回 payload；非 M1 command-write 阻塞项 |
 | M2 显示 | RGB565 色条/纯色 | 1024 x 600 稳定，无撕裂、花屏或 DMA abort |
 | M2 压力 | 背光、sleep/wake、重启、连续刷新 | 无资源泄漏，异常后可从 `FAULT` 完整恢复 |
 

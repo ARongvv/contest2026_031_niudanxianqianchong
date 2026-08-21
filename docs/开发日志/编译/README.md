@@ -1,8 +1,9 @@
 # ESP32-P4 构建与 Kconfig 排障记录
 
 本文记录 2026-08-19 为 `esp32p4-function-ev-board` 构建最小 `nsh`
-配置时遇到的配置生成和编译问题。它是一次构建链路排障记录，不代表当前已经
-获得完整 build pass 或实板 `nsh>` 验收结果。
+配置时遇到的配置生成和编译问题。2026-08-21 已在实板以 `usbconsole` 配置
+验证最小 `nsh>`；MIPI-DSI Probe 的 M1 命令写验证与专项问题另见
+[DSI Host Probe 排障记录](2026-08-21-DSI-Host-Probe排障记录.md)。
 
 ## 适用范围与标准入口
 
@@ -139,8 +140,8 @@ grep -E '^CONFIG_(UP|PERCPU_ARRAY|NCPUS|SMP_NCPUS|STREAM_OUT_BUFFER_SIZE|STREAM_
 | Tricore 两处 Kconfig 语法 | 已修正 |
 | examples 过期 `audio_record` 索引 | 已再生并移除 |
 | `make -C nuttx olddefconfig` | 已通过；关键默认配置已生成 |
-| ESP32-P4 最小 `nsh` 完整构建 | 待复测 |
-| 烧录与串口 `nsh>` | 未开始 |
+| ESP32-P4 最小 `nsh` 完整构建 | 已通过 `usbconsole` 配置 |
+| 烧录与串口 `nsh>` | 已在实板验证；DSI Probe M1 命令写已通过，DPI video 待验收 |
 
 相关文档：[P4 最小 NSH 操作与测试](../../硬件适配/esp32p4-nsh-operation-and-test.md)、
 [历史 P4 移植开发记录](../dev.md)。
