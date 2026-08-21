@@ -341,6 +341,13 @@ errno 风格的 DMA buffer allocate/sync/free 薄封装。板级层只负责色�
 生命周期，vendor capability、cache 操作和 `esp_err_t` 保持在芯片层；这也保持了后续
 上游吸收时的层次边界。
 
+后续链接阶段又发现 `dw_gdma_*` 未定义。`gdma.c` 与 `dw_gdma.c` 是两套不同的 ESP HAL
+上层驱动：前者已在 P4 HAL 基础清单中，后者才实现 DSI Bridge 使用的
+`dw_gdma_new_channel()`、LLI 建链和 channel enable/release 接口。修复是在竞赛项目的
+`hal_esp32p4.mk` 与 `hal_esp32p4.cmake` 同步增加
+`upper_hal_dma/src/dw_gdma.c`，并以 `ESPRESSIF_MIPI_DSI_VIDEO_DMA` 条件保护；不修改
+NuttX 或 vendor HAL 源码。
+
 ### 当前验证边界
 
 - 已完成：源码静态检查（`git diff --check`）和 Kconfig 重展开。
