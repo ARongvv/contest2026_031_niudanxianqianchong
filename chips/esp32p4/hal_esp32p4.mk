@@ -256,9 +256,6 @@ ifeq ($(CONFIG_ESPRESSIF_MIPI_DSI),y)
 CHIP_CSRCS += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)esp_hal_lcd$(DELIM)mipi_dsi_hal.c
 CHIP_CSRCS += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)esp_hal_lcd$(DELIM)$(CHIP_SERIES)$(DELIM)mipi_dsi_periph.c
 endif
-ifeq ($(CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA),y)
-CHIP_CSRCS += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)upper_hal_dma$(DELIM)src$(DELIM)dw_gdma.c
-endif
 CHIP_CSRCS += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)esp_hal_mcpwm$(DELIM)$(CHIP_SERIES)$(DELIM)mcpwm_periph.c
 CHIP_CSRCS += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)esp_hal_mcpwm$(DELIM)mcpwm_hal.c
 CHIP_CSRCS += chip$(DELIM)$(ESP_HAL_3RDPARTY_REPO)$(DELIM)components$(DELIM)esp_hal_mspi$(DELIM)spi_flash_encrypt_hal_iram.c
