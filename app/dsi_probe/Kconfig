@@ -19,12 +19,14 @@ if LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE
 
 config LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE_VIDEO_PATTERN
 	bool "Enable dsi_probe DPI colour-bar command"
+	depends on ESPRESSIF_SPIRAM
 	default n
 	select ESPRESSIF_MIPI_DSI_VIDEO
+	select ESPRESSIF_MIPI_DSI_VIDEO_DMA
 	help
-		Enable the "dsi_probe video [seconds]" command.  It starts the P4
-		DSI Host's internal vertical colour-bar generator using the P4X
-		panel timing and a static backlight level.  It does not allocate a
-		framebuffer, configure DMA, or start LVGL.
+		Enable the "dsi_probe video [seconds]" command.  It fills a
+		board-owned RGB888 vertical-colour-bar buffer in PSRAM, then uses
+		DW-GDMA to scan it out with the P4X panel timing and a static
+		backlight level.  It does not start LVGL.
 
 endif # LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE

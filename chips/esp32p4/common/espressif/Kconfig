@@ -1913,13 +1913,22 @@ config ESPRESSIF_MIPI_DSI_TIMEOUT_MS
 		The host never uses an unbounded busy-wait loop.
 
 config ESPRESSIF_MIPI_DSI_VIDEO
-	bool "MIPI DSI DPI video pattern mode"
+	bool "MIPI DSI DPI video mode"
 	default n
 	help
-		Enable the ESP32-P4 MIPI DSI DPI video-mode support.  The first
-		implementation exposes the Host's internal colour-bar/BER pattern
-		generator for board bring-up.  It does not allocate a framebuffer,
-		use DMA, or provide an LVGL display port.
+		Enable the ESP32-P4 MIPI DSI DPI video-mode support.  The Host
+		pattern path is suitable for register-only diagnostics.  Select the
+		DMA scanout option when a board needs a real pixel producer.
+
+config ESPRESSIF_MIPI_DSI_VIDEO_DMA
+	bool "MIPI DSI DPI DMA scanout"
+	depends on ESPRESSIF_SPIRAM
+	default n
+	help
+		Enable the DW-GDMA scanout path from a board-owned RGB888 frame
+		buffer to the P4 MIPI-DSI Bridge.  This is intended for board display
+		bring-up and later framebuffer/LVGL integration; it does not create a
+		generic NuttX framebuffer device by itself.
 
 endif # ESPRESSIF_MIPI_DSI
 

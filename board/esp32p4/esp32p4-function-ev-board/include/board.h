@@ -94,8 +94,9 @@ int board_mipi_dsi_panel_reset(void);
  * Name: board_mipi_dsi_video_pattern_start
  *
  * Description:
- *   Start the P4 Host's internal colour-bar pattern using the P4X panel
- *   timing.  This is a framebuffer-free M2a display validation path.
+ *   Start the P4X colour-bar scanout path.  With DMA scanout enabled it uses
+ *   a board-owned PSRAM RGB888 buffer; otherwise it falls back to the Host
+ *   pattern generator for register-only diagnostics.
  *
  ****************************************************************************/
 
@@ -105,7 +106,7 @@ int board_mipi_dsi_video_pattern_start(FAR struct mipi_dsi_host *host);
  * Name: board_mipi_dsi_video_stop
  *
  * Description:
- *   Stop the P4X DPI pattern path before command Host shutdown.
+ *   Stop the P4X DPI scanout path before command Host shutdown.
  *
  ****************************************************************************/
 
