@@ -32,8 +32,8 @@ I2C master
 | LCD 模组 | AML070JGI50-07403L，7 英寸，1024 x 600 |
 | LCD 控制器 | EK79007AD + EK73217BCGA |
 | 显示接口 | MIPI-DSI |
-| P4 DSI 能力 | 1 个 Host，最多 2 条 data lane；面板实际 lane 数和 bit rate 待按资料确认 |
-| D-PHY 供电 | 需要独立稳定的 2.5 V；实际 LDO VO 通道与上电顺序以 P4X 原理图为准 |
+| P4 DSI 能力 | 1 个 Host，最多 2 条 data lane；P4X command probe 固定 2 lane、1000 Mbps |
+| D-PHY 供电 | P4X 参考配置使用内部 LDO channel 3、2.5 V；视频上电顺序仍以实板复核为准 |
 | 触摸控制器 | GT911，I2C 接口 |
 | 面板复位 | 主板 GPIO27 -> LCD Adapter `RST_LCD` |
 | 背光 PWM | 主板 GPIO26 -> LCD Adapter `PWM` |
@@ -48,18 +48,43 @@ D-PHY 的 2.5 V 供电必须按参考设计配置；不得在未核对原理图�
 当前仓库已有 `drivers/video/mipidsi/` 通用 MIPI-DSI 协议框架，包括 host 和
 device 的抽象、DCS 命令封装以及设备注册接口。
 
-当前仓库尚未实现下列关键组件：
+当前仓库的关键组件状态如下。状态“已实现待验证”仅表示代码和构建接线已经
+落地，**不**表示已经完成 P4X 实板验证。
 
-| 缺口 | 影响 |
-| --- | --- |
-| ESP32-P4 MIPI-DSI command Host | 无法操作 P4 的 D-PHY、MIPI-DSI 控制器或发送 DCS packet |
-| ESP32-P4 MIPI-DSI video pipeline | 无法建立 DPI 时序、framebuffer、DMA、cache 同步与 vsync/error 中断 |
-| P4 DSI/LDO 构建与封装 | vendor HAL 源和 LDO API 尚未形成 NuttX errno 风格、Make/CMake 对称的芯片层入口 |
-| EK79007 通用面板驱动 | 无法下发面板初始化序列，也无法建立 1024 x 600 视频时序 |
-| GT911 通用触摸驱动 | 无法经 I2C 读取坐标并上报输入事件 |
-| P4X 板级显示装配 | 未配置 LDO、复位、背光、DSI host 和面板实例 |
-| P4X 板级触摸装配 | 未初始化指定 I2C 总线、地址、复位与输入注册 |
-| `lvgl` defconfig | 没有可复现的显示、触摸与 LVGL 配置组合 |
+| 组件 | 当前状态 | 影响 |
+| --- | --- | --- |
+| ESP32-P4 MIPI-DSI command Host | 已实现待构建/实板验证 | 已可操作 D-PHY、命令模式控制器并发送/读取通用 DSI packet；`dsi_probe` 已提供，尚无实板证据。 |
+| P4 DSI/LDO 构建与封装 | 已实现待构建验证 | 已形成 NuttX errno 风格 LDO 封装，并在 Make/CMake 中条件纳入 DSI vendor HAL。 |
+| ESP32-P4 MIPI-DSI video pipeline | 未实现 | 尚不能建立 DPI 时序、framebuffer、DMA、cache 同步或 vsync/error 中断。 |
+| EK79007 通用面板驱动 | 未完成接入 | 现有覆盖层尚未与 P4 DSI Host、视频时序完成联调。 |
+| GT911 通用触摸驱动 | 未完成接入 | 尚未完成 P4X I2C、复位、INT 与输入注册验证。 |
+| P4X 板级 DSI command 装配 | 已实现待构建/实板验证 | `esp32p4_lcd.c` 固化 LDO3/2.5V、2 lane/1000 Mbps 与 GPIO27 reset；不含背光、面板初始化或视频。 |
+| P4X 板级触摸装配 | 未实现 | 尚未初始化指定 I2C 总线、地址、复位与输入注册。 |
+| `lvgl` defconfig | 未实现 | 没有可复现的显示、触摸与 LVGL 配置组合。 |
+
+### 3.1 本次已落地的 M1 芯片层
+
+新增的 `esp_ldo.c/.h` 与 `esp_mipi_dsi.c/.h` 已完成以下最小闭环：
+
+1. `esp_ldo_*()` 将 ESP HAL LDO channel 的申请、释放和可调电压操作转换为
+   NuttX 负 errno；ESP HAL handle 不暴露给板级或面板驱动。
+2. `esp_mipi_dsi_host_initialize()` 只接受 P4 的 bus 0、1/2 条 lane、80--1500
+   Mbps lane rate、5--40 MHz PHY 参考时钟，以及 2.5 V D-PHY LDO 配置。
+3. 初始化路径依次申请 LDO、开启/复位 DSI 时钟、初始化 vendor HAL、配置 PHY
+   PLL、等待 PLL lock、切入 command mode，最后注册 NuttX
+   `mipi_dsi_host`。
+4. `transfer()` 复用 NuttX packet 编码，支持 short/long packet 和带 Maximum
+   Return Packet Size 的读回；命令/读写 FIFO 与 PLL 等待都使用受限轮询和超时，
+   不含无界 busy-wait。
+5. Host、attach 与 transfer 使用同一互斥锁串行化。由于 NuttX 当前没有 Host
+   unregister API，Host 结构为静态对象；`shutdown()` 仅关闭硬件和释放 LDO，
+   之后可由下一次 initialize 重新启用同一 Host。
+6. `ESPRESSIF_MIPI_DSI` 同时选择 `MIPI_DSI` 与 `ESPRESSIF_LDO`；Make 和 CMake
+   入口均条件编译芯片层代码，并条件加入 `mipi_dsi_hal.c`、
+   `mipi_dsi_periph.c`。
+
+当前 M1 **尚未**实现 DSI 错误中断、显式 `FAULT` 状态机、视频/DMA，也尚未完成
+`dsi_probe` 实板测试；这些项目不能被“代码已实现”替代。
 
 现有 `esp32p4_buttons.c` 中的 `CONFIG_ESPRESSIF_TOUCH` 是芯片内部触摸
 传感器（touch-pad）支持，**不是** LCD 上 GT911 电容触摸屏驱动。
@@ -104,7 +129,7 @@ P4X 板级装配层
 | 竞赛驱动覆盖层 | `drivers/nuttx/drivers/input/{gt911.c,gt911.h}` | GT911 I2C 寄存器访问、触点解析、输入事件上报 |
 | NuttX 工作树映射 | `nuttx/drivers/{lcd,input}/` | 由 `scripts/link_nuttx_display_drivers.sh` 创建相对软链接，供 NuttX 正常构建 |
 | NuttX 构建项 | 对应 `drivers/*/{Kconfig,Make.defs,CMakeLists.txt}` | 注册通用面板和输入驱动 |
-| P4X 板级层 | `board/esp32p4/esp32p4-function-ev-board/src/esp32p4_lcd.c` | LDO、reset、背光、DSI 与面板装配 |
+| P4X 板级层 | `board/esp32p4/esp32p4-function-ev-board/src/esp32p4_lcd.c` | M1：LDO、reset、DSI Host 装配；M3 再接背光和面板实例 |
 | P4X 板级层 | `board/esp32p4/esp32p4-function-ev-board/src/esp32p4_touch.c` | I2C 获取、GT911 复位与注册 |
 | P4X 板级层 | `src/esp32p4-function-ev-board.h` | 板级初始化接口、GPIO 常量 |
 | P4X 板级层 | `src/esp32p4_bringup.c` | 按 Kconfig 调用显示和触摸初始化 |
@@ -132,17 +157,35 @@ P4X 板级装配层
 通过标准：硬件连接表与可引用的原理图页码齐全；屏幕供电、复位和背光线路
 可用。
 
-### P1：ESP32-P4 MIPI-DSI command Host 最小验证
+### P1：ESP32-P4 MIPI-DSI command Host 最小验证（代码完成，验收待执行）
 
-1. 在 P4 芯片层实现 LDO、host 初始化、时钟、PHY、command transport 和必要
-   错误中断；不在本阶段引入 framebuffer/DMA 视频扫描。
-2. 接入 `drivers/video/mipidsi/` 的 `mipi_dsi_host_register()` 接口。
-3. 提供 `dsi_probe` 独立 defconfig 或测试命令，不引入 LVGL、面板 framebuffer
+1. 已完成 LDO、host 初始化、时钟/复位、PHY PLL、command transport 和
+   `mipi_dsi_host_register()` 接线；不在本阶段引入 framebuffer/DMA 视频扫描。
+2. 已新增 `dsi_probe` 独立 defconfig 与测试命令，不引入 LVGL、面板 framebuffer
    或网络业务。
-4. 验证 host 能创建 DSI device，发送 DCS short/long packet 并获得明确日志。
+3. 验证 Host 能创建 DSI device，发送 generic short/long packet、读取 DCS power
+   mode 响应并获得明确
+   的 LDO/PLL/transfer errno 日志。
+4. 在 M1 实板闭环后，补充 DSI error IRQ、首错记录与 `FAULT -> shutdown ->
+   initialize` 恢复策略；不得把这项工作放入 M2 后再回补。
 
 通过标准：DSI host 注册成功；失败路径可返回具体 errno；无时钟、PHY、传输或
 中断异常。
+
+P1 构建与操作命令：
+
+```bash
+# 使新 app/dsi_probe 的 manifest linkfile 生效
+repo sync contest2026_031_niudanxianqianchong
+
+./build.sh \
+  contest2026_031_niudanxianqianchong/board/esp32p4/esp32p4-function-ev-board/configs/dsi_probe \
+  -j2
+```
+
+烧录后在 USB console 运行 `dsi_probe`。通过证据必须包含 Host 初始化、两条
+generic packet accepted、DCS power mode 和最终 `PASS`；若面板未接或链路异常，
+保留对应步骤的负 errno 日志，不得将失败结果误记为显示失败。
 
 ### P2：ESP32-P4 MIPI-DSI video pipeline 最小验证
 
@@ -219,8 +262,10 @@ P4X 板级装配层
 建议的关键 Kconfig 类别：
 
 ```text
-CONFIG_MIPI_DSI=y
-CONFIG_ESPRESSIF_MIPI_DSI=y             # 计划新增
+CONFIG_MIPI_DSI=y                        # 由 ESPRESSIF_MIPI_DSI 自动选择
+CONFIG_ESPRESSIF_LDO=y                   # 由 ESPRESSIF_MIPI_DSI 自动选择
+CONFIG_ESPRESSIF_MIPI_DSI=y              # M1 已实现，默认关闭
+CONFIG_ESPRESSIF_MIPI_DSI_TIMEOUT_MS=100 # M1 已实现，范围 1--1000
 CONFIG_ESPRESSIF_MIPI_DSI_VIDEO=y       # 计划新增，依赖 command Host
 CONFIG_LCD_EK79007=y                    # 计划新增
 CONFIG_INPUT_GT911=y                    # 计划新增
