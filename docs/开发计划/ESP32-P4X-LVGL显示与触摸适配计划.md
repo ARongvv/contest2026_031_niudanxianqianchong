@@ -48,17 +48,17 @@ D-PHY 的 2.5 V 供电必须按参考设计配置；不得在未核对原理图�
 当前仓库已有 `drivers/video/mipidsi/` 通用 MIPI-DSI 协议框架，包括 host 和
 device 的抽象、DCS 命令封装以及设备注册接口。
 
-当前仓库的关键组件状态如下。状态“已实现待验证”仅表示代码和构建接线已经
-落地，**不**表示已经完成 P4X 实板验证。
+当前仓库的关键组件状态如下。“命令写已实板验证”只覆盖 D-PHY/Host、板级
+reset 与 DCS 写命令；**不**表示完成 P4X video、画面、触摸或 LVGL 验证。
 
 | 组件 | 当前状态 | 影响 |
 | --- | --- | --- |
-| ESP32-P4 MIPI-DSI command Host | 已实现待构建/实板验证 | 已可操作 D-PHY、命令模式控制器并发送/读取通用 DSI packet；`dsi_probe` 已提供，尚无实板证据。 |
-| P4 DSI/LDO 构建与封装 | 已实现待构建验证 | 已形成 NuttX errno 风格 LDO 封装，并在 Make/CMake 中条件纳入 DSI vendor HAL。 |
+| ESP32-P4 MIPI-DSI command Host | 命令写已实板验证 | P4 rev3 XTAL reference clock、D-PHY PLL、lane stop、命令模式控制器和 NuttX Host 已通过；generic packet 与 EK79007 初始化写序列通过。 |
+| P4 DSI/LDO 构建与封装 | Make 构建及实板验证通过 | 已形成 NuttX errno 风格 LDO 封装，并在 Make/CMake 中条件纳入 DSI vendor HAL；CMake 回归仍待执行。 |
 | ESP32-P4 MIPI-DSI video pipeline | 未实现 | 尚不能建立 DPI 时序、framebuffer、DMA、cache 同步或 vsync/error 中断。 |
 | EK79007 通用面板驱动 | 未完成接入 | 现有覆盖层尚未与 P4 DSI Host、视频时序完成联调。 |
 | GT911 通用触摸驱动 | 未完成接入 | 尚未完成 P4X I2C、复位、INT 与输入注册验证。 |
-| P4X 板级 DSI command 装配 | 已实现待构建/实板验证 | `esp32p4_lcd.c` 固化 LDO3/2.5V、2 lane/1000 Mbps 与 GPIO27 reset；不含背光、面板初始化或视频。 |
+| P4X 板级 DSI command 装配 | 命令写已实板验证 | `esp32p4_lcd.c` 已实测 LDO3/2.5V、2 lane/1000 Mbps 与 GPIO27 reset；不含背光 PWM、视频和 framebuffer。 |
 | P4X 板级触摸装配 | 未实现 | 尚未初始化指定 I2C 总线、地址、复位与输入注册。 |
 | `lvgl` defconfig | 未实现 | 没有可复现的显示、触摸与 LVGL 配置组合。 |
 
@@ -70,9 +70,9 @@ device 的抽象、DCS 命令封装以及设备注册接口。
    NuttX 负 errno；ESP HAL handle 不暴露给板级或面板驱动。
 2. `esp_mipi_dsi_host_initialize()` 只接受 P4 的 bus 0、1/2 条 lane、80--1500
    Mbps lane rate、5--40 MHz PHY 参考时钟，以及 2.5 V D-PHY LDO 配置。
-3. 初始化路径依次申请 LDO、开启/复位 DSI 时钟、初始化 vendor HAL、配置 PHY
-   PLL、等待 PLL lock、切入 command mode，最后注册 NuttX
-   `mipi_dsi_host`。
+3. 初始化路径依次申请 LDO、选择 P4 rev3 的 PHY clock source、开启/复位 DSI
+   时钟、初始化 vendor HAL、配置 PHY PLL、等待 PLL lock 与 lane stop、切入
+   command mode，最后注册 NuttX `mipi_dsi_host`。
 4. `transfer()` 复用 NuttX packet 编码，支持 short/long packet 和带 Maximum
    Return Packet Size 的读回；命令/读写 FIFO 与 PLL 等待都使用受限轮询和超时，
    不含无界 busy-wait。
@@ -83,8 +83,9 @@ device 的抽象、DCS 命令封装以及设备注册接口。
    入口均条件编译芯片层代码，并条件加入 `mipi_dsi_hal.c`、
    `mipi_dsi_periph.c`。
 
-当前 M1 **尚未**实现 DSI 错误中断、显式 `FAULT` 状态机、视频/DMA，也尚未完成
-`dsi_probe` 实板测试；这些项目不能被“代码已实现”替代。
+当前 M1 **尚未**实现 DSI 错误中断、显式 `FAULT` 状态机、视频/DMA，也未完成
+重复初始化压力测试或能返回 payload 的 DCS read 验证；这些项目不能被一次
+command-write 实板通过替代。
 
 现有 `esp32p4_buttons.c` 中的 `CONFIG_ESPRESSIF_TOUCH` 是芯片内部触摸
 传感器（touch-pad）支持，**不是** LCD 上 GT911 电容触摸屏驱动。
