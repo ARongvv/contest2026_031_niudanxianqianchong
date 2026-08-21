@@ -365,6 +365,42 @@ DW-GDMA 资源管理框架。
 若日志显示 DMA 已启动但屏幕仍无色条，继续按第 8 节的 5V、GPIO27 `RST_LCD` 跳线、
 FFC 方向/锁扣和 adapter 基线顺序排查；背光不能作为 DSI data lane 正常的证据。
 
+## 10. M2b DMA 帧缓冲申请失败（`-ENOMEM`）
+
+### 现象
+
+在实板执行 `dsi_probe video 60` 时，DSI Host、EK79007 初始化写和 D-PHY 已全部
+完成，随后 `video_dma_scanout` 返回 `-12`（`ENOMEM`）。RGB888 单帧的实际申请量为
+`1024 × 600 × 3 = 1,843,200 B`；该错误发生在 GDMA 启动之前，不能归因于 DSI 协议、
+panel 初始化或 DMA 描述符。
+
+### 根因
+
+P4 HAL 的 NuttX `heap_caps` 兼容实现对非 retention capability 统一调用
+`kmm_memalign()`，不会依据 `MALLOC_CAP_SPIRAM` 选择 PSRAM。该板的
+`CONFIG_MM_KERNEL_HEAP=y` 使 kernel heap 位于有限的片内 SRAM；与此同时，
+`CONFIG_ESPRESSIF_SPIRAM_USER_HEAP=y` 将大容量 PSRAM 暴露为标准 NuttX user heap。
+因此，原来的 capability 标记看似请求 PSRAM，实际却在片内 kernel heap 申请 1.84 MiB
+并失败。
+
+### 修复
+
+1. `esp_mipi_dsi_dma_buffer_allocate()` 改为 64-byte 对齐的 `memalign()`，并清零
+   buffer；在该配置下它从 user PSRAM heap 获取连续扫描帧。
+2. 对应释放改为 `free()`，严格保持同一 NuttX heap 的 allocate/free 配对。
+3. `ESPRESSIF_MIPI_DSI_VIDEO_DMA` 增加
+   `ESPRESSIF_SPIRAM_USER_HEAP` 依赖，避免在没有可用 PSRAM user heap 的配置中错误
+   暴露 DMA scanout。
+4. 成功时输出 `MIPI-DSI DMA PSRAM buffer allocated bytes=1843200 alignment=64`；若仍
+   失败，日志会明确说明是 PSRAM user heap 耗尽或不可用。
+
+### 验收
+
+已在 `dsi_probe` defconfig 上重新配置、编译并链接成功。刷写后再次运行
+`dsi_probe video 60`：若出现上述 allocation 成功日志，才继续判断 GDMA/bridge 以及
+视觉色条是否正确；若仍为 `-ENOMEM`，需在 NSH 记录 PSRAM 初始化和 heap 信息，而不是
+继续调整 DSI timing。
+
 ## 相关提交
 
 - `a7b3685 fix(esp32p4x): 修复 DSI 板级公共头文件导出`

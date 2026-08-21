@@ -1922,13 +1922,14 @@ config ESPRESSIF_MIPI_DSI_VIDEO
 
 config ESPRESSIF_MIPI_DSI_VIDEO_DMA
 	bool "MIPI DSI DPI DMA scanout"
-	depends on ESPRESSIF_SPIRAM
+	depends on ESPRESSIF_SPIRAM && ESPRESSIF_SPIRAM_USER_HEAP
 	default n
 	help
 		Enable the DW-GDMA scanout path from a board-owned RGB888 frame
-		buffer to the P4 MIPI-DSI Bridge.  This is intended for board display
-		bring-up and later framebuffer/LVGL integration; it does not create a
-		generic NuttX framebuffer device by itself.
+		buffer in the NuttX user PSRAM heap to the P4 MIPI-DSI Bridge.  This
+		is intended for board display bring-up and later framebuffer/LVGL
+		integration; it does not create a generic NuttX framebuffer device by
+		itself.
 
 endif # ESPRESSIF_MIPI_DSI
 
