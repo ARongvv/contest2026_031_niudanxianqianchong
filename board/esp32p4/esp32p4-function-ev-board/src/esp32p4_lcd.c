@@ -42,6 +42,18 @@
 #define BOARD_MIPI_DSI_RESET_ASSERT_US      (20 * 1000)
 #define BOARD_MIPI_DSI_RESET_RELEASE_US     (120 * 1000)
 
+/* AML070JGI50-07403L / EK79007 timing used by the official P4X BSP. */
+
+#define BOARD_MIPI_DSI_HACTIVE               1024
+#define BOARD_MIPI_DSI_HSYNC                    10
+#define BOARD_MIPI_DSI_HBACK_PORCH             160
+#define BOARD_MIPI_DSI_HFRONT_PORCH            160
+#define BOARD_MIPI_DSI_VACTIVE                600
+#define BOARD_MIPI_DSI_VSYNC                    1
+#define BOARD_MIPI_DSI_VBACK_PORCH              23
+#define BOARD_MIPI_DSI_VFRONT_PORCH             12
+#define BOARD_MIPI_DSI_PIXEL_CLOCK_HZ   52000000
+
 /****************************************************************************
  * Private Data
  ****************************************************************************/
@@ -61,6 +73,26 @@ static const struct esp_mipi_dsi_host_config_s g_board_mipi_dsi_config =
       .owned_by_hw = false,
     },
 };
+
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO
+static const struct esp_mipi_dsi_video_pattern_config_s
+  g_board_mipi_dsi_video_pattern_config =
+{
+  .channel          = 0,
+  .hactive          = BOARD_MIPI_DSI_HACTIVE,
+  .hsync            = BOARD_MIPI_DSI_HSYNC,
+  .hback_porch      = BOARD_MIPI_DSI_HBACK_PORCH,
+  .hfront_porch     = BOARD_MIPI_DSI_HFRONT_PORCH,
+  .vactive          = BOARD_MIPI_DSI_VACTIVE,
+  .vsync            = BOARD_MIPI_DSI_VSYNC,
+  .vback_porch      = BOARD_MIPI_DSI_VBACK_PORCH,
+  .vfront_porch     = BOARD_MIPI_DSI_VFRONT_PORCH,
+  .pixel_clock_hz   = BOARD_MIPI_DSI_PIXEL_CLOCK_HZ,
+  .hsync_active_low = false,
+  .vsync_active_low = false,
+  .pattern          = ESP_MIPI_DSI_VIDEO_PATTERN_VERTICAL_BARS,
+};
+#endif
 
 /****************************************************************************
  * Public Functions
@@ -105,6 +137,83 @@ int board_mipi_dsi_panel_reset(void)
   syslog(LOG_INFO, "INFO: P4X DSI panel reset complete\n");
   return OK;
 }
+
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO
+
+/****************************************************************************
+ * Name: board_mipi_dsi_backlight_set
+ ****************************************************************************/
+
+int board_mipi_dsi_backlight_set(bool enable)
+{
+  int ret;
+
+  ret = esp_configgpio(BOARD_MIPI_DSI_BACKLIGHT_GPIO, OUTPUT);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: P4X DSI backlight gpio configure ret=%d\n",
+             ret);
+      return -EIO;
+    }
+
+  /* The LCD adapter accepts a static high level on PWM for M2a bring-up.
+   * Brightness duty-cycle control is a separate board-PWM integration step.
+   */
+
+  esp_gpiowrite(BOARD_MIPI_DSI_BACKLIGHT_GPIO, enable);
+  syslog(LOG_INFO, "INFO: P4X DSI backlight static=%d gpio=%d\n", enable,
+         BOARD_MIPI_DSI_BACKLIGHT_GPIO);
+  return OK;
+}
+
+/****************************************************************************
+ * Name: board_mipi_dsi_video_pattern_start
+ ****************************************************************************/
+
+int board_mipi_dsi_video_pattern_start(FAR struct mipi_dsi_host *host)
+{
+  int ret;
+
+  ret = esp_mipi_dsi_video_pattern_start(
+    host, &g_board_mipi_dsi_video_pattern_config);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: P4X DSI video pattern start ret=%d\n", ret);
+      return ret;
+    }
+
+  ret = board_mipi_dsi_backlight_set(true);
+  if (ret < 0)
+    {
+      esp_mipi_dsi_video_stop(host);
+      return ret;
+    }
+
+  syslog(LOG_INFO,
+         "INFO: P4X DSI video pattern active %ux%u pixel_clock_hz=%u\n",
+         BOARD_MIPI_DSI_HACTIVE, BOARD_MIPI_DSI_VACTIVE,
+         BOARD_MIPI_DSI_PIXEL_CLOCK_HZ);
+  return OK;
+}
+
+/****************************************************************************
+ * Name: board_mipi_dsi_video_stop
+ ****************************************************************************/
+
+int board_mipi_dsi_video_stop(FAR struct mipi_dsi_host *host)
+{
+  int ret;
+
+  ret = board_mipi_dsi_backlight_set(false);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  return esp_mipi_dsi_video_stop(host);
+}
+
+#endif /* CONFIG_ESPRESSIF_MIPI_DSI_VIDEO */
 
 /****************************************************************************
  * Name: board_mipi_dsi_initialize

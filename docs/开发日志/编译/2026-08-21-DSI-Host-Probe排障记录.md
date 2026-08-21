@@ -18,6 +18,10 @@ DSI 命令传输测试不能视为显示功能已验收。
   命令写链路失败的依据，也不能据此宣称已经点亮显示。
 - 本轮构建产生的 `.depend`、`Make.dep`、`.built` 是临时构建产物，不能
   提交到竞赛工程。
+- M2a 已新增 Host 内建 DPI 色条代码及其 Kconfig 展开验证；当前工作区的完整
+  固件构建被外部 `esp-hal-3rdparty` 镜像缺少
+  `components/soc/esp32p4/include/soc/gpio_sig_map.h` 阻断，尚未据此宣称
+  M2a 已完成编译或实板显示验证。
 
 ## 问题与处理汇总
 
@@ -34,6 +38,7 @@ DSI 命令传输测试不能视为显示功能已验收。
 | 9 | 冷启动时 `phy_pll_lock` 超时，`phy_status=0x1528` | P4 rev3 D-PHY PLL reference clock mux、时钟源门控与 lane stop-state 等步骤未按硬件修订版完成 | 已在竞赛工程的 P4 Host 中选择 XTAL ref clock、查询实际频率、等待 PLL lock 与 lane stop；实板已通过 Host 初始化 |
 | 10 | `DCS B2=0x10` 写命令错误超时于 `read_response_fifo` | Host 曾以 `msg->rx_len` 决定读写；DCS write helper 只保证发送字段，未定义接收字段导致误入 BTA/RX 分支 | 已改为仅由 DSI packet data type 决定 read/BTA 路径；EK79007 默认初始化写序列已实板通过 |
 | 11 | `GET_POWER_MODE (0x0a)` 超时于 `read_response_fifo` | `gen_rd_cmd_busy=0` 而 `gen_pld_r_empty=1`，说明 Host 已完成读请求但面板未产生 payload；当前不能区分面板不支持该读命令与面板侧状态/连线因素 | 保留为可选诊断，不阻塞 M1 command-write 验收；M2 以 DPI video 画面完成最终面板验证 |
+| 12 | M2a 增量构建在 HAL context 阶段找不到 `gpio_sig_map.h` | 构建规则尝试使用/补齐 `esp-hal-3rdparty` 外部镜像，但当前镜像内容不完整或版本不匹配 | 不修改第三方 HAL；恢复与此前 M1 一致的完整镜像后重新执行 `olddefconfig` 与 Make，才判断 M2a C 编译结果 |
 
 ## 1. Custom Chip Kconfig 未展开
 
