@@ -34,6 +34,11 @@
 #include "hal/mipi_dsi_ll.h"
 #include "hal/mipi_dsi_phy_ll.h"
 
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+#  include "esp_private/dw_gdma.h"
+#  include "soc/reg_base.h"
+#endif
+
 #include "esp_mipi_dsi.h"
 
 /****************************************************************************
@@ -52,6 +57,10 @@
 #define ESP_MIPI_DSI_STOP_WAIT_TIME         0x3f
 #define ESP_MIPI_DSI_MIN_DPI_CLOCK_HZ       1000000
 #define ESP_MIPI_DSI_MAX_DPI_CLOCK_HZ     240000000
+#define ESP_MIPI_DSI_DMA_BYTES_PER_PIXEL         3
+#define ESP_MIPI_DSI_DMA_TRANSFER_WIDTH_BYTES    8
+#define ESP_MIPI_DSI_DMA_BURST_WORDS           256
+#define ESP_MIPI_DSI_DMA_EMPTY_THRESHOLD       768
 
 /* The P4 DSI DPI clock defaults to PLL_F240M.  A requested 52 MHz pixel
  * clock therefore becomes 48 MHz with divider 5; the timing helper applies
@@ -94,6 +103,10 @@ struct esp_mipi_dsi_s
   bool                       ready;
   bool                       video_running;
   soc_module_clk_t           dpi_clk_src;
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+  dw_gdma_channel_handle_t   dma_channel;
+  dw_gdma_link_list_handle_t dma_link_list;
+#endif
 };
 
 /****************************************************************************
@@ -156,6 +169,16 @@ static int esp_mipi_dsi_clock_result(esp_err_t result)
   if (result == ESP_ERR_INVALID_STATE)
     {
       return -EALREADY;
+    }
+
+  if (result == ESP_ERR_NO_MEM)
+    {
+      return -ENOMEM;
+    }
+
+  if (result == ESP_ERR_NOT_FOUND)
+    {
+      return -ENOSPC;
     }
 
   return -EIO;
@@ -503,6 +526,213 @@ static int esp_mipi_dsi_video_pattern_type(
 }
 
 /****************************************************************************
+ * Name: esp_mipi_dsi_video_timing_valid
+ ****************************************************************************/
+
+static bool esp_mipi_dsi_video_timing_valid(uint8_t channel,
+                                            uint16_t hactive,
+                                            uint16_t vactive,
+                                            uint32_t pixel_clock_hz)
+{
+  return channel <= 3 && hactive != 0 && vactive != 0 &&
+         pixel_clock_hz >= ESP_MIPI_DSI_MIN_DPI_CLOCK_HZ &&
+         pixel_clock_hz <= ESP_MIPI_DSI_MAX_DPI_CLOCK_HZ;
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_configure_host
+ ****************************************************************************/
+
+static void esp_mipi_dsi_video_configure_host(
+  FAR struct esp_mipi_dsi_s *priv, uint8_t channel, uint16_t hactive,
+  uint16_t hsync, uint16_t hback_porch, uint16_t hfront_porch,
+  uint16_t vactive, uint16_t vsync, uint16_t vback_porch,
+  uint16_t vfront_porch, bool hsync_active_low, bool vsync_active_low)
+{
+  mipi_dsi_host_ll_dpi_set_vcid(priv->hal.host, channel);
+  mipi_dsi_host_ll_dpi_set_color_coding(priv->hal.host,
+                                        LCD_COLOR_FMT_RGB888, 0);
+  mipi_dsi_host_ll_dpi_enable_loosely18_packet(priv->hal.host, false);
+  mipi_dsi_host_ll_dpi_set_timing_polarity(
+    priv->hal.host, hsync_active_low, vsync_active_low, false, false,
+    false);
+  mipi_dsi_host_ll_dpi_enable_frame_ack(priv->hal.host, true);
+  mipi_dsi_host_ll_dpi_enable_lp_horizontal_timing(priv->hal.host,
+                                                    true, true);
+  mipi_dsi_host_ll_dpi_enable_lp_vertical_timing(priv->hal.host,
+                                                  true, true, true, true);
+  mipi_dsi_host_ll_dpi_enable_lp_command(priv->hal.host, true);
+  mipi_dsi_host_ll_dpi_set_video_burst_type(
+    priv->hal.host, MIPI_DSI_LL_VIDEO_BURST_WITH_SYNC_PULSES);
+  mipi_dsi_host_ll_dpi_set_null_packet_size(priv->hal.host, 0);
+  mipi_dsi_host_ll_dpi_set_trunks_num(priv->hal.host, 0);
+  mipi_dsi_host_ll_dpi_set_video_packet_pixel_num(priv->hal.host, hactive);
+
+  mipi_dsi_hal_host_dpi_set_horizontal_timing(
+    &priv->hal, hsync, hback_porch, hactive, hfront_porch);
+  mipi_dsi_hal_host_dpi_set_vertical_timing(
+    &priv->hal, vsync, vback_porch, vactive, vfront_porch);
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_configure_bridge
+ ****************************************************************************/
+
+static void esp_mipi_dsi_video_configure_bridge(
+  FAR struct esp_mipi_dsi_s *priv, uint16_t hactive, uint16_t vactive,
+  mipi_dsi_ll_flow_controller_t flow_controller)
+{
+  mipi_dsi_brg_ll_set_num_pixel_bits(
+    priv->hal.bridge, (uint32_t)hactive * (uint32_t)vactive * 24u);
+  mipi_dsi_brg_ll_set_underrun_discard_count(priv->hal.bridge, hactive);
+  mipi_dsi_brg_ll_set_input_color_format(priv->hal.bridge,
+                                          LCD_COLOR_FMT_RGB888);
+  mipi_dsi_brg_ll_set_output_color_format(priv->hal.bridge,
+                                           LCD_COLOR_FMT_RGB888, 0);
+  mipi_dsi_brg_ll_set_flow_controller(priv->hal.bridge, flow_controller);
+}
+
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_dma_release
+ ****************************************************************************/
+
+static void esp_mipi_dsi_video_dma_release(
+  FAR struct esp_mipi_dsi_s *priv)
+{
+  if (priv->dma_channel != NULL)
+    {
+      dw_gdma_channel_enable_ctrl(priv->dma_channel, false);
+    }
+
+  if (priv->dma_link_list != NULL)
+    {
+      dw_gdma_del_link_list(priv->dma_link_list);
+      priv->dma_link_list = NULL;
+    }
+
+  if (priv->dma_channel != NULL)
+    {
+      dw_gdma_del_channel(priv->dma_channel);
+      priv->dma_channel = NULL;
+    }
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_dma_prepare
+ ****************************************************************************/
+
+static int esp_mipi_dsi_video_dma_prepare(
+  FAR struct esp_mipi_dsi_s *priv, FAR const void *frame_buffer,
+  size_t frame_buffer_bytes)
+{
+  dw_gdma_channel_static_config_t src_config;
+  dw_gdma_channel_static_config_t dst_config;
+  dw_gdma_channel_alloc_config_t channel_config;
+  dw_gdma_link_list_config_t link_config;
+  dw_gdma_block_transfer_config_t transfer_config;
+  dw_gdma_block_markers_t markers;
+  dw_gdma_lli_handle_t item;
+  esp_err_t result;
+  int ret;
+
+  if (((uintptr_t)frame_buffer &
+       (ESP_MIPI_DSI_DMA_TRANSFER_WIDTH_BYTES - 1)) != 0 ||
+      (frame_buffer_bytes % ESP_MIPI_DSI_DMA_TRANSFER_WIDTH_BYTES) != 0)
+    {
+      return -EINVAL;
+    }
+
+  memset(&src_config, 0, sizeof(src_config));
+  src_config.block_transfer_type = DW_GDMA_BLOCK_TRANSFER_LIST;
+  src_config.role = DW_GDMA_ROLE_MEM;
+  src_config.handshake_type = DW_GDMA_HANDSHAKE_HW;
+  src_config.num_outstanding_requests = 5;
+
+  memset(&dst_config, 0, sizeof(dst_config));
+  dst_config.block_transfer_type = DW_GDMA_BLOCK_TRANSFER_LIST;
+  dst_config.role = DW_GDMA_ROLE_PERIPH_DSI;
+  dst_config.handshake_type = DW_GDMA_HANDSHAKE_HW;
+  dst_config.num_outstanding_requests = 2;
+  dst_config.status_fetch_addr = MIPI_DSI_BRG_MEM_BASE;
+
+  memset(&channel_config, 0, sizeof(channel_config));
+  channel_config.src = src_config;
+  channel_config.dst = dst_config;
+  channel_config.flow_controller = DW_GDMA_FLOW_CTRL_SELF;
+  channel_config.chan_priority = 1;
+
+  result = dw_gdma_new_channel(&channel_config, &priv->dma_channel);
+  ret = esp_mipi_dsi_clock_result(result);
+  if (ret < 0)
+    {
+      goto errout;
+    }
+
+  memset(&link_config, 0, sizeof(link_config));
+  link_config.num_items = 1;
+  link_config.link_type = DW_GDMA_LINKED_LIST_TYPE_CIRCULAR;
+  result = dw_gdma_new_link_list(&link_config, &priv->dma_link_list);
+  ret = esp_mipi_dsi_clock_result(result);
+  if (ret < 0)
+    {
+      goto errout;
+    }
+
+  item = dw_gdma_link_list_get_item(priv->dma_link_list, 0);
+  if (item == NULL)
+    {
+      ret = -EIO;
+      goto errout;
+    }
+
+  memset(&transfer_config, 0, sizeof(transfer_config));
+  transfer_config.src.addr = (uint32_t)(uintptr_t)frame_buffer;
+  transfer_config.src.burst_mode = DW_GDMA_BURST_MODE_INCREMENT;
+  transfer_config.src.width = DW_GDMA_TRANS_WIDTH_64;
+  transfer_config.src.burst_items = DW_GDMA_BURST_ITEMS_512;
+  transfer_config.src.burst_len = 16;
+  transfer_config.dst.addr = MIPI_DSI_BRG_MEM_BASE;
+  transfer_config.dst.burst_mode = DW_GDMA_BURST_MODE_FIXED;
+  transfer_config.dst.width = DW_GDMA_TRANS_WIDTH_64;
+  transfer_config.dst.burst_items = DW_GDMA_BURST_ITEMS_256;
+  transfer_config.dst.burst_len = 16;
+  transfer_config.size = frame_buffer_bytes /
+                         ESP_MIPI_DSI_DMA_TRANSFER_WIDTH_BYTES;
+
+  result = dw_gdma_lli_config_transfer(item, &transfer_config);
+  ret = esp_mipi_dsi_clock_result(result);
+  if (ret < 0)
+    {
+      goto errout;
+    }
+
+  memset(&markers, 0, sizeof(markers));
+  markers.is_valid = true;
+  result = dw_gdma_lli_set_block_markers(item, markers);
+  ret = esp_mipi_dsi_clock_result(result);
+  if (ret < 0)
+    {
+      goto errout;
+    }
+
+  result = dw_gdma_channel_use_link_list(priv->dma_channel,
+                                          priv->dma_link_list);
+  ret = esp_mipi_dsi_clock_result(result);
+  if (ret < 0)
+    {
+      goto errout;
+    }
+
+  return OK;
+
+errout:
+  esp_mipi_dsi_video_dma_release(priv);
+  return ret;
+}
+#endif
+
+/****************************************************************************
  * Name: esp_mipi_dsi_enable_dpi_clock
  ****************************************************************************/
 
@@ -630,6 +860,9 @@ static void esp_mipi_dsi_video_stop_locked(FAR struct esp_mipi_dsi_s *priv)
   mipi_dsi_host_ll_dpi_set_pattern_type(priv->hal.host,
                                         MIPI_DSI_PATTERN_NONE);
   mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, false);
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+  esp_mipi_dsi_video_dma_release(priv);
+#endif
   mipi_dsi_brg_ll_enable(priv->hal.bridge, false);
   mipi_dsi_brg_ll_enable_ref_clock(priv->hal.bridge, false);
   mipi_dsi_brg_ll_force_enable_reg_clock(priv->hal.bridge, false);
@@ -954,10 +1187,10 @@ int esp_mipi_dsi_video_pattern_start(
   mipi_dsi_pattern_type_t pattern;
   int ret;
 
-  if (host != &priv->host || config == NULL || config->channel > 3 ||
-      config->hactive == 0 || config->vactive == 0 ||
-      config->pixel_clock_hz < ESP_MIPI_DSI_MIN_DPI_CLOCK_HZ ||
-      config->pixel_clock_hz > ESP_MIPI_DSI_MAX_DPI_CLOCK_HZ)
+  if (host != &priv->host || config == NULL ||
+      !esp_mipi_dsi_video_timing_valid(config->channel, config->hactive,
+                                        config->vactive,
+                                        config->pixel_clock_hz))
     {
       return -EINVAL;
     }
@@ -994,35 +1227,12 @@ int esp_mipi_dsi_video_pattern_start(
           mipi_dsi_brg_ll_force_enable_reg_clock(priv->hal.bridge, true);
           mipi_dsi_brg_ll_enable_ref_clock(priv->hal.bridge, true);
 
-          mipi_dsi_host_ll_dpi_set_vcid(priv->hal.host, config->channel);
-          mipi_dsi_host_ll_dpi_set_color_coding(priv->hal.host,
-                                                LCD_COLOR_FMT_RGB888, 0);
-          mipi_dsi_host_ll_dpi_enable_loosely18_packet(priv->hal.host,
-                                                        false);
-          mipi_dsi_host_ll_dpi_set_timing_polarity(
-            priv->hal.host, config->hsync_active_low,
-            config->vsync_active_low, false, false, false);
-          mipi_dsi_host_ll_dpi_enable_frame_ack(priv->hal.host, true);
-          mipi_dsi_host_ll_dpi_enable_lp_horizontal_timing(priv->hal.host,
-                                                            true, true);
-          mipi_dsi_host_ll_dpi_enable_lp_vertical_timing(priv->hal.host,
-                                                          true, true,
-                                                          true, true);
-          mipi_dsi_host_ll_dpi_enable_lp_command(priv->hal.host, true);
-          mipi_dsi_host_ll_dpi_set_video_burst_type(
-            priv->hal.host, MIPI_DSI_LL_VIDEO_BURST_WITH_SYNC_PULSES);
-          mipi_dsi_host_ll_dpi_set_null_packet_size(priv->hal.host, 0);
-          mipi_dsi_host_ll_dpi_set_trunks_num(priv->hal.host, 0);
-          mipi_dsi_host_ll_dpi_set_video_packet_pixel_num(priv->hal.host,
-                                                           config->hactive);
+          esp_mipi_dsi_video_configure_host(
+            priv, config->channel, config->hactive, config->hsync,
+            config->hback_porch, config->hfront_porch, config->vactive,
+            config->vsync, config->vback_porch, config->vfront_porch,
+            config->hsync_active_low, config->vsync_active_low);
           mipi_dsi_host_ll_dpi_set_pattern_type(priv->hal.host, pattern);
-
-          mipi_dsi_hal_host_dpi_set_horizontal_timing(
-            &priv->hal, config->hsync, config->hback_porch,
-            config->hactive, config->hfront_porch);
-          mipi_dsi_hal_host_dpi_set_vertical_timing(
-            &priv->hal, config->vsync, config->vback_porch,
-            config->vactive, config->vfront_porch);
 
           /* Keep the same bridge-side format and timing contract as the
            * ESP-IDF DPI panel path.  M2a intentionally selects the bridge
@@ -1030,17 +1240,9 @@ int esp_mipi_dsi_video_pattern_start(
            * framebuffer or GDMA producer.
            */
 
-          mipi_dsi_brg_ll_set_num_pixel_bits(
-            priv->hal.bridge, (uint32_t)config->hactive *
-                              (uint32_t)config->vactive * 24u);
-          mipi_dsi_brg_ll_set_underrun_discard_count(priv->hal.bridge,
-                                                      config->hactive);
-          mipi_dsi_brg_ll_set_input_color_format(priv->hal.bridge,
-                                                  LCD_COLOR_FMT_RGB888);
-          mipi_dsi_brg_ll_set_output_color_format(priv->hal.bridge,
-                                                   LCD_COLOR_FMT_RGB888, 0);
-          mipi_dsi_brg_ll_set_flow_controller(
-            priv->hal.bridge, MIPI_DSI_LL_FLOW_CONTROLLER_BRIDGE);
+          esp_mipi_dsi_video_configure_bridge(
+            priv, config->hactive, config->vactive,
+            MIPI_DSI_LL_FLOW_CONTROLLER_BRIDGE);
           mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, false);
           mipi_dsi_brg_ll_enable(priv->hal.bridge, true);
           mipi_dsi_brg_ll_update_dpi_config(priv->hal.bridge);
@@ -1061,6 +1263,138 @@ int esp_mipi_dsi_video_pattern_start(
         }
     }
 
+  nxmutex_unlock(&priv->lock);
+  return ret;
+#else
+  (void)host;
+  (void)config;
+  return -ENOTSUP;
+#endif
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_dma_start
+ ****************************************************************************/
+
+int esp_mipi_dsi_video_dma_start(
+  FAR struct mipi_dsi_host *host,
+  FAR const struct esp_mipi_dsi_video_dma_config_s *config)
+{
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+  FAR struct esp_mipi_dsi_s *priv = &g_esp_mipi_dsi;
+  size_t required_bytes;
+  esp_err_t result;
+  int ret;
+
+  if (host != &priv->host || config == NULL ||
+      !esp_mipi_dsi_video_timing_valid(config->channel, config->hactive,
+                                        config->vactive,
+                                        config->pixel_clock_hz) ||
+      config->frame_buffer == NULL ||
+      config->vactive > SIZE_MAX / ESP_MIPI_DSI_DMA_BYTES_PER_PIXEL /
+                        config->hactive)
+    {
+      return -EINVAL;
+    }
+
+  required_bytes = (size_t)config->hactive * config->vactive *
+                   ESP_MIPI_DSI_DMA_BYTES_PER_PIXEL;
+  if (config->frame_buffer_bytes < required_bytes ||
+      (required_bytes % ESP_MIPI_DSI_DMA_TRANSFER_WIDTH_BYTES) != 0)
+    {
+      return -EINVAL;
+    }
+
+  ret = nxmutex_lock(&priv->lock);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  if (!priv->ready)
+    {
+      ret = -ESHUTDOWN;
+      goto errout_unlock;
+    }
+
+  if (priv->video_running)
+    {
+      ret = -EALREADY;
+      goto errout_unlock;
+    }
+
+  ret = esp_mipi_dsi_enable_dpi_clock(priv, config->pixel_clock_hz);
+  if (ret < 0)
+    {
+      goto errout_unlock;
+    }
+
+  /* The bridge timing registers require both bridge clocks before their
+   * configuration is written.  Unlike M2a, M2b uses DW-GDMA as the actual
+   * pixel producer and therefore does not select the Host pattern source.
+   */
+
+  mipi_dsi_brg_ll_force_enable_reg_clock(priv->hal.bridge, true);
+  mipi_dsi_brg_ll_enable_ref_clock(priv->hal.bridge, true);
+  esp_mipi_dsi_video_configure_host(
+    priv, config->channel, config->hactive, config->hsync,
+    config->hback_porch, config->hfront_porch, config->vactive,
+    config->vsync, config->vback_porch, config->vfront_porch,
+    config->hsync_active_low, config->vsync_active_low);
+  mipi_dsi_host_ll_dpi_set_pattern_type(priv->hal.host,
+                                        MIPI_DSI_PATTERN_NONE);
+  esp_mipi_dsi_video_configure_bridge(
+    priv, config->hactive, config->vactive,
+    MIPI_DSI_LL_FLOW_CONTROLLER_DMA);
+  mipi_dsi_brg_ll_set_multi_block_number(priv->hal.bridge, 1);
+  mipi_dsi_brg_ll_set_burst_len(priv->hal.bridge,
+                                 ESP_MIPI_DSI_DMA_BURST_WORDS);
+  mipi_dsi_brg_ll_set_empty_threshold(priv->hal.bridge,
+                                       ESP_MIPI_DSI_DMA_EMPTY_THRESHOLD);
+  mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, false);
+
+  ret = esp_mipi_dsi_video_dma_prepare(priv, config->frame_buffer,
+                                       required_bytes);
+  if (ret < 0)
+    {
+      goto errout_video;
+    }
+
+  mipi_dsi_brg_ll_enable(priv->hal.bridge, true);
+  mipi_dsi_brg_ll_update_dpi_config(priv->hal.bridge);
+  mipi_dsi_host_ll_enable_bta(priv->hal.host, false);
+  mipi_dsi_host_ll_set_clock_lane_state(
+    priv->hal.host, MIPI_DSI_LL_CLOCK_LANE_STATE_AUTO);
+  mipi_dsi_host_ll_enable_video_mode(priv->hal.host, true);
+  mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, true);
+  mipi_dsi_brg_ll_update_dpi_config(priv->hal.bridge);
+
+  result = dw_gdma_channel_enable_ctrl(priv->dma_channel, true);
+  ret = esp_mipi_dsi_clock_result(result);
+  if (ret < 0)
+    {
+      goto errout_video;
+    }
+
+  priv->video_running = true;
+  esp_mipi_dsi_dump_video_state(priv, "dma-started");
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI DPI DMA started channel=%u size=%ux%u "
+         "pixel_clock_hz=%" PRIu32 " frame_bytes=%zu\n",
+         config->channel, config->hactive, config->vactive,
+         config->pixel_clock_hz, required_bytes);
+  nxmutex_unlock(&priv->lock);
+  return OK;
+
+errout_video:
+  mipi_dsi_host_ll_enable_video_mode(priv->hal.host, false);
+  mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, false);
+  esp_mipi_dsi_video_dma_release(priv);
+  mipi_dsi_brg_ll_enable(priv->hal.bridge, false);
+  mipi_dsi_brg_ll_enable_ref_clock(priv->hal.bridge, false);
+  mipi_dsi_brg_ll_force_enable_reg_clock(priv->hal.bridge, false);
+  esp_mipi_dsi_disable_dpi_clock(priv);
+errout_unlock:
   nxmutex_unlock(&priv->lock);
   return ret;
 #else

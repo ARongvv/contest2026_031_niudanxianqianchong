@@ -55,10 +55,10 @@ reset 与 DCS 写命令；**不**表示完成 P4X video、画面、触摸或 LVG
 | --- | --- | --- |
 | ESP32-P4 MIPI-DSI command Host | 命令写已实板验证 | P4 rev3 XTAL reference clock、D-PHY PLL、lane stop、命令模式控制器和 NuttX Host 已通过；generic packet 与 EK79007 初始化写序列通过。 |
 | P4 DSI/LDO 构建与封装 | Make 构建及实板验证通过 | 已形成 NuttX errno 风格 LDO 封装，并在 Make/CMake 中条件纳入 DSI vendor HAL；CMake 回归仍待执行。 |
-| ESP32-P4 MIPI-DSI video pipeline | 未实现 | 尚不能建立 DPI 时序、framebuffer、DMA、cache 同步或 vsync/error 中断。 |
+| ESP32-P4 MIPI-DSI video pipeline | M2b 固定色条已实现，待实板验收 | 已有 DPI timing、PSRAM RGB888 buffer、cache clean、DW-GDMA circular scanout；尚无 vsync/error IRQ、`/dev/fb0` 或 LVGL port。 |
 | EK79007 通用面板驱动 | 未完成接入 | 现有覆盖层尚未与 P4 DSI Host、视频时序完成联调。 |
 | GT911 通用触摸驱动 | 未完成接入 | 尚未完成 P4X I2C、复位、INT 与输入注册验证。 |
-| P4X 板级 DSI command 装配 | 命令写已实板验证 | `esp32p4_lcd.c` 已实测 LDO3/2.5V、2 lane/1000 Mbps 与 GPIO27 reset；不含背光 PWM、视频和 framebuffer。 |
+| P4X 板级 DSI command 装配 | 命令写已实板验证；M2b 待验收 | `esp32p4_lcd.c` 已实测 LDO3/2.5V、2 lane/1000 Mbps 与 GPIO27 reset；M2b 增加 GPIO26 静态背光、PSRAM 固定色条和 DMA 生命周期。 |
 | P4X 板级触摸装配 | 未实现 | 尚未初始化指定 I2C 总线、地址、复位与输入注册。 |
 | `lvgl` defconfig | 未实现 | 没有可复现的显示、触摸与 LVGL 配置组合。 |
 
@@ -83,9 +83,9 @@ reset 与 DCS 写命令；**不**表示完成 P4X video、画面、触摸或 LVG
    入口均条件编译芯片层代码，并条件加入 `mipi_dsi_hal.c`、
    `mipi_dsi_periph.c`。
 
-当前 M1 **尚未**实现 DSI 错误中断、显式 `FAULT` 状态机、视频/DMA，也未完成
-重复初始化压力测试或能返回 payload 的 DCS read 验证；这些项目不能被一次
-command-write 实板通过替代。
+当前 M1/M2b **尚未**实现 DSI 错误中断、显式 `FAULT` 状态机、vsync、通用
+framebuffer/LVGL port，也未完成重复初始化压力测试或能返回 payload 的 DCS read
+验证；这些项目不能被一次 command-write 或 DMA 启动通过替代。
 
 现有 `esp32p4_buttons.c` 中的 `CONFIG_ESPRESSIF_TOUCH` 是芯片内部触摸
 传感器（touch-pad）支持，**不是** LCD 上 GT911 电容触摸屏驱动。

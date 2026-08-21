@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Staged MIPI-DSI validation for the ESP32-P4X Function EV Board.
- * The optional video command uses the Host's internal pattern generator and
- * never allocates a framebuffer or starts LVGL.
+ * The optional video command scans a fixed RGB888 colour-bar buffer through
+ * DW-GDMA; it deliberately does not start LVGL.
  ****************************************************************************/
 
 /****************************************************************************
@@ -221,10 +221,10 @@ static int dsi_probe_run_video_pattern(FAR struct mipi_dsi_host *host,
       return ret;
     }
 
-  printf("dsi_probe: vertical colour bars active for %u seconds; "
-         "no framebuffer or LVGL is involved\n", seconds);
-  printf("dsi_probe: Host configuration completed; visually confirm colour "
-         "bars before recording a display PASS\n");
+  printf("dsi_probe: DMA RGB888 vertical colour bars active for %u seconds; "
+         "LVGL is not involved\n", seconds);
+  printf("dsi_probe: DMA scanout started; visually confirm colour bars "
+         "before recording a display PASS\n");
   for (elapsed = 0; elapsed < seconds; elapsed++)
     {
       ret = nxsig_usleep(1000 * 1000);
@@ -276,7 +276,7 @@ int main(int argc, FAR char *argv[])
 
   printf("=== ESP32-P4X MIPI-DSI Host probe ===\n");
   printf("link: 2 lanes, 1000 Mbps; panel: EK79007; video: %s\n",
-         video_requested ? "pattern request" : "disabled");
+         video_requested ? "DMA colour-bar request" : "disabled");
 
   ret = board_mipi_dsi_initialize(&host);
   if (ret < 0)
@@ -363,11 +363,12 @@ int main(int argc, FAR char *argv[])
         {
           mipi_dsi_detach(&device);
           board_mipi_dsi_shutdown(host);
-          return dsi_probe_fail("video_pattern", ret);
+          return dsi_probe_fail("video_dma_scanout", ret);
         }
 #else
       printf("dsi_probe: video command is disabled; enable "
-             "CONFIG_LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE_VIDEO_PATTERN\n");
+             "CONFIG_LVX_USE_DEMO_CONTEST2026_031_"
+             "DSI_PROBE_VIDEO_PATTERN\n");
       mipi_dsi_detach(&device);
       board_mipi_dsi_shutdown(host);
       return EXIT_FAILURE;
@@ -389,7 +390,7 @@ int main(int argc, FAR char *argv[])
 
   if (video_requested)
     {
-      printf("dsi_probe: HOST PASS DPI pattern sequence completed; visual "
+      printf("dsi_probe: HOST PASS DPI DMA sequence completed; visual "
              "display result pending (DCS read=%s)\n",
              dcs_read_available ? "available" : "unavailable");
     }

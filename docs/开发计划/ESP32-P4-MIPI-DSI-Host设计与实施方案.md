@@ -37,7 +37,8 @@ M1 的芯片层、P4X command-mode 板级装配和独立 Probe 已完成；2026-
 | Kconfig 与双构建入口 | 已实现 | `ESPRESSIF_MIPI_DSI` 自动选择 `MIPI_DSI`、`ESPRESSIF_LDO`；Make/CMake 同时接入 Host 与 vendor HAL 源。 |
 | DSI error IRQ / `FAULT` 状态机 | 待实现 | 当前仅以 `ready`、`registered` 表达可用状态，传输错误直接返回 errno。 |
 | `dsi_probe` / P4X 板级 command 装配 | 命令写已实板验证 | P4X 固定 LDO3/2.5V、2 lane/1000 Mbps、GPIO27 active-low reset；generic packet 与 EK79007 初始化写序列通过。`GET_POWER_MODE` 未收到 payload，仅作为非阻塞诊断。 |
-| DPI video、DMA、framebuffer | 待实现 | 仍属于 M2，不提供 `/dev/fb0` 或 LVGL 显示能力。 |
+| M2a Host 内建色条 | Host 配置已实板验证，但未显示 | 可确认 DPI timing/bridge 寄存器启动，不是实际像素流证据。 |
+| M2b GDMA 固定色条 | 已实现，待构建和实板视觉验证 | 新增 PSRAM RGB888 帧缓冲、cache clean、DW-GDMA circular LLI 与 Bridge DMA flow；仍不提供 `/dev/fb0` 或 LVGL。 |
 
 > 当前结论：M1 的 Host 与 EK79007 command-write 链路已通过一次实板验证；不能
 > 据此宣称 EK79007 已显示、DCS read 已可用或 LVGL 已可运行。
@@ -62,7 +63,7 @@ NuttX MIPI-DSI 通用 API
   mipi_dsi_host_register() / packet / DCS
               │
 ESP32-P4 芯片层
-  esp_mipi_dsi.c              Host、PHY、命令传输、DPI video pattern（M1/M2a）
+  esp_mipi_dsi.c              Host、PHY、命令传输、M2a pattern、M2b GDMA scanout
   esp_ldo.c                   LDO vendor API 到 errno 风格的薄封装
               │
 ESP HAL / 寄存器层
@@ -97,8 +98,10 @@ int esp_mipi_dsi_host_shutdown(FAR struct mipi_dsi_host *host);
 ```
 
 返回值统一转换为 NuttX errno 负值；vendor `esp_err_t`、寄存器地址和 HAL 私有
-对象停留在 `.c` 文件内部。M2a 已增加 framebuffer-free 的 DPI pattern 配置结构；
-DMA/framebuffer API 仍在其硬件路径验证后再增加，避免将未验证的内存模型固定成 ABI。
+对象停留在 `.c` 文件内部。M2a 保留 framebuffer-free 的 DPI pattern 配置结构；M2b
+新增 `esp_mipi_dsi_video_dma_start()`，只接受板级持有的 RGB888 buffer 地址和长度，
+不暴露 GDMA handle、LLI 或 ESP HAL 私有类型。该 API 的 buffer 必须持续有效至
+`esp_mipi_dsi_video_stop()` 返回。
 
 NuttX 当前只有 `mipi_dsi_host_register()`，没有对应 unregister API。因此 Host
 结构是静态单例：首次 initialize 注册一次；`shutdown()` 只关闭硬件并释放 LDO；
@@ -109,10 +112,11 @@ NuttX 当前只有 `mipi_dsi_host_register()`，没有对应 unregister API。�
 ```text
 OFF -> **LDO_READY** -> **PHY_READY** -> **COMMAND_READY**
   -> VIDEO_CONFIGURED       （M2a：DPI pattern）
-  -> VIDEO_RUNNING          （M2a：DPI pattern）
+  -> VIDEO_RUNNING          （M2a：DPI pattern；M2b：GDMA scanout）
   -> FAULT
 
-shutdown：按相反方向关闭 DPI pattern、PHY、时钟并释放 LDO；M2b 再补充 DMA 停止。
+shutdown：先停 video/Bridge 输出，再释放 M2b 的 GDMA channel/LLI，最后关闭 DPI、
+PHY、时钟并释放 LDO。
 ```
 
 当前只有 `ready` 布尔状态，只有为真时允许 DCS transfer。PLL/FIFO 超时和 HAL
@@ -186,20 +190,22 @@ LP timing、burst with sync pulses，并在启动后打印 Host/bridge 的 mode�
 flow-control 和 interrupt 快照。M2a 没有 framebuffer，因此 flow controller 保持
 bridge；M2b 接入 GDMA 后才切换到 DMA controller。
 
-### 6.2 M2b：framebuffer、DMA 与内存
+### 6.2 M2b：固定 framebuffer、DMA 与内存
 
 DSI DBI/DCS 命令只用于控制面板；1024 x 600 的持续像素输出需要 DPI video
-pipeline。M2 必须单独实现并验收：
+pipeline。为将 M2a 的“Host 已启动但未显示”与物理链路问题区分，当前 M2b 实现采用
+**固定 RGB888 垂直色条**，不引入 LVGL：
 
-1. 由板级传入完整 video timing（active、front porch、sync、back porch、极性、
-   pixel clock、format），不在芯片层写死 EK79007 数值。
-2. 初始化 DPI video、framebuffer 取数和 GDMA/DW-GDMA 资源；先确认 vendor HAL
-   所需源码已纳入 P4 HAL 构建，再接入芯片层 CMake 与 Make.defs。
-3. DMA 描述符、IRQ 控制块放在 DMA 可访问的内部 RAM；framebuffer 是否可位于
-   PSRAM 必须通过实测确认。
-4. CPU 写 framebuffer 后做 clean；DMA 写回或读取状态时按方向做 invalidate；
-   所有 buffer 满足 cache line 与 DMA 对齐要求。
-5. 首期仅 RGB565 单缓冲，显示稳定后才评估双缓冲、局部刷新或 RGB888。
+1. 板级仍传入完整 video timing；芯片层不写死 EK79007 的分辨率、porch 或 GPIO。
+2. 板级以 `MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT` 分配 64-byte
+   对齐的 1024×600 RGB888 单帧（1,843,200 B），填充八段色条后执行 C2M cache clean。
+3. 芯片层创建一个 DW-GDMA circular LLI，源为该 buffer、目的为
+   `MIPI_DSI_BRG_MEM_BASE`；使用 64-bit transfer width、DSI 硬件握手和 DMA flow
+   controller，随后才打开 Bridge DPI output 与 Host video mode。
+4. 停止顺序是 Host video off -> Bridge output off -> GDMA disable/release -> Bridge/
+   DPI clock off；帧缓冲最后由板级释放，避免 DMA 使用已释放内存。
+5. 本轮只验证静态 RGB888 scanout。它不注册 framebuffer 设备、不处理 vsync IRQ，
+   也不构成 RGB565/LVGL 的最终内存模型；PSRAM 是否稳定可扫仍以实板结果为准。
 
 1024 x 600 RGB565 单缓冲为 1,228,800 B（约 1.17 MiB），双缓冲约 2.34 MiB。
 这是一项显示流水线预算，不能从任务栈或普通 small-heap 中零散分配。
@@ -212,7 +218,8 @@ Kconfig 应表达硬件能力，而不是把某个面板参数提升为全芯片
 CONFIG_ESPRESSIF_LDO                 # M1 已实现；由 DSI Host 自动选择
 CONFIG_ESPRESSIF_MIPI_DSI            # M1 已实现，默认关闭
 CONFIG_ESPRESSIF_MIPI_DSI_TIMEOUT_MS # M1 已实现，默认 100，范围 1--1000 ms
-CONFIG_ESPRESSIF_MIPI_DSI_VIDEO      # M2a：DPI pattern，依赖 Host
+CONFIG_ESPRESSIF_MIPI_DSI_VIDEO      # M2a/M2b：DPI video 基础
+CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA  # M2b：依赖 SPIRAM 的 GDMA scanout
 CONFIG_LCD_EK79007                   # 通用面板
 CONFIG_INPUT_GT911                   # 通用触摸
 ```
@@ -227,11 +234,11 @@ Kconfig 或板级静态配置。所有新增 C 源必须同时更新对应 `Kcon
 | 文件 | M1/M2 | 职责 |
 | --- | --- | --- |
 | `chips/esp32p4/common/espressif/esp_ldo.c/.h` | M1，已实现 | LDO 生命周期、errno 转换 |
-| `chips/esp32p4/common/espressif/esp_mipi_dsi.c/.h` | M1/M2a | Host、PHY、DCS transfer、DPI pattern；M2b 再扩展 framebuffer/DMA API |
+| `chips/esp32p4/common/espressif/esp_mipi_dsi.c/.h` | M1/M2a/M2b | Host、PHY、DCS transfer、DPI pattern、私有 GDMA/LLI 生命周期与 DMA scanout API |
 | `chips/esp32p4/common/espressif/{Kconfig,Make.defs,CMakeLists.txt}` | M1/M2，M1 已实现 | 芯片层开关和构建 |
-| `chips/esp32p4/hal_esp32p4.{mk,cmake}` | M1/M2，M1 已实现 | 条件纳入 vendor DSI HAL 源；GDMA HAL 留待 M2 按需接入 |
-| `board/.../src/esp32p4_lcd.c` | M1/M2a | P4X D-PHY LDO、GPIO27 reset、DPI timing、GPIO26 静态背光；面板实例留待 M3 |
-| `app/dsi_probe/`、`configs/dsi_probe/defconfig` | M1/M2a | 与 LVGL 解耦的 command Host 与内建色条验证入口；DCS read 为可选诊断 |
+| `chips/esp32p4/hal_esp32p4.{mk,cmake}` | M1/M2，已实现 | 条件纳入 vendor DSI HAL 源；DW-GDMA 基础源已随 P4 HAL 构建，M2b 直接复用。 |
+| `board/.../src/esp32p4_lcd.c` | M1/M2a/M2b | P4X D-PHY LDO、GPIO27 reset、DPI timing、GPIO26 静态背光、PSRAM 色条 buffer；面板实例留待 M3 |
+| `app/dsi_probe/`、`configs/dsi_probe/defconfig` | M1/M2a/M2b | 与 LVGL 解耦的 command Host 与 M2b DMA 色条验证入口；DCS read 为可选诊断 |
 
 ## 8. 验收矩阵
 
@@ -243,7 +250,9 @@ Kconfig 或板级静态配置。所有新增 C 源必须同时更新对应 `Kcon
 | M1 DCS 读 | `GET_POWER_MODE` BTA/RX FIFO | 已诊断：Host 完成读请求但面板未返回 payload；非 M1 command-write 阻塞项 |
 | M2a Host 配置 | `dsi_probe video 60` 内建垂直色条 | 日志为 `HOST PASS`，且无 Host/bridge timeout；这不是显示通过 |
 | M2a 显示 | `dsi_probe video 60` 内建垂直色条 | 1024 x 600 稳定，能清晰区分色条，无花屏或 Host/bridge timeout，并留存屏幕照片/视频 |
-| M2b 显示 | RGB565 framebuffer 色条/纯色 | 1024 x 600 稳定，无撕裂、花屏或 DMA abort |
+| M2b DMA 启动 | `dsi_probe video 60` | 日志包含 `DMA colour bars ready`、`DPI DMA started` 和 `dma-started` 寄存器快照；无 DMA 分配、cache 或 GDMA 建链错误。 |
+| M2b 显示 | `dsi_probe video 60` | 肉眼可见八段 RGB 色条并留存照片/视频；未看到画面时只能记录为“DMA scanout 软件已启动、面板链路待排查”。 |
+| M3 framebuffer | RGB565 framebuffer 色条/纯色 | 1024 x 600 稳定，无撕裂、花屏或 DMA abort |
 | M2 压力 | 背光、sleep/wake、重启、连续刷新 | 无资源泄漏，异常后可从 `FAULT` 完整恢复 |
 
 每次验收至少留存构建命令、`git diff --check`、USB console 日志和屏幕照片/视频。

@@ -18,6 +18,7 @@
 #include <nuttx/video/mipi_dsi.h>
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include <arch/chip/esp_ldo.h>
@@ -73,6 +74,29 @@ struct esp_mipi_dsi_video_pattern_config_s
   enum esp_mipi_dsi_video_pattern_e pattern;
 };
 
+/* DMA scanout intentionally takes a board-owned frame buffer.  The generic
+ * chip adapter configures only the P4 DSI Bridge/GDMA path; allocation,
+ * pixel contents and lifetime remain board policy.
+ */
+
+struct esp_mipi_dsi_video_dma_config_s
+{
+  uint8_t        channel;
+  uint16_t       hactive;
+  uint16_t       hsync;
+  uint16_t       hback_porch;
+  uint16_t       hfront_porch;
+  uint16_t       vactive;
+  uint16_t       vsync;
+  uint16_t       vback_porch;
+  uint16_t       vfront_porch;
+  uint32_t       pixel_clock_hz;
+  bool           hsync_active_low;
+  bool           vsync_active_low;
+  FAR const void *frame_buffer;
+  size_t         frame_buffer_bytes;
+};
+
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
@@ -94,6 +118,20 @@ int esp_mipi_dsi_host_shutdown(FAR struct mipi_dsi_host *host);
 int esp_mipi_dsi_video_pattern_start(
   FAR struct mipi_dsi_host *host,
   FAR const struct esp_mipi_dsi_video_pattern_config_s *config);
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_dma_start
+ *
+ * Description:
+ *   Configure DPI video mode and continuously feed a board-owned RGB888
+ *   frame buffer to the P4 DSI Bridge through DW-GDMA.  The caller must keep
+ *   the buffer valid and unchanged until esp_mipi_dsi_video_stop() returns.
+ *
+ ****************************************************************************/
+
+int esp_mipi_dsi_video_dma_start(
+  FAR struct mipi_dsi_host *host,
+  FAR const struct esp_mipi_dsi_video_dma_config_s *config);
 
 /****************************************************************************
  * Name: esp_mipi_dsi_video_stop
