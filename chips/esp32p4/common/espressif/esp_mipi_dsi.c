@@ -577,6 +577,45 @@ static void esp_mipi_dsi_disable_dpi_clock(
 }
 
 /****************************************************************************
+ * Name: esp_mipi_dsi_dump_video_state
+ *
+ * Description:
+ *   The Host accepting a video-pattern configuration only proves that the
+ *   CPU-side register programming completed.  Keep a compact snapshot of
+ *   the Host and bridge state so a missing image can be distinguished from
+ *   an incomplete video configuration before a framebuffer/DMA path exists.
+ ****************************************************************************/
+
+static void esp_mipi_dsi_dump_video_state(
+  FAR struct esp_mipi_dsi_s *priv, FAR const char *stage)
+{
+  FAR dsi_host_dev_t *host = priv->hal.host;
+  FAR dsi_brg_dev_t *bridge = priv->hal.bridge;
+
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI video state stage=%s host_mode=%08" PRIx32
+         " vid_mode=%08" PRIx32 " color=%08" PRIx32
+         " pkt_size=%08" PRIx32 " phy=%08" PRIx32 "\n",
+         stage, host->mode_cfg.val, host->vid_mode_cfg.val,
+         host->dpi_color_coding.val, host->vid_pkt_size.val,
+         host->phy_status.val);
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI bridge state stage=%s en=%08" PRIx32
+         " host_ctrl=%08" PRIx32 " h0=%08" PRIx32 " h1=%08" PRIx32
+         " v0=%08" PRIx32 " v1=%08" PRIx32 " misc=%08" PRIx32 "\n",
+         stage, bridge->en.val, bridge->host_ctrl.val,
+         bridge->dpi_h_cfg0.val, bridge->dpi_h_cfg1.val,
+         bridge->dpi_v_cfg0.val, bridge->dpi_v_cfg1.val,
+         bridge->dpi_misc_config.val);
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI bridge flow stage=%s pixel=%08" PRIx32
+         " flow=%08" PRIx32 " raw=%08" PRIx32 " int_raw=%08" PRIx32
+         " int_st=%08" PRIx32 "\n",
+         stage, bridge->pixel_type.val, bridge->dma_flow_ctrl.val,
+         bridge->raw_num_cfg.val, bridge->int_raw.val, bridge->int_st.val);
+}
+
+/****************************************************************************
  * Name: esp_mipi_dsi_video_stop_locked
  ****************************************************************************/
 
@@ -948,6 +987,13 @@ int esp_mipi_dsi_video_pattern_start(
       ret = esp_mipi_dsi_enable_dpi_clock(priv, config->pixel_clock_hz);
       if (ret == OK)
         {
+          /* The bridge owns the DPI timing registers.  Its register clock
+           * must be running before those registers are programmed.
+           */
+
+          mipi_dsi_brg_ll_force_enable_reg_clock(priv->hal.bridge, true);
+          mipi_dsi_brg_ll_enable_ref_clock(priv->hal.bridge, true);
+
           mipi_dsi_host_ll_dpi_set_vcid(priv->hal.host, config->channel);
           mipi_dsi_host_ll_dpi_set_color_coding(priv->hal.host,
                                                 LCD_COLOR_FMT_RGB888, 0);
@@ -956,15 +1002,15 @@ int esp_mipi_dsi_video_pattern_start(
           mipi_dsi_host_ll_dpi_set_timing_polarity(
             priv->hal.host, config->hsync_active_low,
             config->vsync_active_low, false, false, false);
-          mipi_dsi_host_ll_dpi_enable_frame_ack(priv->hal.host, false);
+          mipi_dsi_host_ll_dpi_enable_frame_ack(priv->hal.host, true);
           mipi_dsi_host_ll_dpi_enable_lp_horizontal_timing(priv->hal.host,
-                                                            false, false);
+                                                            true, true);
           mipi_dsi_host_ll_dpi_enable_lp_vertical_timing(priv->hal.host,
-                                                          false, false,
-                                                          false, false);
+                                                          true, true,
+                                                          true, true);
           mipi_dsi_host_ll_dpi_enable_lp_command(priv->hal.host, true);
           mipi_dsi_host_ll_dpi_set_video_burst_type(
-            priv->hal.host, MIPI_DSI_LL_VIDEO_NON_BURST_WITH_SYNC_PULSES);
+            priv->hal.host, MIPI_DSI_LL_VIDEO_BURST_WITH_SYNC_PULSES);
           mipi_dsi_host_ll_dpi_set_null_packet_size(priv->hal.host, 0);
           mipi_dsi_host_ll_dpi_set_trunks_num(priv->hal.host, 0);
           mipi_dsi_host_ll_dpi_set_video_packet_pixel_num(priv->hal.host,
@@ -978,19 +1024,38 @@ int esp_mipi_dsi_video_pattern_start(
             &priv->hal, config->vsync, config->vback_porch,
             config->vactive, config->vfront_porch);
 
-          mipi_dsi_brg_ll_force_enable_reg_clock(priv->hal.bridge, true);
-          mipi_dsi_brg_ll_enable_ref_clock(priv->hal.bridge, true);
-          mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, true);
-          mipi_dsi_brg_ll_update_dpi_config(priv->hal.bridge);
+          /* Keep the same bridge-side format and timing contract as the
+           * ESP-IDF DPI panel path.  M2a intentionally selects the bridge
+           * flow controller because its Host video pattern generator has no
+           * framebuffer or GDMA producer.
+           */
+
+          mipi_dsi_brg_ll_set_num_pixel_bits(
+            priv->hal.bridge, (uint32_t)config->hactive *
+                              (uint32_t)config->vactive * 24u);
+          mipi_dsi_brg_ll_set_underrun_discard_count(priv->hal.bridge,
+                                                      config->hactive);
+          mipi_dsi_brg_ll_set_input_color_format(priv->hal.bridge,
+                                                  LCD_COLOR_FMT_RGB888);
+          mipi_dsi_brg_ll_set_output_color_format(priv->hal.bridge,
+                                                   LCD_COLOR_FMT_RGB888, 0);
+          mipi_dsi_brg_ll_set_flow_controller(
+            priv->hal.bridge, MIPI_DSI_LL_FLOW_CONTROLLER_BRIDGE);
+          mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, false);
           mipi_dsi_brg_ll_enable(priv->hal.bridge, true);
+          mipi_dsi_brg_ll_update_dpi_config(priv->hal.bridge);
           mipi_dsi_host_ll_enable_bta(priv->hal.host, false);
           mipi_dsi_host_ll_set_clock_lane_state(
             priv->hal.host, MIPI_DSI_LL_CLOCK_LANE_STATE_AUTO);
           mipi_dsi_host_ll_enable_video_mode(priv->hal.host, true);
+          mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, true);
+          mipi_dsi_brg_ll_update_dpi_config(priv->hal.bridge);
           priv->video_running = true;
+          esp_mipi_dsi_dump_video_state(priv, "started");
           syslog(LOG_INFO,
-                 "INFO: MIPI-DSI DPI pattern started channel=%u "
-                 "size=%ux%u pixel_clock_hz=%" PRIu32 " pattern=%d\n",
+                 "INFO: MIPI-DSI DPI pattern Host started channel=%u "
+                 "size=%ux%u pixel_clock_hz=%" PRIu32 " pattern=%d; "
+                 "visual verification pending\n",
                  config->channel, config->hactive, config->vactive,
                  config->pixel_clock_hz, config->pattern);
         }

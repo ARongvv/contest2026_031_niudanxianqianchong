@@ -223,6 +223,8 @@ static int dsi_probe_run_video_pattern(FAR struct mipi_dsi_host *host,
 
   printf("dsi_probe: vertical colour bars active for %u seconds; "
          "no framebuffer or LVGL is involved\n", seconds);
+  printf("dsi_probe: Host configuration completed; visually confirm colour "
+         "bars before recording a display PASS\n");
   for (elapsed = 0; elapsed < seconds; elapsed++)
     {
       ret = nxsig_usleep(1000 * 1000);
@@ -385,8 +387,18 @@ int main(int argc, FAR char *argv[])
       return dsi_probe_fail("host_shutdown", ret);
     }
 
-  printf("dsi_probe: PASS %s validation completed (DCS read=%s)\n",
-         video_requested ? "DPI pattern" : "command Host",
-         dcs_read_available ? "available" : "unavailable");
+  if (video_requested)
+    {
+      printf("dsi_probe: HOST PASS DPI pattern sequence completed; visual "
+             "display result pending (DCS read=%s)\n",
+             dcs_read_available ? "available" : "unavailable");
+    }
+  else
+    {
+      printf("dsi_probe: PASS command Host validation completed "
+             "(DCS read=%s)\n",
+             dcs_read_available ? "available" : "unavailable");
+    }
+
   return EXIT_SUCCESS;
 }

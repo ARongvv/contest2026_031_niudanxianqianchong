@@ -173,7 +173,18 @@ video 配置逻辑继续放在 `esp_mipi_dsi.c/.h`，通过
 packetizer；P4X 板级层提供 1024×600 timing 与 GPIO26 静态背光。
 
 `dsi_probe video [seconds]` 是唯一测试入口。它不接入 LVGL、framebuffer、DMA
-或 `/dev/fb0`，用于把“DSI video 是否能显示”与“内存/DMA/图形栈是否正确”分开。
+或 `/dev/fb0`，用于把“DSI video Host 配置是否完成”与“内存/DMA/图形栈是否正确”
+分开。
+
+此命令返回 `HOST PASS` 仅说明 D-PHY、Host、bridge 和内建 pattern generator 的
+寄存器配置已由 CPU 侧接受；**不等价于面板已显示**。M2a 的显示通过必须由操作者在
+色条持续期间目视确认，并留存屏幕照片或视频。若屏幕没有色条，即使命令返回零，也
+应记录为“Host 配置完成、视觉显示待修复”，不得写作 DPI 显示通过。
+
+为缩小 Host-only 与 ESP-IDF 正常 DPI pipeline 的差异，M2a 使用 RGB888、frame ACK、
+LP timing、burst with sync pulses，并在启动后打印 Host/bridge 的 mode、timing、format、
+flow-control 和 interrupt 快照。M2a 没有 framebuffer，因此 flow controller 保持
+bridge；M2b 接入 GDMA 后才切换到 DMA controller。
 
 ### 6.2 M2b：framebuffer、DMA 与内存
 
@@ -230,7 +241,8 @@ Kconfig 或板级静态配置。所有新增 C 源必须同时更新对应 `Kcon
 | M1 启动 | USB console 打印 Host 状态 | 已通过一次：LDO、P4 rev3 clock source、PLL lock、lane stop 与 Host ready 全部成功 |
 | M1 DCS 写 | generic short/long 与 EK79007 初始化写序列 | 已通过一次：不死锁，所有命令由 Host 接受；重复十次 initialize/shutdown 待验收 |
 | M1 DCS 读 | `GET_POWER_MODE` BTA/RX FIFO | 已诊断：Host 完成读请求但面板未返回 payload；非 M1 command-write 阻塞项 |
-| M2a 显示 | `dsi_probe video 60` 内建垂直色条 | 1024 x 600 稳定，能清晰区分色条，无花屏或 Host/bridge timeout |
+| M2a Host 配置 | `dsi_probe video 60` 内建垂直色条 | 日志为 `HOST PASS`，且无 Host/bridge timeout；这不是显示通过 |
+| M2a 显示 | `dsi_probe video 60` 内建垂直色条 | 1024 x 600 稳定，能清晰区分色条，无花屏或 Host/bridge timeout，并留存屏幕照片/视频 |
 | M2b 显示 | RGB565 framebuffer 色条/纯色 | 1024 x 600 稳定，无撕裂、花屏或 DMA abort |
 | M2 压力 | 背光、sleep/wake、重启、连续刷新 | 无资源泄漏，异常后可从 `FAULT` 完整恢复 |
 
