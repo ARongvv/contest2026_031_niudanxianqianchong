@@ -28,11 +28,6 @@
 
 #include "espressif/esp_gpio.h"
 
-#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
-#  include "esp_cache.h"
-#  include "esp_heap_caps.h"
-#endif
-
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -64,7 +59,6 @@
 #define BOARD_MIPI_DSI_FRAME_BYTES \
   ((size_t)BOARD_MIPI_DSI_HACTIVE * BOARD_MIPI_DSI_VACTIVE * \
    BOARD_MIPI_DSI_BYTES_PER_PIXEL)
-#define BOARD_MIPI_DSI_FRAME_ALIGNMENT        64
 #define BOARD_MIPI_DSI_COLOUR_BAR_COUNT        8
 
 /****************************************************************************
@@ -201,36 +195,38 @@ static void board_mipi_dsi_fill_colour_bars(FAR uint8_t *frame_buffer)
 
 static int board_mipi_dsi_allocate_frame_buffer(void)
 {
-  esp_err_t result;
+  FAR void *frame_buffer;
+  int ret;
 
   if (g_board_mipi_dsi_frame_buffer != NULL)
     {
       return OK;
     }
 
-  g_board_mipi_dsi_frame_buffer = heap_caps_aligned_calloc(
-    BOARD_MIPI_DSI_FRAME_ALIGNMENT, 1, BOARD_MIPI_DSI_FRAME_BYTES,
-    MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
-  if (g_board_mipi_dsi_frame_buffer == NULL)
+  /* ESP HAL heap/cache APIs are deliberately contained by the P4 chip
+   * adapter.  The board owns the pixel data and lifetime only.
+   */
+
+  ret = esp_mipi_dsi_dma_buffer_allocate(BOARD_MIPI_DSI_FRAME_BYTES,
+                                         &frame_buffer);
+  if (ret < 0)
     {
       syslog(LOG_ERR,
-             "ERROR: P4X DSI DMA frame allocation bytes=%zu failed\n",
-             BOARD_MIPI_DSI_FRAME_BYTES);
-      return -ENOMEM;
+             "ERROR: P4X DSI DMA frame allocation bytes=%zu ret=%d\n",
+             BOARD_MIPI_DSI_FRAME_BYTES, ret);
+      return ret;
     }
 
+  g_board_mipi_dsi_frame_buffer = frame_buffer;
   board_mipi_dsi_fill_colour_bars(g_board_mipi_dsi_frame_buffer);
-  result = esp_cache_msync(g_board_mipi_dsi_frame_buffer,
-                           BOARD_MIPI_DSI_FRAME_BYTES,
-                           ESP_CACHE_MSYNC_FLAG_DIR_C2M |
-                           ESP_CACHE_MSYNC_FLAG_UNALIGNED);
-  if (result != ESP_OK)
+  ret = esp_mipi_dsi_dma_buffer_sync_for_device(
+    g_board_mipi_dsi_frame_buffer, BOARD_MIPI_DSI_FRAME_BYTES);
+  if (ret < 0)
     {
-      syslog(LOG_ERR, "ERROR: P4X DSI DMA frame cache sync ret=%d\n",
-             result);
-      heap_caps_free(g_board_mipi_dsi_frame_buffer);
+      syslog(LOG_ERR, "ERROR: P4X DSI DMA frame cache sync ret=%d\n", ret);
+      esp_mipi_dsi_dma_buffer_free(g_board_mipi_dsi_frame_buffer);
       g_board_mipi_dsi_frame_buffer = NULL;
-      return -EIO;
+      return ret;
     }
 
   syslog(LOG_INFO,
@@ -247,7 +243,7 @@ static void board_mipi_dsi_release_frame_buffer(void)
 {
   if (g_board_mipi_dsi_frame_buffer != NULL)
     {
-      heap_caps_free(g_board_mipi_dsi_frame_buffer);
+      esp_mipi_dsi_dma_buffer_free(g_board_mipi_dsi_frame_buffer);
       g_board_mipi_dsi_frame_buffer = NULL;
     }
 }
