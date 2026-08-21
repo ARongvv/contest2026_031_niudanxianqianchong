@@ -134,6 +134,19 @@ int esp_mipi_dsi_video_dma_start(
   FAR const struct esp_mipi_dsi_video_dma_config_s *config);
 
 /****************************************************************************
+ * Name: esp_mipi_dsi_video_dma_dump_status
+ *
+ * Description:
+ *   Print a read-only DW-GDMA/DSI Bridge scanout snapshot.  The result
+ *   includes transfer progress, DMA completion and error bits, plus the
+ *   Bridge underrun state.  It is intended for board bring-up only.
+ *
+ ****************************************************************************/
+
+int esp_mipi_dsi_video_dma_dump_status(FAR struct mipi_dsi_host *host,
+                                       FAR const char *stage);
+
+/****************************************************************************
  * Name: esp_mipi_dsi_dma_buffer_allocate
  *
  * Description:

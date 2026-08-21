@@ -213,6 +213,7 @@ static int dsi_probe_run_video_pattern(FAR struct mipi_dsi_host *host,
                                        unsigned int seconds)
 {
   unsigned int elapsed;
+  int status_ret;
   int ret;
 
   ret = board_mipi_dsi_video_pattern_start(host);
@@ -225,6 +226,13 @@ static int dsi_probe_run_video_pattern(FAR struct mipi_dsi_host *host,
          "LVGL is not involved\n", seconds);
   printf("dsi_probe: DMA scanout started; visually confirm colour bars "
          "before recording a display PASS\n");
+  status_ret = board_mipi_dsi_video_dump_status(host, "probe-start");
+  if (status_ret < 0)
+    {
+      printf("dsi_probe: DMA status snapshot unavailable ret=%d\n",
+             status_ret);
+    }
+
   for (elapsed = 0; elapsed < seconds; elapsed++)
     {
       ret = nxsig_usleep(1000 * 1000);
@@ -232,6 +240,24 @@ static int dsi_probe_run_video_pattern(FAR struct mipi_dsi_host *host,
         {
           break;
         }
+
+      if (elapsed == 0)
+        {
+          status_ret = board_mipi_dsi_video_dump_status(host,
+                                                         "probe-after-1s");
+          if (status_ret < 0)
+            {
+              printf("dsi_probe: DMA status snapshot unavailable ret=%d\n",
+                     status_ret);
+            }
+        }
+    }
+
+  status_ret = board_mipi_dsi_video_dump_status(host, "probe-before-stop");
+  if (status_ret < 0)
+    {
+      printf("dsi_probe: DMA status snapshot unavailable ret=%d\n",
+             status_ret);
     }
 
   if (board_mipi_dsi_video_stop(host) < 0 && ret == OK)
