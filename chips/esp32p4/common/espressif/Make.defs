@@ -197,6 +197,14 @@ ifeq ($(CONFIG_ESPRESSIF_AES_ACCELERATOR),y)
 	CHIP_CSRCS += esp_aes.c
 endif
 
+ifeq ($(CONFIG_ESPRESSIF_LDO),y)
+	CHIP_CSRCS += esp_ldo.c
+endif
+
+ifeq ($(CONFIG_ESPRESSIF_MIPI_DSI),y)
+	CHIP_CSRCS += esp_mipi_dsi.c
+endif
+
 ifeq ($(CONFIG_CRYPTO_CRYPTODEV_HARDWARE),y)
 	CHIP_CSRCS += esp_crypto.c
 endif
