@@ -14,6 +14,10 @@
 仍缺少 `dsi_probe` 构建和 P4X 实板验收；详细状态以专项方案中的“实施状态”章节
 为准。
 
+上游 Apache NuttX / OpenVela 的 ESP32-P4 成熟基础适配采用“固定来源、逐能力
+单元吸收、本地 DSI overlay 保留”的策略，详见
+[ESP32-P4 上游成熟适配吸收计划](ESP32-P4上游成熟适配吸收计划.md)。
+
 ## 当前验收目标
 
 最小 `nsh` 固件完成构建，并在 ESP32-P4 Function EV Board 上获得可交互的
