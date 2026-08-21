@@ -14,6 +14,7 @@
 #include <nuttx/config.h>
 
 #include <nuttx/clock.h>
+#include <nuttx/irq.h>
 #include <nuttx/mutex.h>
 #include <nuttx/signal.h>
 #include <nuttx/video/mipi_display.h>
@@ -37,8 +38,13 @@
 
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
 #  include "esp_cache.h"
+#  include "esp_heap_caps.h"
+#  include "esp_irq.h"
+#  include "hal/cache_ll.h"
 #  include "hal/dw_gdma_ll.h"
 #  include "soc/reg_base.h"
+#  include "soc/interrupts.h"
+#  include "soc/soc_caps.h"
 #endif
 
 #include "esp_mipi_dsi.h"
@@ -87,6 +93,23 @@
    DW_GDMA_LL_CHANNEL_EVENT_SHADOWREG_OR_LLI_INVALID_ERR | \
    DW_GDMA_LL_CHANNEL_EVENT_ABORTED)
 
+#define ESP_MIPI_DSI_DMA_EVENTS \
+  (ESP_MIPI_DSI_DMA_DONE_EVENTS | ESP_MIPI_DSI_DMA_ERROR_EVENTS)
+
+/* DW-GDMA fetches a descriptor through the cached alias, but its valid bit
+ * is updated by the completion ISR through the P4 L2 non-cache alias.  This
+ * follows the vendor DMA list lifetime and avoids a cache write-back on each
+ * video frame.
+ */
+
+#if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+#  define ESP_MIPI_DSI_DMA_LLI_NONCACHE(lli) \
+  ((FAR dw_gdma_link_list_item_t *) \
+   (uintptr_t)CACHE_LL_L2MEM_NON_CACHE_ADDR(lli))
+#else
+#  define ESP_MIPI_DSI_DMA_LLI_NONCACHE(lli) (lli)
+#endif
+
 /* The P4 DSI DPI clock defaults to PLL_F240M.  A requested 52 MHz pixel
  * clock therefore becomes 48 MHz with divider 5; the timing helper applies
  * the matching horizontal compensation to preserve the frame rate.
@@ -130,7 +153,11 @@ struct esp_mipi_dsi_s
   soc_module_clk_t           dpi_clk_src;
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
   FAR dw_gdma_dev_t          *dma_dev;
-  dw_gdma_link_list_item_t   dma_lli;
+  FAR dw_gdma_link_list_item_t *dma_lli;
+  FAR dw_gdma_link_list_item_t *dma_lli_nc;
+  volatile uint32_t          dma_frame_count;
+  volatile uint32_t          dma_error_events;
+  int                        dma_cpuint;
 #endif
 };
 
@@ -167,6 +194,9 @@ static struct esp_mipi_dsi_s g_esp_mipi_dsi =
   .phy_cfg_clk_src = SOC_MOD_CLK_INVALID,
   .phy_pllref_clk_src = SOC_MOD_CLK_INVALID,
   .dpi_clk_src = SOC_MOD_CLK_INVALID,
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+  .dma_cpuint = -1,
+#endif
 };
 
 /****************************************************************************
@@ -619,17 +649,85 @@ static void esp_mipi_dsi_video_configure_bridge(
 
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
 /****************************************************************************
+ * Name: esp_mipi_dsi_dma_interrupt
+ *
+ * Description:
+ *   DW-GDMA invalidates a completed list item.  Revalidate the single-frame
+ *   descriptor and rebind it from the completion interrupt so a static
+ *   frame buffer is scanned repeatedly.  No mutex or logging is used here.
+ ****************************************************************************/
+
+static int esp_mipi_dsi_dma_interrupt(int irq, FAR void *context,
+                                      FAR void *arg)
+{
+  FAR struct esp_mipi_dsi_s *priv = arg;
+  FAR dw_gdma_dev_t *dma_dev;
+  uint32_t status;
+
+  (void)irq;
+  (void)context;
+
+  if (priv == NULL || !priv->video_running || priv->dma_dev == NULL ||
+      priv->dma_lli == NULL || priv->dma_lli_nc == NULL)
+    {
+      return OK;
+    }
+
+  dma_dev = priv->dma_dev;
+  status = dw_gdma_ll_channel_get_intr_status(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL);
+  if (status == 0)
+    {
+      return OK;
+    }
+
+  dw_gdma_ll_channel_clear_intr(dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, status);
+
+  if ((status & ESP_MIPI_DSI_DMA_ERROR_EVENTS) != 0)
+    {
+      priv->dma_error_events |= status & ESP_MIPI_DSI_DMA_ERROR_EVENTS;
+      return OK;
+    }
+
+  if ((status & ESP_MIPI_DSI_DMA_DONE_EVENTS) != 0)
+    {
+      /* The vendor DPI path uses one terminal descriptor per framebuffer.
+       * Hardware clears its valid state after the frame completes, therefore
+       * every refresh must make it valid again before re-enabling the channel.
+       */
+
+      dw_gdma_ll_lli_set_block_markers(priv->dma_lli_nc, false, true, true);
+      dw_gdma_ll_channel_set_link_list_head_addr(
+        dma_dev, ESP_MIPI_DSI_DMA_CHANNEL,
+        (uint32_t)(uintptr_t)priv->dma_lli);
+      dw_gdma_ll_channel_enable(dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, true);
+      priv->dma_frame_count++;
+    }
+
+  return OK;
+}
+
+/****************************************************************************
  * Name: esp_mipi_dsi_video_dma_release
  ****************************************************************************/
 
 static void esp_mipi_dsi_video_dma_release(
   FAR struct esp_mipi_dsi_s *priv)
 {
+  if (priv->dma_cpuint >= 0)
+    {
+      up_disable_irq(ESP_SOURCE2IRQ(ETS_DW_GDMA_INTR_SOURCE));
+      esp_teardown_irq(ETS_DW_GDMA_INTR_SOURCE, priv->dma_cpuint);
+      priv->dma_cpuint = -1;
+    }
+
   if (priv->dma_dev != NULL)
     {
       dw_gdma_ll_channel_enable(priv->dma_dev,
                                  ESP_MIPI_DSI_DMA_CHANNEL, false);
       dw_gdma_ll_channel_enable_intr_generation(
+        priv->dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, UINT32_MAX, false);
+      dw_gdma_ll_channel_enable_intr_propagation(
         priv->dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, UINT32_MAX, false);
       dw_gdma_ll_enable_intr_global(priv->dma_dev, false);
       dw_gdma_ll_enable_controller(priv->dma_dev, false);
@@ -640,8 +738,17 @@ static void esp_mipi_dsi_video_dma_release(
         }
 
       priv->dma_dev = NULL;
-      memset(&priv->dma_lli, 0, sizeof(priv->dma_lli));
     }
+
+  if (priv->dma_lli != NULL)
+    {
+      heap_caps_free(priv->dma_lli);
+      priv->dma_lli = NULL;
+      priv->dma_lli_nc = NULL;
+    }
+
+  priv->dma_frame_count = 0;
+  priv->dma_error_events = 0;
 }
 
 /****************************************************************************
@@ -652,9 +759,8 @@ static int esp_mipi_dsi_video_dma_prepare(
   FAR struct esp_mipi_dsi_s *priv, FAR const void *frame_buffer,
   size_t frame_buffer_bytes)
 {
-  FAR dw_gdma_dev_t *dma_dev;
-  FAR dw_gdma_link_list_item_t *lli = &priv->dma_lli;
-  esp_err_t result;
+  FAR dw_gdma_dev_t *dma_dev = NULL;
+  FAR dw_gdma_link_list_item_t *lli;
   int ret;
 
   if (((uintptr_t)frame_buffer &
@@ -664,7 +770,7 @@ static int esp_mipi_dsi_video_dma_prepare(
       return -EINVAL;
     }
 
-  if (priv->dma_dev != NULL)
+  if (priv->dma_dev != NULL || priv->dma_lli != NULL)
     {
       return -EALREADY;
     }
@@ -686,6 +792,27 @@ static int esp_mipi_dsi_video_dma_prepare(
       ret = -ENODEV;
       goto errout;
     }
+
+  /* The frame itself may reside in PSRAM, but the descriptor must use the
+   * kernel heap on this configuration (internal SRAM).  Use the capability
+   * API and an explicit 64-byte alignment to preserve that ownership when
+   * the platform later grows a real capability-aware heap allocator.
+   */
+
+  lli = heap_caps_aligned_calloc(DW_GDMA_LL_LINK_LIST_ALIGNMENT, 1,
+                                 sizeof(*lli), MALLOC_CAP_INTERNAL |
+                                 MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+  if (lli == NULL)
+    {
+      ret = -ENOMEM;
+      goto errout;
+    }
+
+  priv->dma_dev = dma_dev;
+  priv->dma_lli = lli;
+  priv->dma_lli_nc = ESP_MIPI_DSI_DMA_LLI_NONCACHE(lli);
+  priv->dma_frame_count = 0;
+  priv->dma_error_events = 0;
 
   dw_gdma_ll_reset(dma_dev);
   dw_gdma_ll_enable_controller(dma_dev, true);
@@ -711,19 +838,23 @@ static int esp_mipi_dsi_video_dma_prepare(
   dw_gdma_ll_channel_set_dst_periph_status_addr(
     dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, MIPI_DSI_BRG_MEM_BASE);
 
-  /* Latch every channel event in its status register for polling.  Global
-   * interrupt delivery stays disabled, so this does not install or invoke an
-   * ISR during the M1 display probe.
+  /* Latch and propagate only terminal and fault events.  A completed frame
+   * is revalidated in esp_mipi_dsi_dma_interrupt(), which keeps scanout
+   * continuous without the invalid self-linked descriptor used previously.
    */
 
+  dw_gdma_ll_channel_clear_intr(dma_dev, ESP_MIPI_DSI_DMA_CHANNEL,
+                                UINT32_MAX);
   dw_gdma_ll_channel_enable_intr_generation(
-    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, UINT32_MAX, true);
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, ESP_MIPI_DSI_DMA_EVENTS, true);
+  dw_gdma_ll_channel_enable_intr_propagation(
+    dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, ESP_MIPI_DSI_DMA_EVENTS, true);
   dw_gdma_ll_channel_set_link_list_master_port(
     dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, DW_GDMA_LL_MASTER_PORT_MEMORY);
   dw_gdma_ll_channel_set_link_list_head_addr(
     dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, (uint32_t)(uintptr_t)lli);
 
-  memset(lli, 0, sizeof(*lli));
+  lli = priv->dma_lli_nc;
   dw_gdma_ll_lli_set_src_addr(lli, (uint32_t)(uintptr_t)frame_buffer);
   dw_gdma_ll_lli_set_dst_addr(lli, MIPI_DSI_BRG_MEM_BASE);
   dw_gdma_ll_lli_set_trans_block_size(
@@ -738,33 +869,37 @@ static int esp_mipi_dsi_video_dma_prepare(
   dw_gdma_ll_lli_set_dst_burst_items(lli, DW_GDMA_BURST_ITEMS_256);
   dw_gdma_ll_lli_set_src_burst_len(lli, 16);
   dw_gdma_ll_lli_set_dst_burst_len(lli, 16);
-  dw_gdma_ll_lli_set_block_markers(lli, false, false, true);
+  dw_gdma_ll_lli_set_block_markers(lli, false, true, true);
   dw_gdma_ll_lli_set_link_list_master_port(
     lli, DW_GDMA_LL_MASTER_PORT_MEMORY);
-  dw_gdma_ll_lli_set_next_item_addr(lli, (uint32_t)(uintptr_t)lli);
+  dw_gdma_ll_lli_set_next_item_addr(lli, 0);
 
-  result = esp_cache_msync(lli, sizeof(*lli),
-                           ESP_CACHE_MSYNC_FLAG_DIR_C2M |
-                           ESP_CACHE_MSYNC_FLAG_UNALIGNED);
-  ret = esp_mipi_dsi_clock_result(result);
-  if (ret < 0)
+  priv->dma_cpuint = esp_setup_irq(ETS_DW_GDMA_INTR_SOURCE,
+                                    ESP_IRQ_PRIORITY_DEFAULT,
+                                    ESP_IRQ_TRIGGER_LEVEL,
+                                    esp_mipi_dsi_dma_interrupt, priv);
+  if (priv->dma_cpuint < 0)
     {
+      ret = priv->dma_cpuint;
+      priv->dma_cpuint = -1;
       goto errout;
     }
 
-  priv->dma_dev = dma_dev;
+  dw_gdma_ll_enable_intr_global(dma_dev, true);
+  up_enable_irq(ESP_SOURCE2IRQ(ETS_DW_GDMA_INTR_SOURCE));
   return OK;
 
 errout:
-  if (dma_dev != NULL)
+  if (priv->dma_dev != NULL)
     {
-      dw_gdma_ll_enable_intr_global(dma_dev, false);
-      dw_gdma_ll_enable_controller(dma_dev, false);
+      esp_mipi_dsi_video_dma_release(priv);
     }
-
-  PERIPH_RCC_ATOMIC()
+  else
     {
-      dw_gdma_ll_enable_bus_clock(ESP_MIPI_DSI_BUS0, false);
+      PERIPH_RCC_ATOMIC()
+        {
+          dw_gdma_ll_enable_bus_clock(ESP_MIPI_DSI_BUS0, false);
+        }
     }
 
   return ret;
@@ -933,10 +1068,11 @@ static void esp_mipi_dsi_dump_dma_status(
   syslog(LOG_INFO,
          "INFO: MIPI-DSI DMA status stage=%s enabled=%d controller=%08"
          PRIx32 " lli=%08" PRIxPTR " transferred_items=%" PRIu32
-         " transferred_bytes=%" PRIu64 " fifo_left=%" PRIu32 "\n",
+         " transferred_bytes=%" PRIu64 " fifo_left=%" PRIu32
+         " frames=%" PRIu32 " latched_errors=%08" PRIx32 "\n",
          stage, channel_enabled, dma_dev->cfg0.val,
          (uintptr_t)current_lli, transfer_items, transfer_bytes,
-         fifo_remaining);
+         fifo_remaining, priv->dma_frame_count, priv->dma_error_events);
   syslog(LOG_INFO,
          "INFO: MIPI-DSI DMA events stage=%s enable=%08" PRIx32
          " status=%08" PRIx32 " done=%08" PRIx32 " errors=%08" PRIx32
