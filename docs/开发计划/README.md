@@ -10,6 +10,9 @@
 
 其中 ESP32-P4 MIPI-DSI Host 的芯片层边界、接口、DMA/video 分期与验收门见
 [ESP32-P4 MIPI-DSI Host 设计与实施方案](ESP32-P4-MIPI-DSI-Host设计与实施方案.md)。
+其中 M1 命令 Host、P4X command-mode 板级装配与 `dsi_probe` 源码已完成，当前
+仍缺少 `dsi_probe` 构建和 P4X 实板验收；详细状态以专项方案中的“实施状态”章节
+为准。
 
 ## 当前验收目标
 
