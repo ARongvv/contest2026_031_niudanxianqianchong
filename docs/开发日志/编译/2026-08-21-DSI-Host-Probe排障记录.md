@@ -270,8 +270,8 @@ payload FIFO 为空。该面板当前未提供标准 DCS read response；在没�
    EK79007 初始化写序列，确认没有资源泄漏或状态残留。
 3. 确认 LCD adapter 5V、GPIO27→`RST_LCD` 跳线、DSI FFC 方向；这些是进入 M2
    之前的硬件前置条件。
-4. 实现 M2 DPI video、GDMA/framebuffer、cache 同步、GPIO26 背光 PWM 和色条
-   测试，以实际画面完成面板像素链路验收。
+4. 执行 M2b DMA 色条的构建与实板测试，以实际画面完成面板像素链路验收；GPIO26
+   目前仍为静态背光，PWM 调光留在后续面板装配阶段。
 
 ## 8. M2a 内建色条 Host 已启动但未显示
 
@@ -302,6 +302,45 @@ vertical colour bar 启动均返回成功，GPIO26 背光也已打开；但 LCD 
    亮只代表 adapter 的背光路径有效，并不代表 DSI data lane 已连通。
 3. 若物理连接确认无误仍无色条，以 Espressif 官方 P4X LVGL/DPI 示例建立硬件基线；
    基线失败则优先处理接线、adapter 或面板，基线成功再逐项比对 Host/bridge 寄存器。
+
+## 9. M2b 固定 RGB888 色条 DMA scanout（待实板验收）
+
+### 修复目标
+
+M2a 的 `pattern=vertical bars` 只证明 Host/bridge 的寄存器配置已经运行：日志中的
+VSYNC raw interrupt 说明本地 timing loop 在工作，但 bridge flow controller 仍是
+`bridge`，没有真实内存像素源。故“背光亮而无色条”不能继续仅靠调整 Host pattern
+寄存器解决。
+
+本轮将 `dsi_probe video [seconds]` 改为 M2b DMA scanout：它仍不启动 LVGL，但会将
+固定色条真正从内存送往 `MIPI_DSI_BRG_MEM_BASE`。
+
+### 已实现内容
+
+1. 在 `ESPRESSIF_MIPI_DSI_VIDEO_DMA` 下，P4 芯片层新增
+   `esp_mipi_dsi_video_dma_start()`：创建 DW-GDMA channel 与单项 circular LLI，源为
+   RGB888 frame buffer，目的为 DSI Bridge FIFO；配置 DMA flow controller、burst、
+   empty threshold，并在停止时按 video -> DMA -> bridge/clock 的反向顺序释放资源。
+2. P4X 板级层以 PSRAM 分配 64-byte 对齐的 1024×600 RGB888 单帧
+   （1,843,200 B），填充白/黄/青/绿/品红/红/蓝/黑八段垂直色条，执行 C2M cache
+   clean 后交给芯片层；DMA 完全停止后才释放 buffer。
+3. `dsi_probe` 保留原有命令行入口，但输出明确改为 `DMA RGB888 vertical colour
+   bars`；`HOST PASS` 仍只表示软件路径完成，只有肉眼可见画面才是显示验收通过。
+4. `dsi_probe` defconfig 增加 `ESPRESSIF_SPIRAM`、`MM_KERNEL_HEAP`、
+   `MM_REGIONS=2`，并由 Probe 视频开关选择 M2b DMA Kconfig。
+
+### 当前验证边界
+
+- 已完成：源码静态检查（`git diff --check`）和 Kconfig 重展开。
+- 未完成：本轮环境在构建 context 阶段尝试拉取
+  `https://github.com/espressif/esp-hal-3rdparty.git` 时 DNS 失败，尚未走到本次 C
+  源的编译/链接；这不是 DMA 运行时失败证据。
+- 待执行：在具备完整本地 HAL 镜像或可访问网络的开发环境构建、写入 `0x2000`，执行
+  `dsi_probe video 60`。预期日志至少包含 `DMA colour bars ready`、`DPI DMA started`
+  和 `stage=dma-started`。
+
+若日志显示 DMA 已启动但屏幕仍无色条，继续按第 8 节的 5V、GPIO27 `RST_LCD` 跳线、
+FFC 方向/锁扣和 adapter 基线顺序排查；背光不能作为 DSI data lane 正常的证据。
 
 ## 相关提交
 
