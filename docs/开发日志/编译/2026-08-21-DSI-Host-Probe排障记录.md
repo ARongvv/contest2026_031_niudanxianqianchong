@@ -273,6 +273,36 @@ payload FIFO 为空。该面板当前未提供标准 DCS read response；在没�
 4. 实现 M2 DPI video、GDMA/framebuffer、cache 同步、GPIO26 背光 PWM 和色条
    测试，以实际画面完成面板像素链路验收。
 
+## 8. M2a 内建色条 Host 已启动但未显示
+
+### 现象
+
+实板执行 `dsi_probe video 60` 时，D-PHY PLL、Host、EK79007 初始化写和内建
+vertical colour bar 启动均返回成功，GPIO26 背光也已打开；但 LCD 未观察到色条。
+
+这只能证明 CPU 已完成 Host 侧配置，不能证明 DSI 像素流到达面板。尤其当前
+`GET_POWER_MODE` 的 RX FIFO 仍为空，不能以 DCS 写成功推断 FFC、adapter 或面板端
+链路已经正常。
+
+### 本轮修正
+
+1. 将 M2a 的 Host video 配置向 ESP-IDF DPI 基线对齐：启用 frame ACK、LP timing 与
+   burst-with-sync-pulses；在写 timing 前开启 bridge register/reference clock；补齐
+   bridge RGB888、像素总数、underrun discard、flow controller 和 DPI output 的更新顺序。
+2. 启动后输出 Host/bridge 的 mode、timing、format、flow-control 和 interrupt 寄存器
+   快照，供下一轮判断是 Host 配置、bridge 还是物理链路问题。
+3. Probe 的结果文本改为 `HOST PASS ... visual display result pending`。只有人眼看到
+   色条且保留照片/视频，才可以把 M2a 显示验收记为通过。
+
+### 后续排查顺序
+
+1. 刷写本轮固件，保存 `dsi_probe video 60` 的完整寄存器快照；对照正常/异常运行的
+   `host_mode`、`vid_mode`、bridge `en`、timing 和 interrupt 字段。
+2. 复核 LCD adapter 5V/GND、FFC 插入方向与锁扣、GPIO27 到 `RST_LCD` 的跳线；背光
+   亮只代表 adapter 的背光路径有效，并不代表 DSI data lane 已连通。
+3. 若物理连接确认无误仍无色条，以 Espressif 官方 P4X LVGL/DPI 示例建立硬件基线；
+   基线失败则优先处理接线、adapter 或面板，基线成功再逐项比对 Host/bridge 寄存器。
+
 ## 相关提交
 
 - `a7b3685 fix(esp32p4x): 修复 DSI 板级公共头文件导出`
