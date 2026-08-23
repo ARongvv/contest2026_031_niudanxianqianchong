@@ -38,7 +38,8 @@ M1 的芯片层、P4X command-mode 板级装配和独立 Probe 已完成；2026-
 | DSI error IRQ / `FAULT` 状态机 | 待实现 | 当前仅以 `ready`、`registered` 表达可用状态，传输错误直接返回 errno。 |
 | `dsi_probe` / P4X 板级 command 装配 | 命令写已实板验证 | P4X 固定 LDO3/2.5V、2 lane/1000 Mbps、GPIO27 active-low reset；generic packet 与 EK79007 初始化写序列通过。`GET_POWER_MODE` 未收到 payload，仅作为非阻塞诊断。 |
 | M2a Host 内建色条 | Host 配置已实板验证，但未显示 | 可确认 DPI timing/bridge 寄存器启动，不是实际像素流证据。 |
-| M2b GDMA 固定色条 | 已实现，待构建和实板视觉验证 | 新增 PSRAM RGB888 帧缓冲、cache clean、DW-GDMA circular LLI 与 Bridge DMA flow；仍不提供 `/dev/fb0` 或 LVGL。 |
+| M2b GDMA 固定色条 | Host/DMA 已实板运行，视觉显示未通过 | 旧的板级 RGB888 固定色条已确认 DMA 帧计数持续递增，但屏幕仍黑；不能将 DMA 周期完成视为像素链路成功。 |
+| M2c EK79007 DPI Panel + `draw_bitmap()` | 代码已实现，待构建与实板视觉验收 | 对齐 ESP-IDF 生命周期：先创建 DPI panel，EK79007 完成 DCS/sleep-out，再初始化连续 RGB565 scanout，最后通过 `draw_bitmap()` 提交一帧色条。 |
 
 > 当前结论：M1 的 Host 与 EK79007 command-write 链路已通过一次实板验证；不能
 > 据此宣称 EK79007 已显示、DCS read 已可用或 LVGL 已可运行。
@@ -64,6 +65,7 @@ NuttX MIPI-DSI 通用 API
               │
 ESP32-P4 芯片层
   esp_mipi_dsi.c              Host、PHY、命令传输、M2a pattern、M2b GDMA scanout
+  esp_mipi_dsi_dpi_panel.c    DPI panel 生命周期、持久帧缓冲与 draw_bitmap
   esp_ldo.c                   LDO vendor API 到 errno 风格的薄封装
               │
 ESP HAL / 寄存器层
@@ -99,9 +101,11 @@ int esp_mipi_dsi_host_shutdown(FAR struct mipi_dsi_host *host);
 
 返回值统一转换为 NuttX errno 负值；vendor `esp_err_t`、寄存器地址和 HAL 私有
 对象停留在 `.c` 文件内部。M2a 保留 framebuffer-free 的 DPI pattern 配置结构；M2b
-新增 `esp_mipi_dsi_video_dma_start()`，只接受板级持有的 RGB888 buffer 地址和长度，
-不暴露 GDMA handle、LLI 或 ESP HAL 私有类型。该 API 的 buffer 必须持续有效至
-`esp_mipi_dsi_video_stop()` 返回。
+提供 `esp_mipi_dsi_video_dma_start()`，接受调用方持有的 RGB565/RGB888 buffer 地址和
+长度，不暴露 GDMA handle、LLI 或 ESP HAL 私有类型。该 API 的 buffer 必须持续有效至
+`esp_mipi_dsi_video_stop()` 返回。M2c 在其上增加
+`esp_mipi_dsi_dpi_panel_{create,initialize,draw_bitmap,stop,destroy}()`：DPI panel
+对象持有一块持续有效的 PSRAM 单帧，应用仅经 `draw_bitmap()` 提交整帧数据。
 
 NuttX 当前只有 `mipi_dsi_host_register()`，没有对应 unregister API。因此 Host
 结构是静态单例：首次 initialize 注册一次；`shutdown()` 只关闭硬件并释放 LDO；
@@ -112,7 +116,7 @@ NuttX 当前只有 `mipi_dsi_host_register()`，没有对应 unregister API。�
 ```text
 OFF -> **LDO_READY** -> **PHY_READY** -> **COMMAND_READY**
   -> VIDEO_CONFIGURED       （M2a：DPI pattern）
-  -> VIDEO_RUNNING          （M2a：DPI pattern；M2b：GDMA scanout）
+  -> VIDEO_RUNNING          （M2a：DPI pattern；M2b：GDMA scanout；M2c：DPI panel）
   -> FAULT
 
 shutdown：先停 video/Bridge 输出，再释放 M2b 的 GDMA channel/LLI，最后关闭 DPI、
@@ -194,7 +198,8 @@ bridge；M2b 接入 GDMA 后才切换到 DMA controller。
 
 DSI DBI/DCS 命令只用于控制面板；1024 x 600 的持续像素输出需要 DPI video
 pipeline。为将 M2a 的“Host 已启动但未显示”与物理链路问题区分，当前 M2b 实现采用
-**固定 RGB888 垂直色条**，不引入 LVGL：
+**固定 RGB888 垂直色条**，不引入 LVGL。该路径已经证明 GDMA 计数可以递增，
+但实板仍黑屏，因而只保留为底层诊断路径，不再作为首选显示验收路径：
 
 1. 板级仍传入完整 video timing；芯片层不写死 EK79007 的分辨率、porch 或 GPIO。
 2. 板级通过芯片层公开的 `esp_mipi_dsi_dma_buffer_*()` 请求 64-byte 对齐的
@@ -207,10 +212,30 @@ pipeline。为将 M2a 的“Host 已启动但未显示”与物理链路问题�
 4. 停止顺序是 Host video off -> Bridge output off -> GDMA disable/release -> Bridge/
    DPI clock off；帧缓冲最后由板级释放，避免 DMA 使用已释放内存。
 5. 本轮只验证静态 RGB888 scanout。它不注册 framebuffer 设备、不处理 vsync IRQ，
-   也不构成 RGB565/LVGL 的最终内存模型；PSRAM 是否稳定可扫仍以实板结果为准。
+   也不构成 RGB565/LVGL 的最终内存模型；当前视觉结果为未显示。
 
 1024 x 600 RGB565 单缓冲为 1,228,800 B（约 1.17 MiB），双缓冲约 2.34 MiB。
 这是一项显示流水线预算，不能从任务栈或普通 small-heap 中零散分配。
+
+### 6.3 M2c：EK79007 DPI Panel 与 `draw_bitmap()`
+
+M2c 不再由板级函数直接创建“色条 DMA”。它将与官方 EK79007 组件同构的对象
+生命周期明确拆分：
+
+1. 板级提供固定的 P4X DPI profile：1024×600、RGB565、52 MHz、H 10/160/160、
+   V 1/23/12、2 lane/1000 Mbps。
+2. `ek79007_panel_setup()` 在传入 DPI config 时创建 caller-owned DPI panel；
+   此时尚未分配帧缓冲、未启动 video。
+3. `ek79007_panel_initialize()` 先写 EK79007 vendor DCS 序列并 sleep-out，随后
+   调用 DPI panel initialize；后者分配 1,228,800 B、64-byte 对齐的 PSRAM RGB565
+   帧缓冲，进行 cache clean，配置 GDMA/bridge 并启动连续 scanout。
+4. Probe 用 `ek79007_panel_draw_bitmap()` 提交整帧八段 RGB565 色条，然后发送
+   display-on 并打开 GPIO26 背光。
+5. shutdown 严格按“背光关 -> display-off -> video/GDMA 停止 -> 释放帧缓冲”执行。
+
+该对象当前只支持单帧、整屏 `draw_bitmap()`，不提供 `/dev/fb0`、局部刷新、双缓冲、
+vsync callback 或 LVGL flush。它的目的是先将成功 ESP-IDF 示例的
+“DPI Panel + draw_bitmap”视频路径搬入 NuttX 分层，而不是提前建立通用图形子系统。
 
 ## 7. Kconfig 与构建接入
 
@@ -222,6 +247,7 @@ CONFIG_ESPRESSIF_MIPI_DSI            # M1 已实现，默认关闭
 CONFIG_ESPRESSIF_MIPI_DSI_TIMEOUT_MS # M1 已实现，默认 100，范围 1--1000 ms
 CONFIG_ESPRESSIF_MIPI_DSI_VIDEO      # M2a/M2b：DPI video 基础
 CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA  # M2b：依赖 SPIRAM 的 GDMA scanout
+CONFIG_ESPRESSIF_MIPI_DSI_DPI_PANEL  # M2c：DPI panel 对象与 draw_bitmap 生命周期
 CONFIG_LCD_EK79007                   # 通用面板
 CONFIG_INPUT_GT911                   # 通用触摸
 ```
@@ -237,10 +263,12 @@ Kconfig 或板级静态配置。所有新增 C 源必须同时更新对应 `Kcon
 | --- | --- | --- |
 | `chips/esp32p4/common/espressif/esp_ldo.c/.h` | M1，已实现 | LDO 生命周期、errno 转换 |
 | `chips/esp32p4/common/espressif/esp_mipi_dsi.c/.h` | M1/M2a/M2b | Host、PHY、DCS transfer、DPI pattern、私有 GDMA/LLI 生命周期与 DMA scanout API |
+| `chips/esp32p4/common/espressif/esp_mipi_dsi_dpi_panel.c/.h` | M2c | P4 DPI panel 对象、PSRAM 单帧分配、整帧 `draw_bitmap()` 与 scanout 生命周期 |
 | `chips/esp32p4/common/espressif/{Kconfig,Make.defs,CMakeLists.txt}` | M1/M2，M1 已实现 | 芯片层开关和构建 |
 | `chips/esp32p4/hal_esp32p4.{mk,cmake}` | M1/M2，已实现 | 条件纳入 vendor DSI HAL 源。M2b 不编入 ESP-IDF 的 `upper_hal_dma/src/dw_gdma.c`，因为其依赖 FreeRTOS；由 `esp_mipi_dsi.c` 直接使用已纳入构建的 DW-GDMA HAL/LL 完成专用 scanout。 |
-| `board/.../src/esp32p4_lcd.c` | M1/M2a/M2b | P4X D-PHY LDO、GPIO27 reset、DPI timing、GPIO26 静态背光、PSRAM 色条 buffer；面板实例留待 M3 |
-| `app/dsi_probe/`、`configs/dsi_probe/defconfig` | M1/M2a/M2b | 与 LVGL 解耦的 command Host 与 M2b DMA 色条验证入口；DCS read 为可选诊断 |
+| `board/.../src/esp32p4_lcd.c` | M1/M2a/M2b/M2c | P4X D-PHY LDO、GPIO27 reset、GPIO26 静态背光和 RGB565 DPI profile；旧 RGB888 色条仅作诊断回退。 |
+| `drivers/nuttx/drivers/lcd/ek79007.c/.h` | M2c | EK79007 DCS 与可选 DPI panel 生命周期衔接；无 DPI Kconfig 时仍保持 command-only 可构建。 |
+| `app/dsi_probe/`、`configs/dsi_probe/defconfig` | M1/M2/M2c | 与 LVGL 解耦的 command Host 与 RGB565 `draw_bitmap()` 色条验证入口；video 模式主动跳过不可靠的 DCS read。 |
 
 ## 8. 验收矩阵
 
@@ -254,6 +282,8 @@ Kconfig 或板级静态配置。所有新增 C 源必须同时更新对应 `Kcon
 | M2a 显示 | `dsi_probe video 60` 内建垂直色条 | 1024 x 600 稳定，能清晰区分色条，无花屏或 Host/bridge timeout，并留存屏幕照片/视频 |
 | M2b DMA 启动 | `dsi_probe video 60` | 日志包含 `DMA colour bars ready`、`DPI DMA started` 和 `dma-started` 寄存器快照；无 DMA 分配、cache 或 GDMA 建链错误。 |
 | M2b 显示 | `dsi_probe video 60` | 肉眼可见八段 RGB 色条并留存照片/视频；未看到画面时只能记录为“DMA scanout 软件已启动、面板链路待排查”。 |
+| M2c 构建 | `dsi_probe` Make/CMake | 新增 DPI panel Kconfig、Make/CMake、EK79007 生命周期均可链接；关闭 video Kconfig 后 command-only 路径仍可链接。 |
+| M2c 显示 | `dsi_probe video 60` | 日志为 RGB565 / `draw_bitmap()` / 1,228,800 B，且肉眼可见八段色条；否则记录为“DPI panel 已启动、视觉显示待修复”。 |
 | M3 framebuffer | RGB565 framebuffer 色条/纯色 | 1024 x 600 稳定，无撕裂、花屏或 DMA abort |
 | M2 压力 | 背光、sleep/wake、重启、连续刷新 | 无资源泄漏，异常后可从 `FAULT` 完整恢复 |
 
@@ -268,6 +298,7 @@ test(esp32p4x): 新增 dsi_probe 配置与命令 Host 实板证据
 feat(esp32p4): 增加 MIPI-DSI DPI 内建色条验证
 feat(esp32p4): 增加 MIPI-DSI framebuffer 与 DMA 管理
 feat(lcd): 接入 EK79007 面板与 P4X 显示装配
+feat(esp32p4): 增加 DPI panel 和 draw_bitmap 色条验证闭环
 config(esp32p4x): 新增 LVGL 显示与触摸验证配置
 ```
 

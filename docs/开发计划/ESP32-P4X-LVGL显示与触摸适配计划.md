@@ -55,10 +55,10 @@ reset 与 DCS 写命令；**不**表示完成 P4X video、画面、触摸或 LVG
 | --- | --- | --- |
 | ESP32-P4 MIPI-DSI command Host | 命令写已实板验证 | P4 rev3 XTAL reference clock、D-PHY PLL、lane stop、命令模式控制器和 NuttX Host 已通过；generic packet 与 EK79007 初始化写序列通过。 |
 | P4 DSI/LDO 构建与封装 | Make 构建及实板验证通过 | 已形成 NuttX errno 风格 LDO 封装，并在 Make/CMake 中条件纳入 DSI vendor HAL；CMake 回归仍待执行。 |
-| ESP32-P4 MIPI-DSI video pipeline | M2b 固定色条已实现，待实板验收 | 已有 DPI timing、PSRAM RGB888 buffer、cache clean、DW-GDMA circular scanout；尚无 vsync/error IRQ、`/dev/fb0` 或 LVGL port。 |
-| EK79007 通用面板驱动 | 未完成接入 | 现有覆盖层尚未与 P4 DSI Host、视频时序完成联调。 |
+| ESP32-P4 MIPI-DSI video pipeline | M2b/M2c 已实板运行但未显示 | M2b RGB888、M2c RGB565 DPI Panel + `draw_bitmap()` 的 DMA 帧计数均可递增，屏幕仍黑。当前状态是 Host/DMA 软件路径通过、视觉显示未通过；与同硬件 ESP-IDF 可显示工程的逐项差异及收敛顺序见 [ESP-IDF LCD 参考实现对比与收敛计划](ESP32-P4X-ESP-IDF-LCD参考实现对比与收敛计划.md)。 |
+| EK79007 通用面板驱动 | 已接入 M2c 验证链路，待视觉验收 | 驱动已在 DCS/sleep-out 后创建并启动可选 DPI panel；尚未注册 `/dev/fb0` 或连接 LVGL。 |
 | GT911 通用触摸驱动 | 未完成接入 | 尚未完成 P4X I2C、复位、INT 与输入注册验证。 |
-| P4X 板级 DSI command 装配 | 命令写已实板验证；M2b 待验收 | `esp32p4_lcd.c` 已实测 LDO3/2.5V、2 lane/1000 Mbps 与 GPIO27 reset；M2b 增加 GPIO26 静态背光、PSRAM 固定色条和 DMA 生命周期。 |
+| P4X 板级 DSI command 装配 | 命令写已实板验证；M2c 待验收 | `esp32p4_lcd.c` 已实测 LDO3/2.5V、2 lane/1000 Mbps 与 GPIO27 reset；M2c 固化官方 EK79007 RGB565 timing profile 与 GPIO26 静态背光。 |
 | P4X 板级触摸装配 | 未实现 | 尚未初始化指定 I2C 总线、地址、复位与输入注册。 |
 | `lvgl` defconfig | 未实现 | 没有可复现的显示、触摸与 LVGL 配置组合。 |
 
@@ -122,14 +122,14 @@ P4X 板级装配层
 | 层级 | 计划文件 | 职责 |
 | --- | --- | --- |
 | P4 芯片层 | `chips/esp32p4/common/espressif/esp_ldo.c/.h` | 将 P4 vendor LDO 生命周期封装为 NuttX 风格接口 |
-| P4 芯片层 | `chips/esp32p4/common/espressif/esp_mipi_dsi.c/.h` | MIPI-DSI Host、PHY、DCS transfer 与 M2a DPI 内建色条；M2b 再扩展 framebuffer/DMA/vsync |
+| P4 芯片层 | `chips/esp32p4/common/espressif/esp_mipi_dsi.c/.h`、`esp_mipi_dsi_dpi_panel.c/.h` | MIPI-DSI Host、PHY、DCS、GDMA scanout，以及 M2c 的 DPI panel/整帧 `draw_bitmap()` 生命周期 |
 | P4 芯片层 | `chips/esp32p4/common/espressif/Kconfig`、`Make.defs`、`CMakeLists.txt` | 建立 MIPI-DSI host 配置与构建入口 |
 | P4 HAL 构建 | `chips/esp32p4/hal_esp32p4.{mk,cmake}` | 条件加入 MIPI-DSI 与 video 所需 vendor HAL 源，保持双入口一致 |
-| 竞赛驱动覆盖层 | `drivers/nuttx/drivers/lcd/{ek79007.c,ek79007.h}` | EK79007 面板 DCS 初始化、视频模式、休眠与恢复 |
+| 竞赛驱动覆盖层 | `drivers/nuttx/drivers/lcd/{ek79007.c,ek79007.h}` | EK79007 DCS 初始化、可选 DPI panel 生命周期、整帧提交、休眠与恢复 |
 | 竞赛驱动覆盖层 | `drivers/nuttx/drivers/input/{gt911.c,gt911.h}` | GT911 I2C 寄存器访问、触点解析、输入事件上报 |
 | NuttX 工作树映射 | `nuttx/drivers/{lcd,input}/` | 由 `scripts/link_nuttx_display_drivers.sh` 创建相对软链接，供 NuttX 正常构建 |
 | NuttX 构建项 | 对应 `drivers/*/{Kconfig,Make.defs,CMakeLists.txt}` | 注册通用面板和输入驱动 |
-| P4X 板级层 | `board/esp32p4/esp32p4-function-ev-board/src/esp32p4_lcd.c` | M1：LDO、reset、DSI Host；M2a：DPI timing、GPIO26 静态背光；M3 再接面板实例 |
+| P4X 板级层 | `board/esp32p4/esp32p4-function-ev-board/src/esp32p4_lcd.c` | M1：LDO、reset、DSI Host；M2c：官方 RGB565 DPI timing、GPIO26 静态背光；M3 再注册显示设备 |
 | P4X 板级层 | `board/esp32p4/esp32p4-function-ev-board/src/esp32p4_touch.c` | I2C 获取、GT911 复位与注册 |
 | P4X 板级层 | `src/esp32p4-function-ev-board.h` | 板级初始化接口、GPIO 常量 |
 | P4X 板级层 | `src/esp32p4_bringup.c` | 按 Kconfig 调用显示和触摸初始化 |
