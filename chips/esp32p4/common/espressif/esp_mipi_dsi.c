@@ -17,8 +17,10 @@
 #include <nuttx/irq.h>
 #include <nuttx/mutex.h>
 #include <nuttx/signal.h>
+#include <nuttx/spinlock.h>
 #include <nuttx/video/mipi_display.h>
 #include <nuttx/video/mipi_dsi.h>
+#include <nuttx/wqueue.h>
 
 #include <errno.h>
 #include <inttypes.h>
@@ -62,7 +64,6 @@
 #define ESP_MIPI_DSI_STOP_WAIT_TIME         0x3f
 #define ESP_MIPI_DSI_MIN_DPI_CLOCK_HZ       1000000
 #define ESP_MIPI_DSI_MAX_DPI_CLOCK_HZ     240000000
-#define ESP_MIPI_DSI_DMA_BYTES_PER_PIXEL         3
 #define ESP_MIPI_DSI_DMA_TRANSFER_WIDTH_BYTES    8
 #define ESP_MIPI_DSI_DMA_BURST_WORDS           256
 #define ESP_MIPI_DSI_DMA_EMPTY_THRESHOLD       768
@@ -140,6 +141,15 @@ struct esp_mipi_dsi_s
   volatile uint32_t          dma_frame_count;
   volatile uint32_t          dma_error_events;
   int                        dma_cpuint;
+  int                        bridge_cpuint;
+  spinlock_t                 bridge_irq_lock;
+  struct work_s              bridge_underrun_work;
+  uint32_t                   bridge_underrun_count;
+  uint32_t                   bridge_first_underrun_raw;
+  uint32_t                   bridge_first_underrun_status;
+  uint32_t                   bridge_first_underrun_frame;
+  bool                       bridge_first_underrun_seen;
+  bool                       bridge_underrun_report_pending;
 #endif
 };
 
@@ -178,6 +188,8 @@ static struct esp_mipi_dsi_s g_esp_mipi_dsi =
   .dpi_clk_src = SOC_MOD_CLK_INVALID,
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
   .dma_cpuint = -1,
+  .bridge_cpuint = -1,
+  .bridge_irq_lock = SP_UNLOCKED,
 #endif
 };
 
@@ -577,6 +589,36 @@ static bool esp_mipi_dsi_video_timing_valid(uint8_t channel,
 }
 
 /****************************************************************************
+ * Name: esp_mipi_dsi_video_color_format
+ ****************************************************************************/
+
+static int esp_mipi_dsi_video_color_format(
+  enum esp_mipi_dsi_dpi_color_format_e format,
+  FAR lcd_color_format_t *hal_format, FAR size_t *bytes_per_pixel)
+{
+  if (hal_format == NULL || bytes_per_pixel == NULL)
+    {
+      return -EINVAL;
+    }
+
+  switch (format)
+    {
+      case ESP_MIPI_DSI_DPI_COLOR_RGB565:
+        *hal_format = LCD_COLOR_FMT_RGB565;
+        *bytes_per_pixel = 2;
+        return OK;
+
+      case ESP_MIPI_DSI_DPI_COLOR_RGB888:
+        *hal_format = LCD_COLOR_FMT_RGB888;
+        *bytes_per_pixel = 3;
+        return OK;
+
+      default:
+        return -EINVAL;
+    }
+}
+
+/****************************************************************************
  * Name: esp_mipi_dsi_video_configure_host
  ****************************************************************************/
 
@@ -584,11 +626,12 @@ static void esp_mipi_dsi_video_configure_host(
   FAR struct esp_mipi_dsi_s *priv, uint8_t channel, uint16_t hactive,
   uint16_t hsync, uint16_t hback_porch, uint16_t hfront_porch,
   uint16_t vactive, uint16_t vsync, uint16_t vback_porch,
-  uint16_t vfront_porch, bool hsync_active_low, bool vsync_active_low)
+  uint16_t vfront_porch, bool hsync_active_low, bool vsync_active_low,
+  lcd_color_format_t output_format)
 {
   mipi_dsi_host_ll_dpi_set_vcid(priv->hal.host, channel);
   mipi_dsi_host_ll_dpi_set_color_coding(priv->hal.host,
-                                        LCD_COLOR_FMT_RGB888, 0);
+                                        output_format, 0);
   mipi_dsi_host_ll_dpi_enable_loosely18_packet(priv->hal.host, false);
   mipi_dsi_host_ll_dpi_set_timing_polarity(
     priv->hal.host, hsync_active_low, vsync_active_low, false, false,
@@ -617,19 +660,203 @@ static void esp_mipi_dsi_video_configure_host(
 
 static void esp_mipi_dsi_video_configure_bridge(
   FAR struct esp_mipi_dsi_s *priv, uint16_t hactive, uint16_t vactive,
+  size_t bits_per_pixel, lcd_color_format_t input_format,
+  lcd_color_format_t output_format,
   mipi_dsi_ll_flow_controller_t flow_controller)
 {
   mipi_dsi_brg_ll_set_num_pixel_bits(
-    priv->hal.bridge, (uint32_t)hactive * (uint32_t)vactive * 24u);
+    priv->hal.bridge, (uint32_t)hactive * (uint32_t)vactive *
+    bits_per_pixel);
   mipi_dsi_brg_ll_set_underrun_discard_count(priv->hal.bridge, hactive);
   mipi_dsi_brg_ll_set_input_color_format(priv->hal.bridge,
-                                          LCD_COLOR_FMT_RGB888);
+                                          input_format);
   mipi_dsi_brg_ll_set_output_color_format(priv->hal.bridge,
-                                           LCD_COLOR_FMT_RGB888, 0);
+                                           output_format, 0);
   mipi_dsi_brg_ll_set_flow_controller(priv->hal.bridge, flow_controller);
 }
 
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+/****************************************************************************
+ * Name: esp_mipi_dsi_bridge_underrun_worker
+ *
+ * Description:
+ *   Report the first Bridge underrun outside interrupt context.  The ISR
+ *   records only register snapshots and queues this worker so logging never
+ *   delays DSI or GDMA interrupt delivery.
+ ****************************************************************************/
+
+static void esp_mipi_dsi_bridge_underrun_worker(FAR void *arg)
+{
+  FAR struct esp_mipi_dsi_s *priv = arg;
+  irqstate_t flags;
+  uint32_t count;
+  uint32_t raw;
+  uint32_t status;
+  uint32_t frame;
+
+  if (priv == NULL)
+    {
+      return;
+    }
+
+  flags = spin_lock_irqsave(&priv->bridge_irq_lock);
+  if (!priv->bridge_underrun_report_pending)
+    {
+      spin_unlock_irqrestore(&priv->bridge_irq_lock, flags);
+      return;
+    }
+
+  priv->bridge_underrun_report_pending = false;
+  count = priv->bridge_underrun_count;
+  raw = priv->bridge_first_underrun_raw;
+  status = priv->bridge_first_underrun_status;
+  frame = priv->bridge_first_underrun_frame;
+  spin_unlock_irqrestore(&priv->bridge_irq_lock, flags);
+
+  syslog(LOG_ERR,
+         "ERROR: MIPI-DSI Bridge first underrun count=%" PRIu32
+         " raw=%08" PRIx32 " status=%08" PRIx32
+         " dma_frames=%" PRIu32 "\n",
+         count, raw, status, frame);
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_bridge_interrupt
+ *
+ * Description:
+ *   Latch and clear Bridge underrun only.  A DSI Bridge interrupt can occur
+ *   while GDMA is serving the next frame, so this handler must not take the
+ *   video mutex, allocate memory, or print directly.
+ ****************************************************************************/
+
+static int esp_mipi_dsi_bridge_interrupt(int irq, FAR void *context,
+                                         FAR void *arg)
+{
+  FAR struct esp_mipi_dsi_s *priv = arg;
+  FAR dsi_brg_dev_t *bridge;
+  irqstate_t flags;
+  uint32_t status;
+  uint32_t raw;
+  bool queue_report = false;
+
+  (void)irq;
+  (void)context;
+
+  if (priv == NULL || priv->hal.bridge == NULL)
+    {
+      return OK;
+    }
+
+  bridge = priv->hal.bridge;
+  status = mipi_dsi_brg_ll_get_interrupt_status(bridge);
+  if ((status & MIPI_DSI_BRG_LL_EVENT_UNDERRUN) == 0)
+    {
+      return OK;
+    }
+
+  raw = bridge->int_raw.val;
+  mipi_dsi_brg_ll_clear_interrupt_status(
+    bridge, MIPI_DSI_BRG_LL_EVENT_UNDERRUN);
+
+  flags = spin_lock_irqsave(&priv->bridge_irq_lock);
+  priv->bridge_underrun_count++;
+  if (!priv->bridge_first_underrun_seen)
+    {
+      priv->bridge_first_underrun_seen = true;
+      priv->bridge_first_underrun_raw = raw;
+      priv->bridge_first_underrun_status = status;
+      priv->bridge_first_underrun_frame = priv->dma_frame_count;
+      priv->bridge_underrun_report_pending = true;
+      queue_report = true;
+    }
+
+  spin_unlock_irqrestore(&priv->bridge_irq_lock, flags);
+
+  if (queue_report)
+    {
+      work_queue(LPWORK, &priv->bridge_underrun_work,
+                 esp_mipi_dsi_bridge_underrun_worker, priv, 0);
+    }
+
+  return OK;
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_bridge_interrupt_prepare
+ *
+ * Description:
+ *   Attach and enable the CPU-side source before video begins, while the
+ *   Bridge event itself remains masked.  The caller unmasks underrun only
+ *   after DPI output is enabled, matching the ESP-IDF panel start sequence.
+ ****************************************************************************/
+
+static int esp_mipi_dsi_bridge_interrupt_prepare(
+  FAR struct esp_mipi_dsi_s *priv)
+{
+  FAR dsi_brg_dev_t *bridge = priv->hal.bridge;
+  irqstate_t flags;
+  int cpuint;
+
+  if (bridge == NULL)
+    {
+      return -ENODEV;
+    }
+
+  mipi_dsi_brg_ll_enable_interrupt(
+    bridge, MIPI_DSI_BRG_LL_EVENT_UNDERRUN, false);
+  mipi_dsi_brg_ll_clear_interrupt_status(
+    bridge, MIPI_DSI_BRG_LL_EVENT_UNDERRUN);
+
+  flags = spin_lock_irqsave(&priv->bridge_irq_lock);
+  priv->bridge_underrun_count = 0;
+  priv->bridge_first_underrun_raw = 0;
+  priv->bridge_first_underrun_status = 0;
+  priv->bridge_first_underrun_frame = 0;
+  priv->bridge_first_underrun_seen = false;
+  priv->bridge_underrun_report_pending = false;
+  spin_unlock_irqrestore(&priv->bridge_irq_lock, flags);
+
+  cpuint = esp_setup_irq(ETS_DSI_BRIDGE_INTR_SOURCE,
+                         ESP_IRQ_PRIORITY_DEFAULT,
+                         ESP_IRQ_TRIGGER_LEVEL,
+                         esp_mipi_dsi_bridge_interrupt, priv);
+  if (cpuint < 0)
+    {
+      return cpuint;
+    }
+
+  priv->bridge_cpuint = cpuint;
+  up_enable_irq(ESP_SOURCE2IRQ(ETS_DSI_BRIDGE_INTR_SOURCE));
+  return OK;
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_bridge_interrupt_release
+ ****************************************************************************/
+
+static void esp_mipi_dsi_bridge_interrupt_release(
+  FAR struct esp_mipi_dsi_s *priv)
+{
+  FAR dsi_brg_dev_t *bridge = priv->hal.bridge;
+
+  if (bridge != NULL)
+    {
+      mipi_dsi_brg_ll_enable_interrupt(
+        bridge, MIPI_DSI_BRG_LL_EVENT_UNDERRUN, false);
+      mipi_dsi_brg_ll_clear_interrupt_status(
+        bridge, MIPI_DSI_BRG_LL_EVENT_UNDERRUN);
+    }
+
+  if (priv->bridge_cpuint >= 0)
+    {
+      up_disable_irq(ESP_SOURCE2IRQ(ETS_DSI_BRIDGE_INTR_SOURCE));
+      esp_teardown_irq(ETS_DSI_BRIDGE_INTR_SOURCE, priv->bridge_cpuint);
+      priv->bridge_cpuint = -1;
+    }
+
+  work_cancel_sync(LPWORK, &priv->bridge_underrun_work);
+}
+
 /****************************************************************************
  * Name: esp_mipi_dsi_dma_interrupt
  *
@@ -698,6 +925,8 @@ static int esp_mipi_dsi_dma_interrupt(int irq, FAR void *context,
 static void esp_mipi_dsi_video_dma_release(
   FAR struct esp_mipi_dsi_s *priv)
 {
+  esp_mipi_dsi_bridge_interrupt_release(priv);
+
   if (priv->dma_cpuint >= 0)
     {
       up_disable_irq(ESP_SOURCE2IRQ(ETS_DW_GDMA_INTR_SOURCE));
@@ -1014,8 +1243,11 @@ static void esp_mipi_dsi_dump_dma_status(
   uint32_t channel_status;
   uint32_t bridge_raw;
   uint32_t bridge_status;
+  uint32_t bridge_underrun_count;
+  bool bridge_first_underrun_seen;
   uint64_t transfer_bytes;
   intptr_t current_lli;
+  irqstate_t flags;
   bool channel_enabled;
 
   if (dma_dev == NULL || bridge == NULL)
@@ -1037,6 +1269,10 @@ static void esp_mipi_dsi_dump_dma_status(
     dma_dev, ESP_MIPI_DSI_DMA_CHANNEL);
   bridge_raw = bridge->int_raw.val;
   bridge_status = mipi_dsi_brg_ll_get_interrupt_status(bridge);
+  flags = spin_lock_irqsave(&priv->bridge_irq_lock);
+  bridge_underrun_count = priv->bridge_underrun_count;
+  bridge_first_underrun_seen = priv->bridge_first_underrun_seen;
+  spin_unlock_irqrestore(&priv->bridge_irq_lock, flags);
   transfer_bytes = (uint64_t)transfer_items *
                    ESP_MIPI_DSI_DMA_TRANSFER_WIDTH_BYTES;
 
@@ -1060,10 +1296,12 @@ static void esp_mipi_dsi_dump_dma_status(
   syslog(LOG_INFO,
          "INFO: MIPI-DSI Bridge events stage=%s raw=%08" PRIx32
          " enable=%08" PRIx32 " status=%08" PRIx32
-         " underrun_raw=%d underrun_status=%d\n",
+         " underrun_raw=%d underrun_status=%d underrun_count=%" PRIu32
+         " first_underrun=%d\n",
          stage, bridge_raw, bridge->int_ena.val, bridge_status,
          (bridge_raw & MIPI_DSI_BRG_LL_EVENT_UNDERRUN) != 0,
-         (bridge_status & MIPI_DSI_BRG_LL_EVENT_UNDERRUN) != 0);
+         (bridge_status & MIPI_DSI_BRG_LL_EVENT_UNDERRUN) != 0,
+         bridge_underrun_count, bridge_first_underrun_seen);
 }
 #endif
 
@@ -1453,7 +1691,8 @@ int esp_mipi_dsi_video_pattern_start(
             priv, config->channel, config->hactive, config->hsync,
             config->hback_porch, config->hfront_porch, config->vactive,
             config->vsync, config->vback_porch, config->vfront_porch,
-            config->hsync_active_low, config->vsync_active_low);
+            config->hsync_active_low, config->vsync_active_low,
+            LCD_COLOR_FMT_RGB888);
           mipi_dsi_host_ll_dpi_set_pattern_type(priv->hal.host, pattern);
 
           /* Keep the same bridge-side format and timing contract as the
@@ -1464,6 +1703,7 @@ int esp_mipi_dsi_video_pattern_start(
 
           esp_mipi_dsi_video_configure_bridge(
             priv, config->hactive, config->vactive,
+            24, LCD_COLOR_FMT_RGB888, LCD_COLOR_FMT_RGB888,
             MIPI_DSI_LL_FLOW_CONTROLLER_BRIDGE);
           mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, false);
           mipi_dsi_brg_ll_enable(priv->hal.bridge, true);
@@ -1504,6 +1744,10 @@ int esp_mipi_dsi_video_dma_start(
 {
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
   FAR struct esp_mipi_dsi_s *priv = &g_esp_mipi_dsi;
+  lcd_color_format_t input_format;
+  lcd_color_format_t output_format;
+  size_t bytes_per_pixel;
+  size_t output_bytes_per_pixel;
   size_t required_bytes;
   int ret;
 
@@ -1511,15 +1755,40 @@ int esp_mipi_dsi_video_dma_start(
       !esp_mipi_dsi_video_timing_valid(config->channel, config->hactive,
                                         config->vactive,
                                         config->pixel_clock_hz) ||
-      config->frame_buffer == NULL ||
-      config->vactive > SIZE_MAX / ESP_MIPI_DSI_DMA_BYTES_PER_PIXEL /
-                        config->hactive)
+      config->frame_buffer == NULL)
     {
       return -EINVAL;
     }
 
+  ret = esp_mipi_dsi_video_color_format(config->input_format,
+                                        &input_format, &bytes_per_pixel);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  ret = esp_mipi_dsi_video_color_format(config->output_format,
+                                        &output_format,
+                                        &output_bytes_per_pixel);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  if (output_bytes_per_pixel == 0)
+    {
+      return -EINVAL;
+    }
+
+  if (config->hactive > SIZE_MAX / config->vactive ||
+      (size_t)config->hactive * config->vactive >
+        SIZE_MAX / bytes_per_pixel)
+    {
+      return -EOVERFLOW;
+    }
+
   required_bytes = (size_t)config->hactive * config->vactive *
-                   ESP_MIPI_DSI_DMA_BYTES_PER_PIXEL;
+                   bytes_per_pixel;
   if (config->frame_buffer_bytes < required_bytes ||
       (required_bytes % ESP_MIPI_DSI_DMA_TRANSFER_WIDTH_BYTES) != 0)
     {
@@ -1561,11 +1830,12 @@ int esp_mipi_dsi_video_dma_start(
     priv, config->channel, config->hactive, config->hsync,
     config->hback_porch, config->hfront_porch, config->vactive,
     config->vsync, config->vback_porch, config->vfront_porch,
-    config->hsync_active_low, config->vsync_active_low);
+    config->hsync_active_low, config->vsync_active_low, output_format);
   mipi_dsi_host_ll_dpi_set_pattern_type(priv->hal.host,
                                         MIPI_DSI_PATTERN_NONE);
   esp_mipi_dsi_video_configure_bridge(
     priv, config->hactive, config->vactive,
+    bytes_per_pixel * 8, input_format, output_format,
     MIPI_DSI_LL_FLOW_CONTROLLER_DMA);
   mipi_dsi_brg_ll_set_multi_block_number(priv->hal.bridge, 1);
   mipi_dsi_brg_ll_set_burst_len(priv->hal.bridge,
@@ -1581,16 +1851,30 @@ int esp_mipi_dsi_video_dma_start(
       goto errout_video;
     }
 
+  ret = esp_mipi_dsi_bridge_interrupt_prepare(priv);
+  if (ret < 0)
+    {
+      goto errout_video;
+    }
+
   mipi_dsi_brg_ll_enable(priv->hal.bridge, true);
   mipi_dsi_brg_ll_update_dpi_config(priv->hal.bridge);
   mipi_dsi_host_ll_enable_bta(priv->hal.host, false);
   mipi_dsi_host_ll_set_clock_lane_state(
     priv->hal.host, MIPI_DSI_LL_CLOCK_LANE_STATE_AUTO);
+
+  /* The Bridge can request pixels as soon as DPI output is enabled.  Match
+   * the ESP-IDF DPI panel ordering: make the GDMA producer runnable before
+   * enabling Host video mode and Bridge output.
+   */
+
+  dw_gdma_ll_channel_enable(priv->dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, true);
   mipi_dsi_host_ll_enable_video_mode(priv->hal.host, true);
   mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, true);
   mipi_dsi_brg_ll_update_dpi_config(priv->hal.bridge);
-
-  dw_gdma_ll_channel_enable(priv->dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, true);
+  mipi_dsi_brg_ll_enable_interrupt(
+    priv->hal.bridge, MIPI_DSI_BRG_LL_EVENT_UNDERRUN, true);
+  syslog(LOG_INFO, "INFO: MIPI-DSI Bridge underrun interrupt enabled\n");
 
   priv->video_running = true;
   esp_mipi_dsi_dump_video_state(priv, "dma-started");

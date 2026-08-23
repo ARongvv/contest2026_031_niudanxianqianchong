@@ -5,10 +5,10 @@
  *
  * EK79007 MIPI-DSI panel controller interface.
  *
- * This is a panel-control driver.  It configures the DSI peripheral and
- * sends DCS/vendor commands, but it does not implement framebuffer scanout.
- * The SoC DSI host and board code own DMA, video timing programming, reset
- * GPIO and backlight control.
+ * This is a panel-control driver.  It sends DCS/vendor commands and can
+ * optionally bind a caller-owned P4 DPI panel lifecycle.  The SoC adapter
+ * retains DMA and timing programming, while the board retains reset GPIO and
+ * backlight control.
  ****************************************************************************/
 
 #ifndef __DRIVERS_LCD_EK79007_H
@@ -55,6 +55,9 @@ struct ek79007_init_cmd_s
   uint16_t delay_ms;
 };
 
+struct esp_mipi_dsi_dpi_panel_s;
+struct esp_mipi_dsi_dpi_panel_config_s;
+
 /* Panel and DSI link configuration.  The timing pointer is descriptive
  * metadata for the future DSI host.  The panel-control driver does not
  * program timing registers, so it may be NULL during command-only tests.
@@ -74,6 +77,8 @@ struct ek79007_panel_config_s
   uint32_t lp_rate;
   uint8_t lanes;
   uint8_t format;
+  FAR struct esp_mipi_dsi_dpi_panel_s *dpi_panel;
+  FAR const struct esp_mipi_dsi_dpi_panel_config_s *dpi_config;
 };
 
 /* Per-panel state.  The caller owns this object and the configuration passed
@@ -88,6 +93,7 @@ struct ek79007_panel_s
   bool initialized;
   bool display_on;
   bool sleeping;
+  FAR struct esp_mipi_dsi_dpi_panel_s *dpi_panel;
 };
 
 /****************************************************************************
@@ -132,9 +138,12 @@ int ek79007_panel_reset(FAR struct ek79007_panel_s *panel);
  * Name: ek79007_panel_initialize
  *
  * Description:
- *   Send EK79007 lane selection and initialization commands.  A successful
- *   call is idempotent.  The panel display remains disabled; call
- *   ek79007_panel_set_display() only after the DSI host starts video output.
+ *   Send EK79007 lane selection and initialization commands.  If setup was
+ *   given a DPI panel configuration, the underlying scanout starts after the
+ *   DCS sequence, as it does in the ESP-IDF EK79007 panel lifecycle.  The
+ *   panel display remains disabled; call set_display() immediately after
+ *   initialization.  The caller may then submit its first frame and enable
+ *   the board backlight.
  *
  * Returned Value:
  *   OK on success; a negated errno value on failure.
@@ -153,6 +162,28 @@ int ek79007_panel_initialize(FAR struct ek79007_panel_s *panel);
  ****************************************************************************/
 
 int ek79007_panel_set_display(FAR struct ek79007_panel_s *panel, bool on);
+
+/****************************************************************************
+ * Name: ek79007_panel_draw_bitmap
+ *
+ * Description:
+ *   Submit one complete RGB frame to the optional underlying P4 DPI panel.
+ *   Partial updates and multi-buffer policy are deferred to the LVGL phase.
+ ****************************************************************************/
+
+int ek79007_panel_draw_bitmap(FAR struct ek79007_panel_s *panel,
+                              FAR const void *color_data,
+                              size_t color_data_bytes);
+
+/****************************************************************************
+ * Name: ek79007_panel_shutdown
+ *
+ * Description:
+ *   Disable the panel display and release the optional underlying DPI panel
+ *   before the caller shuts down the DSI Host.
+ ****************************************************************************/
+
+int ek79007_panel_shutdown(FAR struct ek79007_panel_s *panel);
 
 /****************************************************************************
  * Name: ek79007_panel_set_sleep

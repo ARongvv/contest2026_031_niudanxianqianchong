@@ -192,6 +192,9 @@ endif()
 
 if(CONFIG_ESPRESSIF_MIPI_DSI)
   list(APPEND SRCS esp_mipi_dsi.c)
+  if(CONFIG_ESPRESSIF_MIPI_DSI_DPI_PANEL)
+    list(APPEND SRCS esp_mipi_dsi_dpi_panel.c)
+  endif()
 endif()
 
 if(CONFIG_CRYPTO_CRYPTODEV_HARDWARE)
