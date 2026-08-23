@@ -59,6 +59,7 @@
  ****************************************************************************/
 
 struct mipi_dsi_host;
+struct esp_mipi_dsi_dpi_panel_config_s;
 
 /****************************************************************************
  * Public Function Prototypes
@@ -71,7 +72,9 @@ struct mipi_dsi_host;
  *
  * Description:
  *   Initialize the P4X command-mode MIPI-DSI host using the board PHY LDO
- *   and link parameters.  This does not enable video scanout or backlight.
+ *   and link parameters.  This does not reset the panel or enable video
+ *   scanout.  With video support enabled it prepares the backlight GPIO in
+ *   its off state; the caller enables it only after a frame is submitted.
  *
  ****************************************************************************/
 
@@ -89,6 +92,19 @@ int board_mipi_dsi_initialize(FAR struct mipi_dsi_host **host);
 int board_mipi_dsi_panel_reset(void);
 
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO
+
+/****************************************************************************
+ * Name: board_mipi_dsi_dpi_panel_config_get
+ *
+ * Description:
+ *   Return the tested EK79007 1024x600 DPI profile.  The configuration
+ *   matches Espressif's EK79007 60 Hz macro: two lanes, RGB565 and 52 MHz
+ *   nominal pixel clock.  The returned object has static lifetime.
+ *
+ ****************************************************************************/
+
+FAR const struct esp_mipi_dsi_dpi_panel_config_s *
+board_mipi_dsi_dpi_panel_config_get(void);
 
 /****************************************************************************
  * Name: board_mipi_dsi_video_pattern_start
