@@ -23,6 +23,8 @@
 
 #include <arch/chip/esp_ldo.h>
 
+#include <arch/chip/esp_mipi_dsi_dpi_panel.h>
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -74,9 +76,9 @@ struct esp_mipi_dsi_video_pattern_config_s
   enum esp_mipi_dsi_video_pattern_e pattern;
 };
 
-/* DMA scanout intentionally takes a board-owned frame buffer.  The generic
- * chip adapter configures only the P4 DSI Bridge/GDMA path; allocation,
- * pixel contents and lifetime remain board policy.
+/* DMA scanout accepts a caller-owned frame buffer.  The generic chip adapter
+ * configures only the P4 DSI Bridge/GDMA path; allocation, pixel contents
+ * and lifetime remain outside this low-level primitive.
  */
 
 struct esp_mipi_dsi_video_dma_config_s
@@ -93,6 +95,8 @@ struct esp_mipi_dsi_video_dma_config_s
   uint32_t       pixel_clock_hz;
   bool           hsync_active_low;
   bool           vsync_active_low;
+  enum esp_mipi_dsi_dpi_color_format_e input_format;
+  enum esp_mipi_dsi_dpi_color_format_e output_format;
   FAR const void *frame_buffer;
   size_t         frame_buffer_bytes;
 };
@@ -123,9 +127,10 @@ int esp_mipi_dsi_video_pattern_start(
  * Name: esp_mipi_dsi_video_dma_start
  *
  * Description:
- *   Configure DPI video mode and continuously feed a board-owned RGB888
- *   frame buffer to the P4 DSI Bridge through DW-GDMA.  The caller must keep
- *   the buffer valid and unchanged until esp_mipi_dsi_video_stop() returns.
+ *   Configure DPI video mode and continuously feed a caller-owned RGB565 or
+ *   RGB888 frame buffer to the P4 DSI Bridge through DW-GDMA.  The caller
+ *   must keep the buffer valid and unchanged until
+ *   esp_mipi_dsi_video_stop() returns.
  *
  ****************************************************************************/
 

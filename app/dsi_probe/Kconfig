@@ -23,10 +23,12 @@ config LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE_VIDEO_PATTERN
 	default n
 	select ESPRESSIF_MIPI_DSI_VIDEO
 	select ESPRESSIF_MIPI_DSI_VIDEO_DMA
+	select ESPRESSIF_MIPI_DSI_DPI_PANEL
 	help
-		Enable the "dsi_probe video [seconds]" command.  It fills a
-		board-owned RGB888 vertical-colour-bar buffer in PSRAM, then uses
-		DW-GDMA to scan it out with the P4X panel timing and a static
-		backlight level.  It does not start LVGL.
+		Enable the "dsi_probe video [seconds]" command.  It creates the
+		EK79007-owned DPI panel lifecycle, renders RGB565 vertical colour bars
+		into its PSRAM frame buffer and submits that full frame through
+		draw_bitmap().  DW-GDMA continuously scans it out with P4X panel
+		timing and a static backlight level.  It does not start LVGL.
 
 endif # LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE

@@ -25,6 +25,7 @@
 
 #include <arch/board/board.h>
 #include <arch/chip/esp_mipi_dsi.h>
+#include <arch/chip/esp_mipi_dsi_dpi_panel.h>
 
 #include "espressif/esp_gpio.h"
 
@@ -100,9 +101,45 @@ static const struct esp_mipi_dsi_video_pattern_config_s
   .pattern          = ESP_MIPI_DSI_VIDEO_PATTERN_VERTICAL_BARS,
 };
 
+/* This profile is intentionally distinct from the older RGB888 fixed-bar
+ * diagnostic above.  It mirrors EK79007_1024_600_PANEL_60HZ_CONFIG_CF() in
+ * Espressif's panel driver, which is the known-good reference on P4X.
+ */
+
+static const struct esp_mipi_dsi_dpi_panel_config_s
+  g_board_mipi_dsi_dpi_panel_config =
+{
+  .channel          = 0,
+  .hactive          = BOARD_MIPI_DSI_HACTIVE,
+  .hsync            = BOARD_MIPI_DSI_HSYNC,
+  .hback_porch      = BOARD_MIPI_DSI_HBACK_PORCH,
+  .hfront_porch     = BOARD_MIPI_DSI_HFRONT_PORCH,
+  .vactive          = BOARD_MIPI_DSI_VACTIVE,
+  .vsync            = BOARD_MIPI_DSI_VSYNC,
+  .vback_porch      = BOARD_MIPI_DSI_VBACK_PORCH,
+  .vfront_porch     = BOARD_MIPI_DSI_VFRONT_PORCH,
+  .pixel_clock_hz   = BOARD_MIPI_DSI_PIXEL_CLOCK_HZ,
+  .hsync_active_low = false,
+  .vsync_active_low = false,
+  .input_format     = ESP_MIPI_DSI_DPI_COLOR_RGB565,
+  .output_format    = ESP_MIPI_DSI_DPI_COLOR_RGB565,
+};
+
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
 static FAR uint8_t *g_board_mipi_dsi_frame_buffer;
 #endif
+#endif
+
+/****************************************************************************
+ * Name: board_mipi_dsi_dpi_panel_config_get
+ ****************************************************************************/
+
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO
+FAR const struct esp_mipi_dsi_dpi_panel_config_s *
+board_mipi_dsi_dpi_panel_config_get(void)
+{
+  return &g_board_mipi_dsi_dpi_panel_config;
+}
 #endif
 
 /****************************************************************************
@@ -313,6 +350,8 @@ int board_mipi_dsi_video_pattern_start(FAR struct mipi_dsi_host *host)
     g_board_mipi_dsi_video_pattern_config.hsync_active_low;
   dma_config.vsync_active_low =
     g_board_mipi_dsi_video_pattern_config.vsync_active_low;
+  dma_config.input_format = ESP_MIPI_DSI_DPI_COLOR_RGB888;
+  dma_config.output_format = ESP_MIPI_DSI_DPI_COLOR_RGB888;
   dma_config.frame_buffer = g_board_mipi_dsi_frame_buffer;
   dma_config.frame_buffer_bytes = BOARD_MIPI_DSI_FRAME_BYTES;
   ret = esp_mipi_dsi_video_dma_start(host, &dma_config);
@@ -392,6 +431,20 @@ int board_mipi_dsi_initialize(FAR struct mipi_dsi_host **host)
     }
 
   *host = NULL;
+
+  /* Match the BSP lifecycle: prepare the backlight control in its known-off
+   * state before powering the PHY or touching the panel.  The GPIO level is
+   * used for this bring-up path; PWM brightness is a later board feature.
+   */
+
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO
+  ret = board_mipi_dsi_backlight_set(false);
+  if (ret < 0)
+    {
+      return ret;
+    }
+#endif
+
   syslog(LOG_INFO, "INFO: P4X DSI host initialize begin\n");
   ret = esp_mipi_dsi_host_initialize(&g_board_mipi_dsi_config, host);
   if (ret < 0)
@@ -401,16 +454,7 @@ int board_mipi_dsi_initialize(FAR struct mipi_dsi_host **host)
     }
 
   syslog(LOG_INFO, "INFO: P4X DSI host initialize complete\n");
-
-  ret = board_mipi_dsi_panel_reset();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: P4X DSI panel reset ret=%d\n", ret);
-      esp_mipi_dsi_host_shutdown(*host);
-      *host = NULL;
-    }
-
-  return ret;
+  return OK;
 }
 
 /****************************************************************************

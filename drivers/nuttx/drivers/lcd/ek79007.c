@@ -6,8 +6,9 @@
  * EK79007 MIPI-DSI panel controller driver.
  *
  * The EK79007 receives DCS and vendor commands through the generic NuttX
- * MIPI-DSI framework.  Pixel scanout is intentionally not implemented here:
- * a MIPI-DPI/video host owns the framebuffer, DMA and timing registers.
+ * MIPI-DSI framework.  A caller may attach a P4 DPI panel object at setup;
+ * initialization then follows the ESP-IDF order: DCS setup first, continuous
+ * DPI scanout second.
  ****************************************************************************/
 
 /****************************************************************************
@@ -21,9 +22,9 @@
 #include <nuttx/signal.h>
 #include <nuttx/video/mipi_display.h>
 
-#include "ek79007.h"
+#include <arch/chip/esp_mipi_dsi_dpi_panel.h>
 
-#ifdef CONFIG_LCD_EK79007
+#include "ek79007.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -200,6 +201,11 @@ int ek79007_panel_setup(FAR struct ek79007_panel_s *panel,
       return -EINVAL;
     }
 
+  if ((config->dpi_panel == NULL) != (config->dpi_config == NULL))
+    {
+      return -EINVAL;
+    }
+
   ret = mipi_dsi_pixel_format_to_bpp(config->format);
   if (ret < 0)
     {
@@ -212,12 +218,30 @@ int ek79007_panel_setup(FAR struct ek79007_panel_s *panel,
   panel->initialized = false;
   panel->display_on = false;
   panel->sleeping = false;
+  panel->dpi_panel = config->dpi_panel;
 
   dsi->lanes = config->lanes;
   dsi->format = config->format;
   dsi->mode_flags = config->mode_flags;
   dsi->hs_rate = config->hs_rate;
   dsi->lp_rate = config->lp_rate;
+
+  if (panel->dpi_panel != NULL)
+    {
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_DPI_PANEL
+      ret = esp_mipi_dsi_dpi_panel_create(panel->dpi_panel, dsi->host,
+                                           config->dpi_config);
+      if (ret < 0)
+        {
+          panel->dpi_panel = NULL;
+          return ret;
+        }
+#else
+      panel->dpi_panel = NULL;
+      return -ENOTSUP;
+#endif
+    }
+
   return OK;
 }
 
@@ -304,6 +328,19 @@ int ek79007_panel_initialize(FAR struct ek79007_panel_s *panel)
       return ret;
     }
 
+  if (panel->dpi_panel != NULL)
+    {
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_DPI_PANEL
+      ret = esp_mipi_dsi_dpi_panel_initialize(panel->dpi_panel);
+      if (ret < 0)
+        {
+          return ret;
+        }
+#else
+      return -ENOTSUP;
+#endif
+    }
+
   panel->initialized = true;
   panel->display_on = false;
   panel->sleeping = false;
@@ -342,6 +379,78 @@ int ek79007_panel_set_display(FAR struct ek79007_panel_s *panel, bool on)
     }
 
   panel->display_on = on;
+  return OK;
+}
+
+/****************************************************************************
+ * Name: ek79007_panel_draw_bitmap
+ ****************************************************************************/
+
+int ek79007_panel_draw_bitmap(FAR struct ek79007_panel_s *panel,
+                              FAR const void *color_data,
+                              size_t color_data_bytes)
+{
+  int ret;
+
+  ret = ek79007_check_panel(panel);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  if (!panel->initialized || panel->sleeping || panel->dpi_panel == NULL)
+    {
+      return -EPIPE;
+    }
+
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_DPI_PANEL
+  return esp_mipi_dsi_dpi_panel_draw_bitmap(
+    panel->dpi_panel, 0, 0, panel->dpi_panel->config.hactive,
+    panel->dpi_panel->config.vactive, color_data, color_data_bytes);
+#else
+  return -ENOTSUP;
+#endif
+}
+
+/****************************************************************************
+ * Name: ek79007_panel_shutdown
+ ****************************************************************************/
+
+int ek79007_panel_shutdown(FAR struct ek79007_panel_s *panel)
+{
+  int ret;
+
+  ret = ek79007_check_panel(panel);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  if (panel->display_on)
+    {
+      ret = ek79007_panel_set_display(panel, false);
+      if (ret < 0)
+        {
+          return ret;
+        }
+    }
+
+  if (panel->dpi_panel != NULL)
+    {
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_DPI_PANEL
+      ret = esp_mipi_dsi_dpi_panel_stop(panel->dpi_panel);
+      if (ret < 0)
+        {
+          return ret;
+        }
+
+      esp_mipi_dsi_dpi_panel_destroy(panel->dpi_panel);
+#endif
+      panel->dpi_panel = NULL;
+    }
+
+  panel->initialized = false;
+  panel->sleeping = false;
   return OK;
 }
 
@@ -485,5 +594,3 @@ int ek79007_panel_set_invert(FAR struct ek79007_panel_s *panel,
                                 MIPI_DCS_EXIT_INVERT_MODE,
                        NULL, 0);
 }
-
-#endif /* CONFIG_LCD_EK79007 */

@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Staged MIPI-DSI validation for the ESP32-P4X Function EV Board.
- * The optional video command scans a fixed RGB888 colour-bar buffer through
- * DW-GDMA; it deliberately does not start LVGL.
+ * The optional video command creates an EK79007-owned DPI panel, submits one
+ * RGB565 colour-bar frame through draw_bitmap() and deliberately does not
+ * start LVGL.
  ****************************************************************************/
 
 /****************************************************************************
@@ -25,6 +26,9 @@
 #include <nuttx/video/mipi_dsi.h>
 
 #include <arch/board/board.h>
+#include <arch/chip/esp_mipi_dsi_dpi_panel.h>
+
+#include "ek79007.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -34,85 +38,27 @@
 #define DSI_PROBE_HS_RATE_HZ   1000000000
 #define DSI_PROBE_LP_RATE_HZ   10000000
 
-#define DSI_PROBE_SLEEP_EXIT_DELAY_MS 120
-#define DSI_PROBE_DISPLAY_ON_DELAY_MS   20
 #define DSI_PROBE_VIDEO_SECONDS_DEFAULT 30
 #define DSI_PROBE_VIDEO_SECONDS_MAX    600
-
-/****************************************************************************
- * Private Types
- ****************************************************************************/
-
-struct dsi_probe_dcs_command_s
-{
-  uint8_t command;
-  FAR const uint8_t *data;
-  size_t data_len;
-  uint16_t delay_ms;
-};
 
 /****************************************************************************
  * Private Data
  ****************************************************************************/
 
-/* This write-only sequence mirrors the current EK79007 panel driver's
- * default initialisation path.  It is deliberately local to the probe so
- * M1 can exercise the real command stream without enabling the production
- * panel driver, DPI video output or framebuffer allocation.
+/* The panel driver owns the EK79007 DCS sequence.  The probe only supplies
+ * the P4X link parameters and calls the panel lifecycle in production order.
  */
 
-static const uint8_t g_dsi_probe_cmd_b2[] =
+static const struct ek79007_panel_config_s g_dsi_probe_panel_config =
 {
-  0x10
-};
-
-static const uint8_t g_dsi_probe_cmd_80[] =
-{
-  0x8b
-};
-
-static const uint8_t g_dsi_probe_cmd_81[] =
-{
-  0x78
-};
-
-static const uint8_t g_dsi_probe_cmd_82[] =
-{
-  0x84
-};
-
-static const uint8_t g_dsi_probe_cmd_83[] =
-{
-  0x88
-};
-
-static const uint8_t g_dsi_probe_cmd_84[] =
-{
-  0xa8
-};
-
-static const uint8_t g_dsi_probe_cmd_85[] =
-{
-  0xe3
-};
-
-static const uint8_t g_dsi_probe_cmd_86[] =
-{
-  0x88
-};
-
-static const struct dsi_probe_dcs_command_s g_dsi_probe_init_cmds[] =
-{
-  {0xb2, g_dsi_probe_cmd_b2, sizeof(g_dsi_probe_cmd_b2), 0},
-  {0x80, g_dsi_probe_cmd_80, sizeof(g_dsi_probe_cmd_80), 0},
-  {0x81, g_dsi_probe_cmd_81, sizeof(g_dsi_probe_cmd_81), 0},
-  {0x82, g_dsi_probe_cmd_82, sizeof(g_dsi_probe_cmd_82), 0},
-  {0x83, g_dsi_probe_cmd_83, sizeof(g_dsi_probe_cmd_83), 0},
-  {0x84, g_dsi_probe_cmd_84, sizeof(g_dsi_probe_cmd_84), 0},
-  {0x85, g_dsi_probe_cmd_85, sizeof(g_dsi_probe_cmd_85), 0},
-  {0x86, g_dsi_probe_cmd_86, sizeof(g_dsi_probe_cmd_86), 0},
-  {MIPI_DCS_EXIT_SLEEP_MODE, NULL, 0, DSI_PROBE_SLEEP_EXIT_DELAY_MS},
-  {MIPI_DCS_SET_DISPLAY_ON, NULL, 0, DSI_PROBE_DISPLAY_ON_DELAY_MS},
+  .timing     = NULL,
+  .init_cmds  = NULL,
+  .ninit_cmds = 0,
+  .mode_flags = MIPI_DSI_MODE_LPM,
+  .hs_rate    = DSI_PROBE_HS_RATE_HZ,
+  .lp_rate    = DSI_PROBE_LP_RATE_HZ,
+  .lanes      = DSI_PROBE_LANES,
+  .format     = MIPI_DSI_FMT_RGB565,
 };
 
 /****************************************************************************
@@ -129,47 +75,6 @@ static int dsi_probe_fail(FAR const char *step, int ret)
          strerror(-ret));
   return EXIT_FAILURE;
 }
-
-/****************************************************************************
- * Name: dsi_probe_send_init_sequence
- ****************************************************************************/
-
-static int dsi_probe_send_init_sequence(FAR struct mipi_dsi_device *device)
-{
-  size_t i;
-  ssize_t ret;
-
-  for (i = 0; i < sizeof(g_dsi_probe_init_cmds) /
-                  sizeof(g_dsi_probe_init_cmds[0]); i++)
-    {
-      FAR const struct dsi_probe_dcs_command_s *cmd =
-        &g_dsi_probe_init_cmds[i];
-
-      ret = mipi_dsi_dcs_write(device, cmd->command, cmd->data,
-                               cmd->data_len);
-      if (ret < 0)
-        {
-          printf("dsi_probe: DCS command 0x%02x failed ret=%zd\n",
-                 cmd->command, ret);
-          return (int)ret;
-        }
-
-      if (cmd->delay_ms > 0)
-        {
-          ret = nxsig_usleep((useconds_t)cmd->delay_ms * 1000);
-          if (ret < 0)
-            {
-              return (int)ret;
-            }
-        }
-    }
-
-  return OK;
-}
-
-/****************************************************************************
- * Name: dsi_probe_parse_video_request
- ****************************************************************************/
 
 static int dsi_probe_parse_video_request(int argc, FAR char *argv[],
                                          FAR unsigned int *seconds)
@@ -206,25 +111,102 @@ static int dsi_probe_parse_video_request(int argc, FAR char *argv[],
 #ifdef CONFIG_LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE_VIDEO_PATTERN
 
 /****************************************************************************
+ * Name: dsi_probe_panel_shutdown
+ ****************************************************************************/
+
+static int dsi_probe_panel_shutdown(FAR struct ek79007_panel_s *panel)
+{
+  int display_ret;
+  int ret;
+
+  ret = board_mipi_dsi_backlight_set(false);
+  display_ret = ek79007_panel_shutdown(panel);
+  return ret < 0 ? ret : display_ret;
+}
+
+/****************************************************************************
+ * Name: dsi_probe_fill_rgb565_colour_bars
+ ****************************************************************************/
+
+static void dsi_probe_fill_rgb565_colour_bars(FAR uint16_t *frame_buffer,
+                                              uint16_t width,
+                                              uint16_t height)
+{
+  static const uint16_t g_colours[] =
+  {
+    0xffff, /* White */
+    0xffe0, /* Yellow */
+    0x07ff, /* Cyan */
+    0x07e0, /* Green */
+    0xf81f, /* Magenta */
+    0xf800, /* Red */
+    0x001f, /* Blue */
+    0x0000, /* Black */
+  };
+
+  uint32_t x;
+  uint32_t y;
+  uint32_t bar;
+
+  for (y = 0; y < height; y++)
+    {
+      for (x = 0; x < width; x++)
+        {
+          bar = x * (sizeof(g_colours) / sizeof(g_colours[0])) / width;
+          frame_buffer[y * width + x] = g_colours[bar];
+        }
+    }
+}
+
+/****************************************************************************
  * Name: dsi_probe_run_video_pattern
  ****************************************************************************/
 
 static int dsi_probe_run_video_pattern(FAR struct mipi_dsi_host *host,
+                                       FAR struct ek79007_panel_s *panel,
                                        unsigned int seconds)
 {
+  FAR struct esp_mipi_dsi_dpi_panel_s *dpi_panel;
+  FAR void *frame_buffer;
+  size_t frame_buffer_bytes;
   unsigned int elapsed;
+  int display_ret;
   int status_ret;
   int ret;
 
-  ret = board_mipi_dsi_video_pattern_start(host);
+  dpi_panel = panel->dpi_panel;
+  if (dpi_panel == NULL)
+    {
+      return -EPIPE;
+    }
+
+  ret = esp_mipi_dsi_dpi_panel_get_frame_buffer(
+    dpi_panel, &frame_buffer, &frame_buffer_bytes);
   if (ret < 0)
     {
       return ret;
     }
 
-  printf("dsi_probe: DMA RGB888 vertical colour bars active for %u seconds; "
+  dsi_probe_fill_rgb565_colour_bars(frame_buffer,
+                                    dpi_panel->config.hactive,
+                                    dpi_panel->config.vactive);
+
+  ret = ek79007_panel_draw_bitmap(panel, frame_buffer, frame_buffer_bytes);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  ret = board_mipi_dsi_backlight_set(true);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  printf("dsi_probe: EK79007 DPI RGB565 vertical colour bars active for "
+         "%u seconds; "
          "LVGL is not involved\n", seconds);
-  printf("dsi_probe: DMA scanout started; visually confirm colour bars "
+  printf("dsi_probe: draw_bitmap() submitted; visually confirm colour bars "
          "before recording a display PASS\n");
   status_ret = board_mipi_dsi_video_dump_status(host, "probe-start");
   if (status_ret < 0)
@@ -260,9 +242,10 @@ static int dsi_probe_run_video_pattern(FAR struct mipi_dsi_host *host,
              status_ret);
     }
 
-  if (board_mipi_dsi_video_stop(host) < 0 && ret == OK)
+  display_ret = dsi_probe_panel_shutdown(panel);
+  if (display_ret < 0 && ret == OK)
     {
-      ret = -EIO;
+      ret = display_ret;
     }
 
   return ret;
@@ -282,8 +265,15 @@ int main(int argc, FAR char *argv[])
 {
   struct mipi_dsi_host *host;
   struct mipi_dsi_device device;
+  struct ek79007_panel_s panel;
+  struct ek79007_panel_config_s panel_config;
+  struct esp_mipi_dsi_dpi_panel_s dpi_panel;
   uint8_t short_payload = 0;
-  uint8_t long_payload[] = {0, 0, 0};
+  uint8_t long_payload[] =
+  {
+    0, 0, 0
+  };
+
   uint8_t power_mode;
   unsigned int video_seconds;
   bool dcs_read_available;
@@ -313,88 +303,152 @@ int main(int argc, FAR char *argv[])
   printf("dsi_probe: host bus=%d initialized\n", host->bus);
 
   memset(&device, 0, sizeof(device));
+  memset(&panel, 0, sizeof(panel));
+  memset(&dpi_panel, 0, sizeof(dpi_panel));
+  panel_config = g_dsi_probe_panel_config;
+
+  if (video_requested)
+    {
+#ifdef CONFIG_LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE_VIDEO_PATTERN
+      panel_config.dpi_panel = &dpi_panel;
+      panel_config.dpi_config = board_mipi_dsi_dpi_panel_config_get();
+#else
+      printf("dsi_probe: video command is disabled; enable "
+             "CONFIG_LVX_USE_DEMO_CONTEST2026_031_"
+             "DSI_PROBE_VIDEO_PATTERN\n");
+      board_mipi_dsi_shutdown(host);
+      return EXIT_FAILURE;
+#endif
+    }
+
   device.host = host;
   device.channel = 0;
-  device.lanes = DSI_PROBE_LANES;
-  device.format = MIPI_DSI_FMT_RGB888;
-  device.mode_flags = MIPI_DSI_MODE_LPM;
-  device.hs_rate = DSI_PROBE_HS_RATE_HZ;
-  device.lp_rate = DSI_PROBE_LP_RATE_HZ;
   snprintf(device.name, sizeof(device.name), "ek79007-probe");
+
+  ret = ek79007_panel_setup(&panel, &device, &panel_config);
+  if (ret < 0)
+    {
+      board_mipi_dsi_shutdown(host);
+      return dsi_probe_fail("ek79007_panel_setup", ret);
+    }
 
   ret = mipi_dsi_attach(&device);
   if (ret < 0)
     {
+      ek79007_panel_shutdown(&panel);
       board_mipi_dsi_shutdown(host);
       return dsi_probe_fail("device_attach", ret);
     }
 
-  /* Generic packets validate host FIFO submission before sending the real
-   * EK79007 write-only initialisation sequence.  Neither operation starts
-   * video scanout or turns on the display.
+  /* The hardware reset belongs after the panel object and DBI path exist,
+   * matching esp_lcd_panel_reset() in the ESP-IDF EK79007 lifecycle.
    */
 
-  transferred = mipi_dsi_generic_write(&device, &short_payload,
-                                       sizeof(short_payload));
-  if (transferred < 0)
-    {
-      mipi_dsi_detach(&device);
-      board_mipi_dsi_shutdown(host);
-      return dsi_probe_fail("generic_short_write", (int)transferred);
-    }
-
-  printf("dsi_probe: generic short packet accepted\n");
-
-  transferred = mipi_dsi_generic_write(&device, long_payload,
-                                       sizeof(long_payload));
-  if (transferred < 0)
-    {
-      mipi_dsi_detach(&device);
-      board_mipi_dsi_shutdown(host);
-      return dsi_probe_fail("generic_long_write", (int)transferred);
-    }
-
-  printf("dsi_probe: generic long packet accepted\n");
-
-  ret = dsi_probe_send_init_sequence(&device);
+  ret = board_mipi_dsi_panel_reset();
   if (ret < 0)
     {
+      ek79007_panel_shutdown(&panel);
       mipi_dsi_detach(&device);
       board_mipi_dsi_shutdown(host);
-      return dsi_probe_fail("ek79007_init_sequence", ret);
+      return dsi_probe_fail("panel_hardware_reset", ret);
     }
 
-  printf("dsi_probe: EK79007 DCS initialisation writes accepted\n");
+  /* Generic packets are intentionally kept for the command-only Host test.
+   * The video test omits them so its panel path matches the ESP-IDF colour
+   * bar example without non-panel DSI traffic before initialisation.
+   */
 
-  power_mode = 0;
-  ret = mipi_dsi_dcs_get_power_mode(&device, &power_mode);
+  if (!video_requested)
+    {
+      transferred = mipi_dsi_generic_write(&device, &short_payload,
+                                           sizeof(short_payload));
+      if (transferred < 0)
+        {
+          ek79007_panel_shutdown(&panel);
+          mipi_dsi_detach(&device);
+          board_mipi_dsi_shutdown(host);
+          return dsi_probe_fail("generic_short_write", (int)transferred);
+        }
+
+      printf("dsi_probe: generic short packet accepted\n");
+
+      transferred = mipi_dsi_generic_write(&device, long_payload,
+                                           sizeof(long_payload));
+      if (transferred < 0)
+        {
+          ek79007_panel_shutdown(&panel);
+          mipi_dsi_detach(&device);
+          board_mipi_dsi_shutdown(host);
+          return dsi_probe_fail("generic_long_write", (int)transferred);
+        }
+
+      printf("dsi_probe: generic long packet accepted\n");
+    }
+
+  ret = ek79007_panel_initialize(&panel);
   if (ret < 0)
+    {
+      ek79007_panel_shutdown(&panel);
+      mipi_dsi_detach(&device);
+      board_mipi_dsi_shutdown(host);
+      return dsi_probe_fail("ek79007_panel_initialize", ret);
+    }
+
+  printf("dsi_probe: EK79007 panel driver initialisation accepted\n");
+
+  /* esp_lcd_ek79007 documents display-on immediately after panel init.  It
+   * precedes the application's draw_bitmap() submission; backlight remains
+   * off until the video probe has filled and synchronized its frame.
+   */
+
+  ret = ek79007_panel_set_display(&panel, true);
+  if (ret < 0)
+    {
+      ek79007_panel_shutdown(&panel);
+      mipi_dsi_detach(&device);
+      board_mipi_dsi_shutdown(host);
+      return dsi_probe_fail("panel_display_on", ret);
+    }
+
+  printf("dsi_probe: EK79007 display enabled\n");
+
+  if (video_requested)
     {
       dcs_read_available = false;
-      printf("dsi_probe: DCS power-mode read unavailable ret=%d (%s); "
-             "continuing because this panel may be write-only in M1\n",
-             ret, strerror(-ret));
+      printf("dsi_probe: skip DCS power-mode read while DPI video is "
+             "active\n");
     }
   else
     {
-      dcs_read_available = true;
-      printf("dsi_probe: DCS power mode=0x%02x\n", power_mode);
+      power_mode = 0;
+      ret = mipi_dsi_dcs_get_power_mode(&device, &power_mode);
+      if (ret < 0)
+        {
+          dcs_read_available = false;
+          printf("dsi_probe: DCS power-mode read unavailable ret=%d (%s); "
+                 "continuing because this panel may be write-only in M1\n",
+                 ret, strerror(-ret));
+        }
+      else
+        {
+          dcs_read_available = true;
+          printf("dsi_probe: DCS power mode=0x%02x\n", power_mode);
+        }
     }
 
   if (video_requested)
     {
 #ifdef CONFIG_LVX_USE_DEMO_CONTEST2026_031_DSI_PROBE_VIDEO_PATTERN
-      ret = dsi_probe_run_video_pattern(host, video_seconds);
+      ret = dsi_probe_run_video_pattern(host, &panel, video_seconds);
       if (ret < 0)
         {
+          ek79007_panel_shutdown(&panel);
           mipi_dsi_detach(&device);
           board_mipi_dsi_shutdown(host);
           return dsi_probe_fail("video_dma_scanout", ret);
         }
 #else
-      printf("dsi_probe: video command is disabled; enable "
-             "CONFIG_LVX_USE_DEMO_CONTEST2026_031_"
-             "DSI_PROBE_VIDEO_PATTERN\n");
+      ek79007_panel_shutdown(&panel);
       mipi_dsi_detach(&device);
       board_mipi_dsi_shutdown(host);
       return EXIT_FAILURE;
@@ -417,8 +471,7 @@ int main(int argc, FAR char *argv[])
   if (video_requested)
     {
       printf("dsi_probe: HOST PASS DPI DMA sequence completed; visual "
-             "display result pending (DCS read=%s)\n",
-             dcs_read_available ? "available" : "unavailable");
+             "display result pending (DCS read=skipped in video mode)\n");
     }
   else
     {
