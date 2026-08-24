@@ -18,6 +18,10 @@
 DSI Bridge 和 D-PHY 的逐函数路径见
 [ESP32-P4X LCD 测试调用全链路](ESP32-P4X-LCD测试调用全链路.md)。
 
+基于已验证的 P4X DSI 显示基线测试 Smart Home Demo 的分阶段方案、代码边界、
+defconfig 方向和验收矩阵见
+[ESP32-P4X SmartHome Demo 测试开发计划](ESP32-P4X-SmartHome-Demo测试开发计划.md)。
+
 上游 Apache NuttX / OpenVela 的 ESP32-P4 成熟基础适配采用“固定来源、逐能力
 单元吸收、本地 DSI overlay 保留”的策略，详见
 [ESP32-P4 上游成熟适配吸收计划](ESP32-P4上游成熟适配吸收计划.md)。
