@@ -20,7 +20,7 @@
 | Host 内建色条 | 已通过 | `dsi_probe pattern 10` 真机可见。 |
 | PSRAM + GDMA RGB565 扫描 | 已通过 | `dsi_probe video 10` 真机可见。 |
 | NuttX framebuffer 设备 | 真机 PASS | `fb_probe` 在 board late-init 注册 RGB565 `/dev/fb0`；标准 `fb` 已完成绘制和刷新。 |
-| LVGL Smart Home 页面 | P2 已实现，真机待测 | 新增静态首页分支，使用 `/dev/fb0`；完整 UI 路径已改为 Kconfig 指定显示设备。 |
+| LVGL Smart Home 页面 | P2 首屏真机 PASS | 静态首页已通过 `/dev/fb0` 显示并进入 LVGL 定时刷新循环；完整 UI 路径已改为 Kconfig 指定显示设备。 |
 | GT911 触摸 | 未上 P4X | 不作为首屏显示的前置条件。 |
 | P4X 以太网、DNS、TLS、云端模型 | 未验证 | 必须与显示问题分阶段验证。 |
 | MCP / Node / App Bridge | 未上 P4X | 在本地 UI、网络和模型链路稳定后再启用。 |
@@ -228,6 +228,23 @@ nsh> smart_home
 - 在启动前后分别记录 `ps`、`free`（本配置已启用 procfs；若提示未挂载，先执行
   `mount -t procfs /proc`），并保存完整串口日志与屏幕照片。
 
+**P2 首屏真机结果（2026-08-24）**：PASS。实板确认 `/dev/fb0` 存在，执行
+`smart_home` 后静态首页正常显示，串口依次输出：
+
+```text
+=== Smart Home Static LVGL P2 ===
+starting local dashboard without network, cAGENT, or touch
+
+[lvgl-static] lv_init
+[lvgl-static] framebuffer=/dev/fb0 resolution=1024x600
+[lvgl-static] dashboard shown; entering timer loop
+```
+
+该结果确认 P2 的 LVGL 初始化、1024×600 framebuffer 绑定和首帧刷新链路可用；连续
+10 分钟运行、`ps/free` 基线及重启回归仍作为保留回归项，不将本次首屏验收扩大解释为
+长期稳定性结论。详细记录见
+[P4X LVGL 静态首页真机验收](../开发日志/编译/2026-08-24-ESP32-P4X-LVGL静态首页真机验收.md)。
+
 **失败隔离**：
 
 | 现象 | 首先检查 | 不应同时做的事 |
@@ -237,7 +254,7 @@ nsh> smart_home
 | 启动后 assert / 重启 | 保存 `dmesg`、`dumpstack`、`ps` 与 `free`，先检查 LVGL 栈和 framebuffer flush。 | 不把 MCP、Node、App Bridge 一并打开。 |
 | 出现网络、模型或密钥日志 | 检查静态配置是否同时设置 `SMART_HOME_DEMO_STATIC_LVGL_HOME=y`。 | 不通过补充 secrets.json 绕过问题。 |
 
-**P2 退出与下一阶段切换**：P2 通过后，先保留本配置作为显示回归固件；不要直接在这
+**P2 退出与下一阶段切换**：P2 首屏已通过，应保留本配置作为显示回归固件；不要直接在这
 个二进制中追加网络或触摸。P3/P4 另起增量配置时应取消：
 
 ```text
