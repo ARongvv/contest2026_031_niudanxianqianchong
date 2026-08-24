@@ -1,11 +1,10 @@
 #
-# ESP32-P4X Function EV Board: P2 static LVGL Smart Home home screen.
+# ESP32-P4X Function EV Board: P3 GT911 touch bring-up on static LVGL home.
 #
-# This profile reuses the verified EK79007 RGB565 /dev/fb0 pipeline.  The
-# smart_home application is deliberately built in static-LVGL mode: it does
-# not initialize cAGENT, network, model credentials, MCP, Node gateway,
-# mobile App bridge, or touch input.  Those dependencies are introduced in
-# later P3-P6 profiles only after this first screen is visually stable.
+# This profile keeps the verified EK79007 RGB565 /dev/fb0 and static LVGL
+# Smart Home page, then registers GT911 as /dev/input0 and builds the
+# gt911_probe command.  The probe validates raw input before LVGL consumes it;
+# network, cAGENT, model credentials, MCP, Node and App Bridge remain excluded.
 #
 CONFIG_ARCH="risc-v"
 CONFIG_ARCH_BOARD_COMMON=y
@@ -34,11 +33,13 @@ CONFIG_BOARDCTL_RESET=y
 CONFIG_BOARD_LATE_INITIALIZE=y
 CONFIG_BOARD_LOOPSPERMSEC=15000
 CONFIG_BUILTIN=y
+CONFIG_ESP32P4_FUNCTION_EV_BOARD_DSI_FRAMEBUFFER=y
 CONFIG_ESPRESSIF_FLASH_16M=y
+CONFIG_ESPRESSIF_I2C0_SCLPIN=8
+CONFIG_ESPRESSIF_I2C0_SDAPIN=7
 CONFIG_ESPRESSIF_SPIRAM=y
 CONFIG_ESPRESSIF_SPIRAM_USER_HEAP=y
 CONFIG_ESPRESSIF_USBSERIAL=y
-CONFIG_ESP32P4_FUNCTION_EV_BOARD_DSI_FRAMEBUFFER=y
 CONFIG_EXPERIMENTAL=y
 CONFIG_FS_PROCFS=y
 CONFIG_GRAPHICS_LVGL=y
@@ -47,6 +48,7 @@ CONFIG_INIT_ENTRYPOINT="nsh_main"
 CONFIG_INTELHEX_BINARY=y
 CONFIG_LIBC_PERROR_STDOUT=y
 CONFIG_LIBC_STRERROR=y
+CONFIG_LVX_USE_DEMO_CONTEST2026_031_GT911_PROBE=y
 CONFIG_LV_COLOR_DEPTH_16=y
 CONFIG_LV_FONT_MONTSERRAT_16=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
