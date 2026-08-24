@@ -13,6 +13,7 @@
 
 #include <nuttx/config.h>
 
+#include <nuttx/arch.h>
 #include <nuttx/clock.h>
 #include <nuttx/irq.h>
 #include <nuttx/mutex.h>
@@ -69,6 +70,25 @@
 #define ESP_MIPI_DSI_DMA_EMPTY_THRESHOLD       768
 #define ESP_MIPI_DSI_DMA_BUFFER_ALIGNMENT        64
 #define ESP_MIPI_DSI_DMA_CHANNEL                  0
+#define ESP_MIPI_DSI_PHY_LOCK_MASK                (1u << 0)
+#define ESP_MIPI_DSI_PHY_CLK_STOP_MASK            (1u << 2)
+#define ESP_MIPI_DSI_PHY_DATA0_STOP_MASK          (1u << 4)
+#define ESP_MIPI_DSI_PHY_DATA1_STOP_MASK          (1u << 7)
+#define ESP_MIPI_DSI_PHY_STOP_MASK \
+  (ESP_MIPI_DSI_PHY_CLK_STOP_MASK | \
+   ESP_MIPI_DSI_PHY_DATA0_STOP_MASK | \
+   ESP_MIPI_DSI_PHY_DATA1_STOP_MASK)
+#define ESP_MIPI_DSI_PHY_SAMPLE_MAX_COUNT         100000
+#define ESP_MIPI_DSI_PHY_SAMPLE_MAX_INTERVAL_US   10000
+
+/* LP-transmit evidence sampling.  The window begins immediately after the
+ * command header lands in the Host FIFO.  A 2ms window at 10us resolution
+ * covers the LP escape transmission of a short or long packet while also
+ * tolerating the PHY wake-up latency of the first command after idle.
+ */
+
+#define ESP_MIPI_DSI_TX_SAMPLE_COUNT     200
+#define ESP_MIPI_DSI_TX_SAMPLE_INTERVAL_US   10
 
 /* Keep transfer completion separate from faults in the diagnostic output.
  * The channel status bits are latched for polling only; DMA global interrupt
@@ -310,6 +330,62 @@ static int esp_mipi_dsi_wait_lanes_stopped(
   return OK;
 }
 
+/****************************************************************************
+ * Name: esp_mipi_dsi_sample_tx_lp
+ *
+ * Description:
+ *   Densely sample the D0 stop-state bit immediately after a command header
+ *   is written, capturing the LP escape transmission window.  A lane that
+ *   leaves LP11 proves the Host actually emitted the command; a window
+ *   without any D0 activity means the packet never reached the lane.
+ ****************************************************************************/
+
+static void esp_mipi_dsi_sample_tx_lp(FAR struct esp_mipi_dsi_s *priv,
+                                      uint8_t channel, uint8_t type,
+                                      uint8_t hdr_msb, uint8_t hdr_lsb)
+{
+  FAR dsi_host_dev_t *host_dev = priv->hal.host;
+  uint32_t active_samples = 0;
+  uint32_t transitions = 0;
+  uint32_t previous_stop;
+  uint32_t first_status = 0;
+  uint32_t last_status = 0;
+  uint32_t status;
+  uint32_t stop;
+  uint32_t i;
+
+  for (i = 0; i < ESP_MIPI_DSI_TX_SAMPLE_COUNT; i++)
+    {
+      status = host_dev->phy_status.val;
+      stop = status & ESP_MIPI_DSI_PHY_DATA0_STOP_MASK;
+      if (i == 0)
+        {
+          first_status = status;
+        }
+      else if (stop != previous_stop)
+        {
+          transitions++;
+        }
+
+      previous_stop = stop;
+      last_status = status;
+      if (stop == 0)
+        {
+          active_samples++;
+        }
+
+      up_udelay(ESP_MIPI_DSI_TX_SAMPLE_INTERVAL_US);
+    }
+
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI TX LP sample vc=%u type=0x%02x hdr=%02x%02x "
+         "d0_active=%" PRIu32 "/%d transitions=%" PRIu32
+         " first=%08" PRIx32 " last=%08" PRIx32 "\n",
+         channel, type, hdr_msb, hdr_lsb, active_samples,
+         ESP_MIPI_DSI_TX_SAMPLE_COUNT, transitions, first_status,
+         last_status);
+}
+
 static int esp_mipi_dsi_write_packet(
   FAR struct esp_mipi_dsi_s *priv,
   FAR const struct mipi_dsi_packet *packet,
@@ -352,6 +428,13 @@ static int esp_mipi_dsi_write_packet(
 
   mipi_dsi_host_ll_gen_set_packet_header(priv->hal.host, channel,
     (mipi_dsi_data_type_t)type, packet->header[2], packet->header[1]);
+
+  /* The header write arms the transmission.  Sample the D0 lane state
+   * immediately, while the LP escape burst is expected on the wire.
+   */
+
+  esp_mipi_dsi_sample_tx_lp(priv, channel, type, packet->header[2],
+                            packet->header[1]);
   return OK;
 }
 
@@ -535,7 +618,6 @@ static void esp_mipi_dsi_configure_command_mode(
   mipi_dsi_host_ll_enable_rx_crc(host, true);
   mipi_dsi_host_ll_enable_rx_ecc(host, true);
   mipi_dsi_host_ll_enable_tx_eotp(host, true, false);
-  mipi_dsi_host_ll_enable_rx_eotp(host, true);
   mipi_dsi_host_ll_set_timeout_clock_division(
     host, (lane_byte_clock_mhz + ESP_MIPI_DSI_TIMEOUT_CLOCK_MHZ - 1) /
     ESP_MIPI_DSI_TIMEOUT_CLOCK_MHZ);
@@ -543,6 +625,44 @@ static void esp_mipi_dsi_configure_command_mode(
   mipi_dsi_host_ll_set_timeout_count(host, 0, 0, 0, 0, 0, 0, 0);
   mipi_dsi_phy_ll_set_max_read_time(host, ESP_MIPI_DSI_MAX_READ_TIME);
   mipi_dsi_phy_ll_set_stop_wait_time(host, ESP_MIPI_DSI_STOP_WAIT_TIME);
+
+  /* Match esp_lcd_new_panel_io_dbi() exactly.  Panel control packets use
+   * LP mode, command acknowledgements are requested, and TE acknowledgement
+   * remains disabled.  Without this block the reset value selects HS mode
+   * for the EK79007 DCS initialization sequence.
+   */
+
+  mipi_dsi_host_ll_enable_te_ack(host, false);
+  mipi_dsi_host_ll_enable_cmd_ack(host, true);
+  mipi_dsi_host_ll_set_gen_short_wr_speed_mode(
+    host, 0, MIPI_DSI_LL_TRANS_SPEED_LP);
+  mipi_dsi_host_ll_set_gen_short_wr_speed_mode(
+    host, 1, MIPI_DSI_LL_TRANS_SPEED_LP);
+  mipi_dsi_host_ll_set_gen_short_wr_speed_mode(
+    host, 2, MIPI_DSI_LL_TRANS_SPEED_LP);
+  mipi_dsi_host_ll_set_gen_long_wr_speed_mode(
+    host, MIPI_DSI_LL_TRANS_SPEED_LP);
+  mipi_dsi_host_ll_set_gen_short_rd_speed_mode(
+    host, 0, MIPI_DSI_LL_TRANS_SPEED_LP);
+  mipi_dsi_host_ll_set_gen_short_rd_speed_mode(
+    host, 1, MIPI_DSI_LL_TRANS_SPEED_LP);
+  mipi_dsi_host_ll_set_gen_short_rd_speed_mode(
+    host, 2, MIPI_DSI_LL_TRANS_SPEED_LP);
+  mipi_dsi_host_ll_set_dcs_short_wr_speed_mode(
+    host, 0, MIPI_DSI_LL_TRANS_SPEED_LP);
+  mipi_dsi_host_ll_set_dcs_short_wr_speed_mode(
+    host, 1, MIPI_DSI_LL_TRANS_SPEED_LP);
+  mipi_dsi_host_ll_set_dcs_long_wr_speed_mode(
+    host, MIPI_DSI_LL_TRANS_SPEED_LP);
+  mipi_dsi_host_ll_set_dcs_short_rd_speed_mode(
+    host, 0, MIPI_DSI_LL_TRANS_SPEED_LP);
+  mipi_dsi_host_ll_set_mrps_speed_mode(
+    host, MIPI_DSI_LL_TRANS_SPEED_LP);
+
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI DBI configured cmd_mode_cfg=%08" PRIx32
+         " command_ack=1 transfer=LP\n",
+         host->cmd_mode_cfg.val);
 }
 
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO
@@ -557,6 +677,10 @@ static int esp_mipi_dsi_video_pattern_type(
 {
   switch (pattern)
     {
+      case ESP_MIPI_DSI_VIDEO_PATTERN_NONE:
+        *hal_pattern = MIPI_DSI_PATTERN_NONE;
+        return OK;
+
       case ESP_MIPI_DSI_VIDEO_PATTERN_VERTICAL_BARS:
         *hal_pattern = MIPI_DSI_PATTERN_BAR_VERTICAL;
         return OK;
@@ -1221,6 +1345,22 @@ static void esp_mipi_dsi_dump_video_state(
          " int_st=%08" PRIx32 "\n",
          stage, bridge->pixel_type.val, bridge->dma_flow_ctrl.val,
          bridge->raw_num_cfg.val, bridge->int_raw.val, bridge->int_st.val);
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI format decode stage=%s bridge_raw=%" PRIu32
+         " bridge_dpi=%" PRIu32 " data_in=%" PRIu32
+         " host_color=%" PRIu32 "\n",
+         stage, (uint32_t)bridge->pixel_type.raw_type,
+         (uint32_t)bridge->pixel_type.dpi_type,
+         (uint32_t)bridge->pixel_type.data_in_type,
+         (uint32_t)host->dpi_color_coding.dpi_color_coding);
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI PHY snapshot stage=%s lock=%" PRIu32
+         " clk_stop=%" PRIu32 " d0_stop=%" PRIu32
+         " d1_stop=%" PRIu32 "\n",
+         stage, (uint32_t)host->phy_status.phy_lock,
+         (uint32_t)host->phy_status.phy_stopstateclklane,
+         (uint32_t)host->phy_status.phy_stopstate0lane,
+         (uint32_t)host->phy_status.phy_stopstate1lane);
 }
 
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
@@ -1648,6 +1788,7 @@ int esp_mipi_dsi_video_pattern_start(
   int ret;
 
   if (host != &priv->host || config == NULL ||
+      config->pattern == ESP_MIPI_DSI_VIDEO_PATTERN_NONE ||
       !esp_mipi_dsi_video_timing_valid(config->channel, config->hactive,
                                         config->vactive,
                                         config->pixel_clock_hz))
@@ -1730,6 +1871,81 @@ int esp_mipi_dsi_video_pattern_start(
 #else
   (void)host;
   (void)config;
+  return -ENOTSUP;
+#endif
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_pattern_set
+ ****************************************************************************/
+
+int esp_mipi_dsi_video_pattern_set(
+  FAR struct mipi_dsi_host *host,
+  enum esp_mipi_dsi_video_pattern_e pattern)
+{
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO
+  FAR struct esp_mipi_dsi_s *priv = &g_esp_mipi_dsi;
+  mipi_dsi_pattern_type_t hal_pattern;
+  int ret;
+
+  if (host != &priv->host)
+    {
+      return -EINVAL;
+    }
+
+  ret = esp_mipi_dsi_video_pattern_type(pattern, &hal_pattern);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  ret = nxmutex_lock(&priv->lock);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  if (!priv->ready)
+    {
+      ret = -ESHUTDOWN;
+    }
+  else if (!priv->video_running)
+    {
+      ret = -EPIPE;
+    }
+  else
+    {
+      /* Match esp_lcd_dpi_panel_set_pattern(): the Host pattern generator
+       * and the Bridge DPI producer must not drive the Host input at the
+       * same time.  Disable Bridge output before selecting a test pattern;
+       * restore it only when the pattern is turned off.
+       */
+
+      if (hal_pattern != MIPI_DSI_PATTERN_NONE)
+        {
+          mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, false);
+          mipi_dsi_brg_ll_update_dpi_config(priv->hal.bridge);
+        }
+
+      mipi_dsi_host_ll_dpi_set_pattern_type(priv->hal.host, hal_pattern);
+
+      if (hal_pattern == MIPI_DSI_PATTERN_NONE)
+        {
+          mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, true);
+          mipi_dsi_brg_ll_update_dpi_config(priv->hal.bridge);
+        }
+
+      esp_mipi_dsi_dump_video_state(priv, "pattern-selected");
+      syslog(LOG_INFO, "INFO: MIPI-DSI Host pattern selected pattern=%d\n",
+             pattern);
+      ret = OK;
+    }
+
+  nxmutex_unlock(&priv->lock);
+  return ret;
+#else
+  (void)host;
+  (void)pattern;
   return -ENOTSUP;
 #endif
 }
@@ -2029,6 +2245,146 @@ int esp_mipi_dsi_video_dma_dump_status(FAR struct mipi_dsi_host *host,
 #else
   (void)host;
   (void)stage;
+  return -ENOTSUP;
+#endif
+}
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_phy_sample_status
+ ****************************************************************************/
+
+int esp_mipi_dsi_video_phy_sample_status(
+  FAR struct mipi_dsi_host *host, FAR const char *stage,
+  uint32_t sample_count, uint32_t interval_us)
+{
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO
+  FAR struct esp_mipi_dsi_s *priv = &g_esp_mipi_dsi;
+  FAR dsi_host_dev_t *host_dev;
+  uint32_t clock_active_samples = 0;
+  uint32_t data0_active_samples = 0;
+  uint32_t data1_active_samples = 0;
+  uint32_t all_active_samples = 0;
+  uint32_t any_active_samples = 0;
+  uint32_t lock_lost_samples = 0;
+  uint32_t stop_transitions = 0;
+  uint32_t previous_stop = 0;
+  uint32_t first_status = 0;
+  uint32_t last_status = 0;
+  uint32_t status;
+  uint32_t stop;
+  uint32_t i;
+  int ret;
+
+  if (host != &priv->host || stage == NULL || sample_count == 0 ||
+      sample_count > ESP_MIPI_DSI_PHY_SAMPLE_MAX_COUNT ||
+      interval_us > ESP_MIPI_DSI_PHY_SAMPLE_MAX_INTERVAL_US)
+    {
+      return -EINVAL;
+    }
+
+  ret = nxmutex_lock(&priv->lock);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  if (!priv->ready)
+    {
+      ret = -ESHUTDOWN;
+      goto out_unlock;
+    }
+
+  if (!priv->video_running)
+    {
+      ret = -EPIPE;
+      goto out_unlock;
+    }
+
+  host_dev = priv->hal.host;
+  for (i = 0; i < sample_count; i++)
+    {
+      status = host_dev->phy_status.val;
+      stop = status & ESP_MIPI_DSI_PHY_STOP_MASK;
+
+      if (i == 0)
+        {
+          first_status = status;
+        }
+      else if (stop != previous_stop)
+        {
+          stop_transitions++;
+        }
+
+      previous_stop = stop;
+      last_status = status;
+
+      if ((status & ESP_MIPI_DSI_PHY_LOCK_MASK) == 0)
+        {
+          lock_lost_samples++;
+        }
+
+      if ((status & ESP_MIPI_DSI_PHY_CLK_STOP_MASK) == 0)
+        {
+          clock_active_samples++;
+        }
+
+      if ((status & ESP_MIPI_DSI_PHY_DATA0_STOP_MASK) == 0)
+        {
+          data0_active_samples++;
+        }
+
+      if ((status & ESP_MIPI_DSI_PHY_DATA1_STOP_MASK) == 0)
+        {
+          data1_active_samples++;
+        }
+
+      if (stop == 0)
+        {
+          all_active_samples++;
+        }
+
+      if (stop != ESP_MIPI_DSI_PHY_STOP_MASK)
+        {
+          any_active_samples++;
+        }
+
+      if (interval_us > 0 && i + 1 < sample_count)
+        {
+          up_udelay(interval_us);
+        }
+    }
+
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI PHY sample stage=%s samples=%" PRIu32
+         " interval_us=%" PRIu32 " nominal_us=%" PRIu64
+         " first=%08" PRIx32 " last=%08" PRIx32
+         " transitions=%" PRIu32 " lock_lost=%" PRIu32 "\n",
+         stage, sample_count, interval_us,
+         (uint64_t)(sample_count - 1) * interval_us,
+         first_status, last_status,
+         stop_transitions, lock_lost_samples);
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI PHY activity stage=%s clk=%" PRIu32 "/%" PRIu32
+         "(%" PRIu32 "permille) d0=%" PRIu32 "/%" PRIu32
+         "(%" PRIu32 "permille) d1=%" PRIu32 "/%" PRIu32
+         "(%" PRIu32 "permille) all=%" PRIu32 " any=%" PRIu32 "\n",
+         stage, clock_active_samples, sample_count,
+         (uint32_t)((uint64_t)clock_active_samples * 1000 / sample_count),
+         data0_active_samples, sample_count,
+         (uint32_t)((uint64_t)data0_active_samples * 1000 / sample_count),
+         data1_active_samples, sample_count,
+         (uint32_t)((uint64_t)data1_active_samples * 1000 / sample_count),
+         all_active_samples, any_active_samples);
+  ret = OK;
+
+out_unlock:
+  nxmutex_unlock(&priv->lock);
+  return ret;
+#else
+  (void)host;
+  (void)stage;
+  (void)sample_count;
+  (void)interval_us;
   return -ENOTSUP;
 #endif
 }

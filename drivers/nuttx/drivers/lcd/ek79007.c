@@ -88,7 +88,6 @@ static const struct ek79007_init_cmd_s g_ek79007_default_init_cmds[] =
   {0x84, g_ek79007_cmd_84, sizeof(g_ek79007_cmd_84), 0},
   {0x85, g_ek79007_cmd_85, sizeof(g_ek79007_cmd_85), 0},
   {0x86, g_ek79007_cmd_86, sizeof(g_ek79007_cmd_86), 0},
-  {MIPI_DCS_EXIT_SLEEP_MODE, NULL, 0, 120},
 };
 
 /****************************************************************************
@@ -300,32 +299,75 @@ int ek79007_panel_initialize(FAR struct ek79007_panel_s *panel)
       return panel->sleeping ? -EBUSY : OK;
     }
 
-  lanes = panel->config->lanes == 2 ? EK79007_DCS_PAD_2_LANES :
-                                      EK79007_DCS_PAD_4_LANES;
-  ret = ek79007_write(panel, EK79007_DCS_PAD_CONTROL, &lanes,
-                      sizeof(lanes));
-  if (ret < 0)
+  if (!panel->config->noinit)
     {
-      return ret;
-    }
+      cmds = panel->config->init_cmds;
+      ncmds = panel->config->ninit_cmds;
+      if (cmds == NULL)
+        {
+          /* Keep the default path byte-for-byte ordered like the EK79007
+           * ESP-IDF component used to validate the P4X board:
+           *
+           *   0x80 .. 0x86 -> 0xb2 -> 0x11 -> 120 ms.
+           *
+           * In particular, moving PAD_CONTROL behind the vendor registers is
+           * intentional.  A custom sequence retains the historical contract
+           * below: PAD_CONTROL is emitted before caller-provided commands.
+           */
 
-  cmds = panel->config->init_cmds;
-  ncmds = panel->config->ninit_cmds;
-  if (cmds == NULL)
-    {
-      cmds = g_ek79007_default_init_cmds;
-      ncmds = sizeof(g_ek79007_default_init_cmds) /
-              sizeof(g_ek79007_default_init_cmds[0]);
-    }
-  else if (ncmds == 0)
-    {
-      return -EINVAL;
-    }
+          cmds = g_ek79007_default_init_cmds;
+          ncmds = sizeof(g_ek79007_default_init_cmds) /
+                  sizeof(g_ek79007_default_init_cmds[0]);
 
-  ret = ek79007_send_sequence(panel, cmds, ncmds);
-  if (ret < 0)
-    {
-      return ret;
+          ret = ek79007_send_sequence(panel, cmds, ncmds);
+          if (ret < 0)
+            {
+              return ret;
+            }
+
+          lanes = panel->config->lanes == 2 ? EK79007_DCS_PAD_2_LANES :
+                                              EK79007_DCS_PAD_4_LANES;
+          ret = ek79007_write(panel, EK79007_DCS_PAD_CONTROL, &lanes,
+                              sizeof(lanes));
+          if (ret < 0)
+            {
+              return ret;
+            }
+
+          ret = ek79007_write(panel, MIPI_DCS_EXIT_SLEEP_MODE, NULL, 0);
+          if (ret < 0)
+            {
+              return ret;
+            }
+
+          ret = ek79007_delay(120);
+          if (ret < 0)
+            {
+              return ret;
+            }
+        }
+      else
+        {
+          if (ncmds == 0)
+            {
+              return -EINVAL;
+            }
+
+          lanes = panel->config->lanes == 2 ? EK79007_DCS_PAD_2_LANES :
+                                              EK79007_DCS_PAD_4_LANES;
+          ret = ek79007_write(panel, EK79007_DCS_PAD_CONTROL, &lanes,
+                              sizeof(lanes));
+          if (ret < 0)
+            {
+              return ret;
+            }
+
+          ret = ek79007_send_sequence(panel, cmds, ncmds);
+          if (ret < 0)
+            {
+              return ret;
+            }
+        }
     }
 
   if (panel->dpi_panel != NULL)
