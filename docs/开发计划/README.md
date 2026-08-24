@@ -10,10 +10,13 @@
 
 其中 ESP32-P4 MIPI-DSI Host 的芯片层边界、接口、DMA/video 分期与验收门见
 [ESP32-P4 MIPI-DSI Host 设计与实施方案](ESP32-P4-MIPI-DSI-Host设计与实施方案.md)。
-其中 M1 命令 Host、P4X command-mode 板级装配与 `dsi_probe` 源码已完成，当前
-已完成构建和 P4X 实板运行；当前 RGB565 DPI/GDMA 软件路径可运行但屏幕仍黑，
-与同硬件 ESP-IDF 可显示工程的逐项差异和收敛顺序见
-[ESP-IDF LCD 参考实现对比与收敛计划](ESP32-P4X-ESP-IDF-LCD参考实现对比与收敛计划.md)。
+其中 M1 命令 Host、P4X command-mode 板级装配、EK79007 DPI Panel 与 `dsi_probe`
+源码已完成。严格对齐 ESP-IDF DBI 命令传输配置后，`dsi_probe pattern` 与
+`dsi_probe video` 均已通过 P4X 实板视觉验收；根因和复测步骤见
+[P4X DSI 黑屏 DBI 配置排障闭环](../开发日志/编译/2026-08-24-ESP32-P4X-DSI黑屏DBI配置排障闭环.md)。
+当前 `dsi_probe video` 从 NSH 入口到 EK79007、DPI Panel、DW-GDMA、
+DSI Bridge 和 D-PHY 的逐函数路径见
+[ESP32-P4X LCD 测试调用全链路](ESP32-P4X-LCD测试调用全链路.md)。
 
 上游 Apache NuttX / OpenVela 的 ESP32-P4 成熟基础适配采用“固定来源、逐能力
 单元吸收、本地 DSI overlay 保留”的策略，详见
