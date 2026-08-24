@@ -30,6 +30,7 @@
 #include <nuttx/compiler.h>
 
 #include <stdbool.h>
+#include <stdint.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -110,9 +111,10 @@ board_mipi_dsi_dpi_panel_config_get(void);
  * Name: board_mipi_dsi_video_pattern_start
  *
  * Description:
- *   Start the P4X colour-bar scanout path.  With DMA scanout enabled it uses
- *   a board-owned PSRAM RGB888 buffer; otherwise it falls back to the Host
- *   pattern generator for register-only diagnostics.
+ *   Start the P4X Host built-in vertical colour-bar scanout path.  This is
+ *   the framebuffer-free M2a profile: the Bridge uses its own flow
+ *   controller and no GDMA channel is created.  It requires a clean video
+ *   state and must not be called on top of a running DMA scanout pipeline.
  *
  ****************************************************************************/
 
@@ -129,6 +131,19 @@ int board_mipi_dsi_video_pattern_start(FAR struct mipi_dsi_host *host);
 
 int board_mipi_dsi_video_dump_status(FAR struct mipi_dsi_host *host,
                                      FAR const char *stage);
+
+/****************************************************************************
+ * Name: board_mipi_dsi_video_sample_phy_status
+ *
+ * Description:
+ *   Collect a read-only high-frequency D-PHY lane-status sample while video
+ *   is running.  This diagnostic does not force the clock or data lanes.
+ *
+ ****************************************************************************/
+
+int board_mipi_dsi_video_sample_phy_status(
+  FAR struct mipi_dsi_host *host, FAR const char *stage,
+  uint32_t sample_count, uint32_t interval_us);
 
 /****************************************************************************
  * Name: board_mipi_dsi_video_stop

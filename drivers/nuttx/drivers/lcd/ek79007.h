@@ -77,6 +77,7 @@ struct ek79007_panel_config_s
   uint32_t lp_rate;
   uint8_t lanes;
   uint8_t format;
+  bool noinit;
   FAR struct esp_mipi_dsi_dpi_panel_s *dpi_panel;
   FAR const struct esp_mipi_dsi_dpi_panel_config_s *dpi_config;
 };
