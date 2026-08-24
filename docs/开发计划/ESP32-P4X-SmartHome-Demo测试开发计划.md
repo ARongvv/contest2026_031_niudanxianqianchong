@@ -20,7 +20,7 @@
 | Host 内建色条 | 已通过 | `dsi_probe pattern 10` 真机可见。 |
 | PSRAM + GDMA RGB565 扫描 | 已通过 | `dsi_probe video 10` 真机可见。 |
 | NuttX framebuffer 设备 | 真机 PASS | `fb_probe` 在 board late-init 注册 RGB565 `/dev/fb0`；标准 `fb` 已完成绘制和刷新。 |
-| LVGL Smart Home 页面 | 未上 P4X | `smart_home_lvgl.c` 目前仅在 `LV_USE_NUTTX_LCD` 时指定 `/dev/lcd0`。 |
+| LVGL Smart Home 页面 | P2 已实现，真机待测 | 新增静态首页分支，使用 `/dev/fb0`；完整 UI 路径已改为 Kconfig 指定显示设备。 |
 | GT911 触摸 | 未上 P4X | 不作为首屏显示的前置条件。 |
 | P4X 以太网、DNS、TLS、云端模型 | 未验证 | 必须与显示问题分阶段验证。 |
 | MCP / Node / App Bridge | 未上 P4X | 在本地 UI、网络和模型链路稳定后再启用。 |
@@ -59,14 +59,16 @@ P6：MCP、Node、App Bridge（分别启用）
 
 ## 4. 配置与内存原则
 
-1. 新增独立配置目录，而不修改 `dsi_probe/defconfig`：
+1. 新增独立配置目录，而不修改 `dsi_probe/defconfig` 或
+   `fb_probe/defconfig`：
 
    ```text
    board/esp32p4/esp32p4-function-ev-board/configs/smart_home/
      defconfig
    ```
 
-   它以 `dsi_probe/defconfig` 为显示基线，并选择 `SMART_HOME_DEMO`。
+   它以 P1 `/dev/fb0` 配置为显示基线，并选择 `SMART_HOME_DEMO` 的
+   `SMART_HOME_DEMO_STATIC_LVGL_HOME` 分支。
 
 2. 首版固定为单 RGB565 framebuffer：
 
@@ -81,8 +83,9 @@ P6：MCP、Node、App Bridge（分别启用）
    MiSans 字体、PNG 文件部署或 `/data` 挂载作为首屏验收条件。文件资源在后续视觉
    优化阶段单独恢复。
 
-4. 首版关闭 `SMART_HOME_MCP_BRIDGE`、`SMART_HOME_NODE_GATEWAY`、
-   `SMART_HOME_APP_BRIDGE`，并不配置真实 API Key。这样首屏失败只能归因于
+4. P2 静态模式不只是“关闭” `SMART_HOME_MCP_BRIDGE`、
+   `SMART_HOME_NODE_GATEWAY`、`SMART_HOME_APP_BRIDGE`：它不初始化 cAGENT、
+   网络、模型密钥或触摸输入，也不编译完整智能体运行源文件。这样首屏失败只能归因于
    framebuffer、LVGL 或显示驱动。
 
 5. 云端链路启用后，模型密钥仅来自 `/data/smart_home/secrets.json`；示例文件或
@@ -162,31 +165,86 @@ flush。
 
 | 文件 | 改动 |
 | --- | --- |
-| `board/.../configs/smart_home/defconfig`（新增） | 以 P0/P1 配置为基线，选择 LVGL、NuttX framebuffer、`SMART_HOME_DEMO`、`SMART_HOME_DEMO_UI_LVGL` 和必要的 builtin app。 |
-| `demos/smart_home/src/ui/lvgl/smart_home_lvgl.c` | 将显示路径改为配置项：P4X 使用 `/dev/fb0`，保留现有 `/dev/lcd0` 兼容路径；初版不启用 libuv。 |
-| `demos/smart_home/Kconfig` | 增加可覆盖的 LVGL framebuffer 路径或明确的 P4 framebuffer 选择，避免用芯片型号猜设备路径。 |
-| `demos/smart_home/src/ui/lvgl/smart_home_lvgl_style.c` | 确保外置字体不可用时稳定回退到编译进固件的 Montserrat。 |
+| `board/.../configs/smart_home/defconfig`（新增） | 以 P1 配置为基线，选择 LVGL、NuttX framebuffer、`SMART_HOME_DEMO`、`SMART_HOME_DEMO_UI_LVGL` 与静态首页分支。 |
+| `demos/smart_home/src/app/smart_home_static_main.c`（新增） | P2 专用入口；只启动静态 LVGL 首页，禁止调用网络与 cAGENT 初始化。 |
+| `demos/smart_home/src/ui/lvgl/smart_home_lvgl_static.c`（新增） | 以固定设备/环境夹具构造首页，验证 LVGL 直写 `/dev/fb0` 与 `FBIO_UPDATE` flush。 |
+| `demos/smart_home/src/ui/lvgl/smart_home_lvgl.c` | 将完整 UI 的显示路径改为配置项；P4X 使用 `/dev/fb0`，现有 LCD 目标保留 `/dev/lcd0` 兼容路径。 |
+| `demos/smart_home/Kconfig`、`Makefile`、`CMakeLists.txt` | 增加静态 LVGL 分支、可覆盖的 framebuffer 路径；静态分支不选择 cAGENT，完整 Smart Home 分支行为保持不变。 |
 
 **配置边界**：
 
 - 启用 `GRAPHICS_LVGL`、`LV_USE_NUTTX` 与 framebuffer 后端；不选择
   `LV_USE_NUTTX_LCD`；
 - 先使用非 libuv 的 `lv_timer_handler() + usleep()` 循环，降低任务模型变量；
-- 只展示首页、底部导航和模拟设备卡片；禁用自动 MCP discovery、Node gateway、
-  App Bridge、云端模型请求；
+- 只展示首页、底部导航和模拟设备卡片；不初始化自动 MCP discovery、Node gateway、
+  App Bridge、云端模型请求、网络与触摸；
 - P4X 分辨率为 1024×600，布局需以实际 `lv_display` 分辨率计算，不能以 UI 默认的
   320×240 常量作为渲染尺寸。
 
-**操作与通过条件**：
+**P2 固件配置**：
 
 ```text
+CONFIG_ESP32P4_FUNCTION_EV_BOARD_DSI_FRAMEBUFFER=y
+CONFIG_GRAPHICS_LVGL=y
+CONFIG_LV_COLOR_DEPTH_16=y
+CONFIG_LV_USE_NUTTX=y
+# CONFIG_LV_USE_NUTTX_LCD is not set
+CONFIG_SMART_HOME_DEMO=y
+CONFIG_SMART_HOME_DEMO_UI_LVGL=y
+CONFIG_SMART_HOME_DEMO_STATIC_LVGL_HOME=y
+CONFIG_SMART_HOME_DEMO_LVGL_FB_PATH="/dev/fb0"
+```
+
+**构建、烧录与运行**：
+
+```bash
+cd ~/openvela
+export PATH="$PWD/prebuilts/gcc/linux-x86_64/riscv-none-elf/bin:$PATH"
+
+./build.sh \
+  contest2026_031_niudanxianqianchong/board/esp32p4/esp32p4-function-ev-board/configs/smart_home \
+  -j2
+
+esptool --chip esp32p4 --port /dev/ttyACM0 --baud 921600 \
+  write-flash -fs 16MB -fm dio -ff 80m 0x2000 nuttx/nuttx.bin
+
+picocom -b 115200 /dev/ttyACM0
+```
+
+```text
+nsh> ls /dev/fb0
 nsh> smart_home
 ```
 
-- 画面在 3 秒内显示，不依赖网络成功；
-- 串口出现 `[lvgl] show done, entering run loop`；
-- 连续运行 10 分钟无 assert、看门狗复位或 framebuffer 花屏；
-- 使用 `ps`、`free`（需 procfs）记录任务数和内存基线。
+**通过条件**：
+
+- 画面在 3 秒内显示 1024×600 静态首页：标题为 `Smart Home`，含三个环境指标、四张
+  模拟设备卡片和底部 `Home / Chat / Settings` 导航；
+- 串口依次出现 `[lvgl-static] lv_init`、
+  `[lvgl-static] framebuffer=/dev/fb0 resolution=1024x600`、
+  `[lvgl-static] dashboard shown; entering timer loop`；
+- 不出现 DNS、TLS、cAGENT、MCP、Node 或密钥读取日志；
+- 连续运行 10 分钟无 assert、看门狗复位、framebuffer 花屏或背光熄灭；
+- 在启动前后分别记录 `ps`、`free`（本配置已启用 procfs；若提示未挂载，先执行
+  `mount -t procfs /proc`），并保存完整串口日志与屏幕照片。
+
+**失败隔离**：
+
+| 现象 | 首先检查 | 不应同时做的事 |
+| --- | --- | --- |
+| `/dev/fb0` 缺失或 `smart_home` 报 framebuffer 初始化失败 | 回退 `fb_probe` 执行 `fb`，检查 board late-init 和 P1 DSI 基线。 | 不接入触摸、网络或完整 cAGENT。 |
+| 有日志但黑屏 / 花屏 | 复跑 `dsi_probe pattern 10`、`dsi_probe video 10`，再核对 LVGL 为 RGB565、`/dev/fb0`。 | 不调整模型栈或 TLS 配置。 |
+| 启动后 assert / 重启 | 保存 `dmesg`、`dumpstack`、`ps` 与 `free`，先检查 LVGL 栈和 framebuffer flush。 | 不把 MCP、Node、App Bridge 一并打开。 |
+| 出现网络、模型或密钥日志 | 检查静态配置是否同时设置 `SMART_HOME_DEMO_STATIC_LVGL_HOME=y`。 | 不通过补充 secrets.json 绕过问题。 |
+
+**P2 退出与下一阶段切换**：P2 通过后，先保留本配置作为显示回归固件；不要直接在这
+个二进制中追加网络或触摸。P3/P4 另起增量配置时应取消：
+
+```text
+# CONFIG_SMART_HOME_DEMO_STATIC_LVGL_HOME is not set
+```
+
+随后才恢复完整 `smart_home_main.c`、cAGENT 和设备状态机，并且每次只增加一个能力。
 
 ### P3：GT911 触摸和本地工具
 
