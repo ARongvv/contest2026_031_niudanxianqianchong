@@ -21,7 +21,7 @@
 | PSRAM + GDMA RGB565 扫描 | 已通过 | `dsi_probe video 10` 真机可见。 |
 | NuttX framebuffer 设备 | 真机 PASS | `fb_probe` 在 board late-init 注册 RGB565 `/dev/fb0`；标准 `fb` 已完成绘制和刷新。 |
 | LVGL Smart Home 页面 | P2 首屏真机 PASS | 静态首页已通过 `/dev/fb0` 显示并进入 LVGL 定时刷新循环；完整 UI 路径已改为 Kconfig 指定显示设备。 |
-| GT911 触摸 | 未上 P4X | 不作为首屏显示的前置条件。 |
+| GT911 触摸 | P3.1 单指真机通过 | `/dev/input0` 与 `gt911_probe` 已验证 `DOWN/MOVE/UP`、坐标和 size；已关闭临时串口统计，多点和 LVGL 接入待验证。 |
 | P4X 以太网、DNS、TLS、云端模型 | 未验证 | 必须与显示问题分阶段验证。 |
 | MCP / Node / App Bridge | 未上 P4X | 在本地 UI、网络和模型链路稳定后再启用。 |
 
@@ -85,8 +85,8 @@ P6：MCP、Node、App Bridge（分别启用）
 
 4. P2 静态模式不只是“关闭” `SMART_HOME_MCP_BRIDGE`、
    `SMART_HOME_NODE_GATEWAY`、`SMART_HOME_APP_BRIDGE`：它不初始化 cAGENT、
-   网络、模型密钥或触摸输入，也不编译完整智能体运行源文件。这样首屏失败只能归因于
-   framebuffer、LVGL 或显示驱动。
+   网络、模型密钥或完整智能体运行源文件。P3.1 可在同一固件注册触摸设备，但 LVGL
+   在原始事件验收前仍不打开 `/dev/input0`；这样首屏问题仍可与输入问题隔离。
 
 5. 云端链路启用后，模型密钥仅来自 `/data/smart_home/secrets.json`；示例文件或
    固件镜像不得携带真实密钥。
@@ -267,24 +267,35 @@ starting local dashboard without network, cAGENT, or touch
 
 **目的**：验证真实输入可驱动面板、设置和本地设备状态，而不是先接入云端。
 
-**前置条件**：P2 静态 UI 已稳定；P4X 的 GT911 I2C、INT、RST 引脚和板级电源连接已
-核实。
+**前置条件**：P2 静态 UI 已稳定；已确认 GT911 共享 I2C0（SCL=GPIO8、SDA=GPIO7）。
+官方 P4X adapter 未将 GT911 `RST/INT` 接到 SoC，因此 P3.1 固定采用 20 ms 轮询，
+不伪造 GPIO 复位或中断配置。
 
 **拟修改文件**：
 
 | 文件 | 改动 |
 | --- | --- |
-| `board/.../src/esp32p4_touch.c`（新增） | 初始化 I2C + GT911，并注册标准触摸输入设备。 |
-| `board/.../include/board.h`、`src/Make.defs` | 声明和编译触摸板级装配。 |
-| `board/.../configs/smart_home/defconfig` | 启用 I2C、GT911、`INPUT_TOUCHSCREEN` 与实际输入设备路径。 |
-| `smart_home_lvgl.c` | 通过配置指定 P4X 输入路径，不复用 ESP32-S3 专用宏。 |
+| `drivers/nuttx/drivers/input/gt911.c/.h` | NuttX touchscreen lower-half：GT911 ID、触点解析与轮询 worker。 |
+| `nuttx/drivers/input/{Kconfig,Make.defs,CMakeLists.txt}` | 新增 `CONFIG_INPUT_GT911`、临时 `CONFIG_INPUT_GT911_DIAGNOSTICS` 与 Make/CMake 构建入口。 |
+| `board/.../src/esp32p4_touch.c`（新增） | 获取 I2C0，以 `0x5d/400kHz/20ms` 注册 `/dev/input0`。 |
+| `board/.../{Kconfig,include/board.h,src/Make.defs,src/CMakeLists.txt,src/esp32p4_bringup.c}` | 声明、构建并在 board late bring-up 中装配触摸设备。 |
+| `app/gt911_probe/`（新增） | 在 LVGL 之前读取并打印原始 Down/Move/Up 事件。 |
+| `board/.../configs/smart_home/defconfig` | 启用 I2C0 GPIO8/7、GT911 和探针应用；暂不向 LVGL 指定输入路径。 |
 
-**通过条件**：
+**P3.1 验收结果**：已验证 `/dev/input0` 和 `lpwork` 存在。临时启用
+`CONFIG_INPUT_GT911_DIAGNOSTICS` 后，串口统计确认 `scans` 与 `queued` 同步增长、
+`i2c_err=0`。排查过程修正了触点起始地址 `0x8150 -> 0x814f`，并将处理顺序
+收敛为“读状态 -> 读触点 -> 清 `0x814e` -> `touch_event()`”。`gt911_probe`
+已实测得到连续坐标和完整 `DOWN/MOVE/UP`。诊断开关现已关闭，
+避免干扰 NSH；保留 Kconfig 入口供后续板级排障使用。
 
-- 点击首页、对话、设置三个导航项，页面正确切换；
-- 本地 `set_light`、`set_fan` 工具可由页面控件修改设备状态；
-- 触摸坐标、旋转和边缘区域无明显偏移；
-- 触摸高频输入下 DSI 连续扫描不花屏。
+**P3.1 当前通过项**：`/dev/input0` 注册成功，`gt911_probe 15` 可重复输出
+单指 `DOWN/MOVE/UP`，坐标落在 1024×600 范围且 track ID 稳定。多点识别、
+坐标旋转和边界精度仍属 P3.1 剩余验收项。
+
+**P3.2 后续通过条件**：将 `/dev/input0` 接给 LVGL 后，点击首页、对话、设置导航项
+正确切换，坐标方向和边缘区域无明显偏移。页面本地控制随后再映射为 `set_light`、
+`set_fan` 等本地工具，仍不引入云端。
 
 ### P4：以太网、DNS、TLS 与控制台 cAGENT
 

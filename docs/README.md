@@ -4,7 +4,9 @@
 最小 `usbconsole` 配置已在实板进入 `nsh>`；MIPI-DSI Host Probe 已完成
 M1 命令写、Host 内建 pattern 与 RGB565 DMA 色条的实板视觉验收。NuttX 标准
 `/dev/fb0` 及 `fb` 示例也已完成真机验收；静态 LVGL Smart Home 首页已在该
-framebuffer 上完成首屏验收。下一阶段是 GT911 触摸，本轮尚不包含触摸功能验收。
+framebuffer 上完成首屏验收。GT911 P3.1 已完成 P4X I2C 轮询装配，
+`gt911_probe` 已真机验证单指 `DOWN/MOVE/UP`、坐标和触摸面积；
+本轮尚未将 `/dev/input0` 交给 LVGL 页面，多点触摸也待继续验收。
 
 ## 目录骨架
 
