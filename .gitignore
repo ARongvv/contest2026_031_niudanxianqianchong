@@ -23,3 +23,4 @@ out/
 app/*/.built
 app/*/.depend
 app/*/Make.dep
+docs/开发计划/ESP32-P4竞赛参考差异对照.md
