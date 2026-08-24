@@ -42,8 +42,10 @@
 #define BOARD_MIPI_DSI_LANE_COUNT           2
 #define BOARD_MIPI_DSI_LANE_BIT_RATE_MBPS   1000
 #define BOARD_MIPI_DSI_PHY_REF_CLOCK_HZ     40000000
-#define BOARD_MIPI_DSI_RESET_ASSERT_US      (20 * 1000)
-#define BOARD_MIPI_DSI_RESET_RELEASE_US     (120 * 1000)
+/* Match the validated ESP-IDF EK79007 reset pulse on the P4X board. */
+
+#define BOARD_MIPI_DSI_RESET_ASSERT_US      (10 * 1000)
+#define BOARD_MIPI_DSI_RESET_RELEASE_US     (20 * 1000)
 
 /* AML070JGI50-07403L / EK79007 timing used by the official P4X BSP. */
 
@@ -56,11 +58,6 @@
 #define BOARD_MIPI_DSI_VBACK_PORCH              23
 #define BOARD_MIPI_DSI_VFRONT_PORCH             12
 #define BOARD_MIPI_DSI_PIXEL_CLOCK_HZ   52000000
-#define BOARD_MIPI_DSI_BYTES_PER_PIXEL         3
-#define BOARD_MIPI_DSI_FRAME_BYTES \
-  ((size_t)BOARD_MIPI_DSI_HACTIVE * BOARD_MIPI_DSI_VACTIVE * \
-   BOARD_MIPI_DSI_BYTES_PER_PIXEL)
-#define BOARD_MIPI_DSI_COLOUR_BAR_COUNT        8
 
 /****************************************************************************
  * Private Data
@@ -124,23 +121,7 @@ static const struct esp_mipi_dsi_dpi_panel_config_s
   .input_format     = ESP_MIPI_DSI_DPI_COLOR_RGB565,
   .output_format    = ESP_MIPI_DSI_DPI_COLOR_RGB565,
 };
-
-#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
-static FAR uint8_t *g_board_mipi_dsi_frame_buffer;
-#endif
-#endif
-
-/****************************************************************************
- * Name: board_mipi_dsi_dpi_panel_config_get
- ****************************************************************************/
-
-#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO
-FAR const struct esp_mipi_dsi_dpi_panel_config_s *
-board_mipi_dsi_dpi_panel_config_get(void)
-{
-  return &g_board_mipi_dsi_dpi_panel_config;
-}
-#endif
+#endif /* CONFIG_ESPRESSIF_MIPI_DSI_VIDEO */
 
 /****************************************************************************
  * Public Functions
@@ -188,103 +169,15 @@ int board_mipi_dsi_panel_reset(void)
 
 #ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO
 
-#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
 /****************************************************************************
- * Name: board_mipi_dsi_fill_colour_bars
+ * Name: board_mipi_dsi_dpi_panel_config_get
  ****************************************************************************/
 
-static void board_mipi_dsi_fill_colour_bars(FAR uint8_t *frame_buffer)
+FAR const struct esp_mipi_dsi_dpi_panel_config_s *
+board_mipi_dsi_dpi_panel_config_get(void)
 {
-  static const uint8_t colours[BOARD_MIPI_DSI_COLOUR_BAR_COUNT][3] =
-  {
-    {0xff, 0xff, 0xff}, /* White */
-    {0xff, 0xff, 0x00}, /* Yellow */
-    {0x00, 0xff, 0xff}, /* Cyan */
-    {0x00, 0xff, 0x00}, /* Green */
-    {0xff, 0x00, 0xff}, /* Magenta */
-    {0xff, 0x00, 0x00}, /* Red */
-    {0x00, 0x00, 0xff}, /* Blue */
-    {0x00, 0x00, 0x00}, /* Black */
-  };
-
-  FAR uint8_t *pixel = frame_buffer;
-  uint32_t x;
-  uint32_t y;
-  uint32_t bar;
-
-  for (y = 0; y < BOARD_MIPI_DSI_VACTIVE; y++)
-    {
-      for (x = 0; x < BOARD_MIPI_DSI_HACTIVE; x++)
-        {
-          bar = x * BOARD_MIPI_DSI_COLOUR_BAR_COUNT /
-                BOARD_MIPI_DSI_HACTIVE;
-          pixel[0] = colours[bar][0];
-          pixel[1] = colours[bar][1];
-          pixel[2] = colours[bar][2];
-          pixel += BOARD_MIPI_DSI_BYTES_PER_PIXEL;
-        }
-    }
+  return &g_board_mipi_dsi_dpi_panel_config;
 }
-
-/****************************************************************************
- * Name: board_mipi_dsi_allocate_frame_buffer
- ****************************************************************************/
-
-static int board_mipi_dsi_allocate_frame_buffer(void)
-{
-  FAR void *frame_buffer;
-  int ret;
-
-  if (g_board_mipi_dsi_frame_buffer != NULL)
-    {
-      return OK;
-    }
-
-  /* ESP HAL heap/cache APIs are deliberately contained by the P4 chip
-   * adapter.  The board owns the pixel data and lifetime only.
-   */
-
-  ret = esp_mipi_dsi_dma_buffer_allocate(BOARD_MIPI_DSI_FRAME_BYTES,
-                                         &frame_buffer);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR,
-             "ERROR: P4X DSI DMA frame allocation bytes=%zu ret=%d\n",
-             BOARD_MIPI_DSI_FRAME_BYTES, ret);
-      return ret;
-    }
-
-  g_board_mipi_dsi_frame_buffer = frame_buffer;
-  board_mipi_dsi_fill_colour_bars(g_board_mipi_dsi_frame_buffer);
-  ret = esp_mipi_dsi_dma_buffer_sync_for_device(
-    g_board_mipi_dsi_frame_buffer, BOARD_MIPI_DSI_FRAME_BYTES);
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: P4X DSI DMA frame cache sync ret=%d\n", ret);
-      esp_mipi_dsi_dma_buffer_free(g_board_mipi_dsi_frame_buffer);
-      g_board_mipi_dsi_frame_buffer = NULL;
-      return ret;
-    }
-
-  syslog(LOG_INFO,
-         "INFO: P4X DSI DMA colour bars ready buffer=%p bytes=%zu\n",
-         g_board_mipi_dsi_frame_buffer, BOARD_MIPI_DSI_FRAME_BYTES);
-  return OK;
-}
-
-/****************************************************************************
- * Name: board_mipi_dsi_release_frame_buffer
- ****************************************************************************/
-
-static void board_mipi_dsi_release_frame_buffer(void)
-{
-  if (g_board_mipi_dsi_frame_buffer != NULL)
-    {
-      esp_mipi_dsi_dma_buffer_free(g_board_mipi_dsi_frame_buffer);
-      g_board_mipi_dsi_frame_buffer = NULL;
-    }
-}
-#endif
 
 /****************************************************************************
  * Name: board_mipi_dsi_backlight_set
@@ -318,53 +211,19 @@ int board_mipi_dsi_backlight_set(bool enable)
 
 int board_mipi_dsi_video_pattern_start(FAR struct mipi_dsi_host *host)
 {
-#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
-  struct esp_mipi_dsi_video_dma_config_s dma_config;
-#endif
   int ret;
 
-#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
-  ret = board_mipi_dsi_allocate_frame_buffer();
-  if (ret < 0)
-    {
-      return ret;
-    }
+  /* This is the M2a path: the Host built-in pattern generator drives the
+   * Bridge with the BRIDGE flow controller.  No framebuffer, GDMA channel
+   * or cache maintenance is involved.  It must be used from a clean video
+   * state, never on top of a running DMA scanout pipeline.
+   */
 
-  memset(&dma_config, 0, sizeof(dma_config));
-  dma_config.channel = g_board_mipi_dsi_video_pattern_config.channel;
-  dma_config.hactive = g_board_mipi_dsi_video_pattern_config.hactive;
-  dma_config.hsync = g_board_mipi_dsi_video_pattern_config.hsync;
-  dma_config.hback_porch =
-    g_board_mipi_dsi_video_pattern_config.hback_porch;
-  dma_config.hfront_porch =
-    g_board_mipi_dsi_video_pattern_config.hfront_porch;
-  dma_config.vactive = g_board_mipi_dsi_video_pattern_config.vactive;
-  dma_config.vsync = g_board_mipi_dsi_video_pattern_config.vsync;
-  dma_config.vback_porch =
-    g_board_mipi_dsi_video_pattern_config.vback_porch;
-  dma_config.vfront_porch =
-    g_board_mipi_dsi_video_pattern_config.vfront_porch;
-  dma_config.pixel_clock_hz =
-    g_board_mipi_dsi_video_pattern_config.pixel_clock_hz;
-  dma_config.hsync_active_low =
-    g_board_mipi_dsi_video_pattern_config.hsync_active_low;
-  dma_config.vsync_active_low =
-    g_board_mipi_dsi_video_pattern_config.vsync_active_low;
-  dma_config.input_format = ESP_MIPI_DSI_DPI_COLOR_RGB888;
-  dma_config.output_format = ESP_MIPI_DSI_DPI_COLOR_RGB888;
-  dma_config.frame_buffer = g_board_mipi_dsi_frame_buffer;
-  dma_config.frame_buffer_bytes = BOARD_MIPI_DSI_FRAME_BYTES;
-  ret = esp_mipi_dsi_video_dma_start(host, &dma_config);
-#else
   ret = esp_mipi_dsi_video_pattern_start(
     host, &g_board_mipi_dsi_video_pattern_config);
-#endif
   if (ret < 0)
     {
-      syslog(LOG_ERR, "ERROR: P4X DSI video start ret=%d\n", ret);
-#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
-      board_mipi_dsi_release_frame_buffer();
-#endif
+      syslog(LOG_ERR, "ERROR: P4X DSI video pattern start ret=%d\n", ret);
       return ret;
     }
 
@@ -399,6 +258,18 @@ int board_mipi_dsi_video_dump_status(FAR struct mipi_dsi_host *host,
 }
 
 /****************************************************************************
+ * Name: board_mipi_dsi_video_sample_phy_status
+ ****************************************************************************/
+
+int board_mipi_dsi_video_sample_phy_status(
+  FAR struct mipi_dsi_host *host, FAR const char *stage,
+  uint32_t sample_count, uint32_t interval_us)
+{
+  return esp_mipi_dsi_video_phy_sample_status(host, stage, sample_count,
+                                               interval_us);
+}
+
+/****************************************************************************
  * Name: board_mipi_dsi_video_stop
  ****************************************************************************/
 
@@ -409,9 +280,6 @@ int board_mipi_dsi_video_stop(FAR struct mipi_dsi_host *host)
 
   ret = board_mipi_dsi_backlight_set(false);
   video_ret = esp_mipi_dsi_video_stop(host);
-#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
-  board_mipi_dsi_release_frame_buffer();
-#endif
   return ret < 0 ? ret : video_ret;
 }
 
@@ -463,12 +331,7 @@ int board_mipi_dsi_initialize(FAR struct mipi_dsi_host **host)
 
 int board_mipi_dsi_shutdown(FAR struct mipi_dsi_host *host)
 {
-  int ret = esp_mipi_dsi_host_shutdown(host);
-
-#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
-  board_mipi_dsi_release_frame_buffer();
-#endif
-  return ret;
+  return esp_mipi_dsi_host_shutdown(host);
 }
 
 #endif /* CONFIG_ESPRESSIF_MIPI_DSI */

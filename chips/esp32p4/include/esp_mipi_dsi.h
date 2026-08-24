@@ -54,7 +54,8 @@ struct esp_mipi_dsi_host_config_s
 
 enum esp_mipi_dsi_video_pattern_e
 {
-  ESP_MIPI_DSI_VIDEO_PATTERN_VERTICAL_BARS = 0,
+  ESP_MIPI_DSI_VIDEO_PATTERN_NONE = 0,
+  ESP_MIPI_DSI_VIDEO_PATTERN_VERTICAL_BARS,
   ESP_MIPI_DSI_VIDEO_PATTERN_HORIZONTAL_BARS,
   ESP_MIPI_DSI_VIDEO_PATTERN_BER_VERTICAL,
 };
@@ -124,6 +125,21 @@ int esp_mipi_dsi_video_pattern_start(
   FAR const struct esp_mipi_dsi_video_pattern_config_s *config);
 
 /****************************************************************************
+ * Name: esp_mipi_dsi_video_pattern_set
+ *
+ * Description:
+ *   Select or disable the P4 Host's built-in pattern while an existing DPI
+ *   video pipeline is running.  This preserves the active panel timing and
+ *   colour format, allowing framebuffer/GDMA pixel contents to be bypassed
+ *   without rebuilding the video pipeline.
+ *
+ ****************************************************************************/
+
+int esp_mipi_dsi_video_pattern_set(
+  FAR struct mipi_dsi_host *host,
+  enum esp_mipi_dsi_video_pattern_e pattern);
+
+/****************************************************************************
  * Name: esp_mipi_dsi_video_dma_start
  *
  * Description:
@@ -150,6 +166,23 @@ int esp_mipi_dsi_video_dma_start(
 
 int esp_mipi_dsi_video_dma_dump_status(FAR struct mipi_dsi_host *host,
                                        FAR const char *stage);
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_phy_sample_status
+ *
+ * Description:
+ *   Sample the read-only D-PHY lane status repeatedly while DPI video is
+ *   running.  The function reports how often the clock lane and both data
+ *   lanes leave LP11 stop state, plus lock loss and stop-state transitions.
+ *   Leaving stop state is evidence of lane activity, but is not by itself a
+ *   decoded proof of HS video packets.  This diagnostic does not change the
+ *   lane mode.
+ *
+ ****************************************************************************/
+
+int esp_mipi_dsi_video_phy_sample_status(
+  FAR struct mipi_dsi_host *host, FAR const char *stage,
+  uint32_t sample_count, uint32_t interval_us);
 
 /****************************************************************************
  * Name: esp_mipi_dsi_dma_buffer_allocate
