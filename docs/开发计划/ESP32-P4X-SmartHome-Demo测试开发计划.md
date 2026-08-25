@@ -19,7 +19,7 @@
 | EK79007 DBI 命令通路 | 已通过 | 已对齐 ESP-IDF 的 Command ACK 与 LP 传输配置。 |
 | Host 内建色条 | 已通过 | `dsi_probe pattern 10` 真机可见。 |
 | PSRAM + GDMA RGB565 扫描 | 已通过 | `dsi_probe video 10` 真机可见。 |
-| NuttX framebuffer 设备 | 真机 PASS | `fb_probe` 在 board late-init 注册 RGB565 `/dev/fb0`；标准 `fb` 已完成绘制和刷新。 |
+| NuttX framebuffer 设备 | 单缓冲真机 PASS；双缓冲待验收 | `/dev/fb0` 已完成 RGB565 绘制和刷新；已实现两页 PSRAM、`FBIOPAN_DISPLAY` 与 DMA 帧边界换页，待实板确认无撕裂。 |
 | LVGL Smart Home 页面 | P2 首屏真机 PASS；P3.2 待测 | 静态首页已通过 `/dev/fb0` 显示；正式 Agent + LVGL 离线启动配置已就绪，待真机验证页面与输入设备创建。 |
 | GT911 触摸 | P3.1 单指真机通过；P3.2 待测 | `/dev/input0` 与 `gt911_probe` 已验证 `DOWN/MOVE/UP`、坐标和 size；待交给正式 LVGL 的 `indev`。 |
 | P4X 以太网、DNS、TLS、云端模型 | 未验证 | 必须与显示问题分阶段验证。 |
@@ -74,14 +74,16 @@ P6：MCP、Node、App Bridge（分别启用）
    `SMART_HOME_DEMO_STATIC_LVGL_HOME`；当前 P3.2 改用常规 Agent + LVGL
    分支，并选择 `SMART_HOME_DEMO_OFFLINE_UI`。
 
-2. 首版固定为单 RGB565 framebuffer：
+2. P3.2 使用双 RGB565 framebuffer：
 
    ```text
-   1024 × 600 × 2 B = 1,228,800 B
+   1024 × 600 × 2 B × 2 = 2,457,600 B
    ```
 
-   该缓冲区放入 PSRAM；不在首版启用双缓冲或全屏软件复制。P4X 已验证此大小的
-   PSRAM DMA 扫描。
+   两页连续放入 PSRAM。LVGL 的 NuttX framebuffer 后端通过
+   `yres_virtual=1200` 自动识别双缓冲，并在每次末次 flush 后提交
+   `FBIOPAN_DISPLAY`；板级仅在 DW-GDMA 完成当前整帧后切换下一轮扫描源地址。
+   因此 CPU 只写后台页，GDMA 只读前台页，不引入全屏软件复制。
 
 3. P3.2 使用 LittleFS 的外置视觉资源：`/data/res/fonts/MiSans-Normal.ttf` 与
    `/data/res/icons/*.png`。`make_p4x_littlefs_data_image.sh` 默认打包 MiSans Normal
@@ -163,8 +165,19 @@ nsh> fb
 `FBIO_UPDATE` cache clean 已打通；详细串口证据见
 [framebuffer 真机验收记录](../开发日志/编译/2026-08-24-ESP32-P4X-framebuffer真机验收.md)。
 
-尚未完成的增强验证是连续执行 10 次、长时间扫描以及与 LVGL 并发刷新；这些不阻塞
-进入 P2，但应在 P2 回归项中保留。
+**双缓冲增强（代码完成，真机待验收）**：P4X framebuffer 现分配两页连续 RGB565
+PSRAM，报告 `fblen=2457600`、`yres_virtual=1200` 并实现 `pandisplay()`。页面更新先
+完成后台页 cache clean，再登记到 DSI DMA；GDMA 在整帧结束中断中更新下一页 LLI
+源地址，同时释放一条 NuttX pan 队列并发送 VSync 通知。验收时应执行：
+
+```text
+nsh> fb
+nsh> lvgldemo widgets &
+```
+
+预期 `fb` 显示 `fblen=2457600`、`yres_virtual=1200`；拖动 Widgets、连续切换页面或
+触发动画时不得出现横向撕裂、花屏或输入卡死。该项通过后，才将 P3.2 的 LVGL 交互
+稳定性标记为 PASS。
 
 ### P2：LVGL 静态 Smart Home 首页
 
