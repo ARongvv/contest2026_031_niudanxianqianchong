@@ -4,7 +4,8 @@
 （custom chip / custom board）方式适配 **ESP32-P4X-Function-EV-Board**。
 
 当前工作已从最小启动推进到本地显示、静态 LVGL Smart Home 首页和 GT911 单指
-触摸事件验证。云端模型、网络、MCP、Node 协作和手机 App 尚未进入 P4X 真机验收。
+触摸事件验证。正式 Smart Home LVGL 离线启动配置已就绪，等待真机验证；云端模型、
+网络、MCP、Node 协作和手机 App 尚未进入 P4X 真机验收。
 
 ## 当前能力
 
@@ -18,7 +19,8 @@
 | NuttX framebuffer | 通过 | `/dev/fb0` 注册，标准 `fb` 示例完成绘制 |
 | 静态 LVGL Smart Home 首页 | 通过 | `smart_home` 在 `/dev/fb0` 显示首页并运行 LVGL 定时循环 |
 | GT911 单指触摸 | 通过 | `/dev/input0` 和 `gt911_probe` 输出有效 `DOWN/MOVE/UP` |
-| GT911 多点、坐标校准与 LVGL 输入 | 待验证 | 当前未将 `/dev/input0` 交给 LVGL |
+| 正式 Smart Home LVGL 离线 UI | 待真机验证 | 常规 Agent + LVGL UI，使用 `/dev/fb0`、`/dev/input0`；不初始化网络或 TLS |
+| GT911 多点、坐标校准与 LVGL 输入 | 待验证 | P3.2 将 `/dev/input0` 交给正式 LVGL，待验证导航点击和坐标方向 |
 | 以太网、DNS、TLS、cAGENT、MCP、Node、App Bridge | 待验证 | 后续按独立阶段启用，避免干扰已验证的显示链路 |
 
 ## 快速开始
@@ -34,7 +36,9 @@ contest2026_031_niudanxianqianchong/scripts/link_nuttx_display_drivers.sh
 contest2026_031_niudanxianqianchong/scripts/link_nuttx_display_drivers.sh --check
 ```
 
-该脚本只创建源码软链接。首次准备环境时，还需确认 `nuttx/drivers/input/` 已有
+该脚本只创建开发期驱动软链接，不修改 NuttX 源码或 Kconfig。P4X 的 LittleFS MiSans
+子集由 LVGL 自带 TinyTTF 读取，不依赖 `nuttx/external` 或外部 FreeType 包；首次切换
+到该配置时只需让 `build.sh` 重新配置即可。首次准备环境时，还需确认 `nuttx/drivers/input/` 已有
 `CONFIG_INPUT_GT911` 和 `gt911.c` 的 Kconfig、Make、CMake 构建入口；详见
 [GT911 适配文档](docs/硬件适配/gt911适配.md)。
 
@@ -55,7 +59,7 @@ cd ~/openvela
   contest2026_031_niudanxianqianchong/board/esp32p4/esp32p4-function-ev-board/configs/dsi_probe \
   -j2
 
-# P2 静态 LVGL 首页 + P3.1 GT911 Probe
+# P3.2 正式 Smart Home LVGL 离线 UI + GT911
 ./build.sh \
   contest2026_031_niudanxianqianchong/board/esp32p4/esp32p4-function-ev-board/configs/smart_home \
   -j2
@@ -76,7 +80,28 @@ picocom -b 115200 /dev/ttyACM0
 
 如果烧录后 `/dev/ttyACM0` 暂时消失，请等待设备重新枚举后再启动 `picocom`。
 
-### 4. 真机验证命令
+### 4. 写入 Smart Home 运行时资源
+
+P4X 正式 Smart Home UI 从 LittleFS 读取技能、配置、MiSans 字体和 PNG 图标。构建
+`smart_home` 固件后生成数据镜像并写入固定的 `0xE00000` 分区：
+
+```bash
+cd ~/openvela
+
+contest2026_031_niudanxianqianchong/scripts/make_p4x_littlefs_data_image.sh
+
+esptool --chip esp32p4 --port /dev/ttyACM0 --baud 921600 \
+  write-flash -fs 16MB -fm dio -ff 80m \
+  0xE00000 out/p4x_littlefs_data/data_lfs.bin
+```
+
+脚本默认仅打包 `MiSans-Normal-subset.ttf` 并重命名为设备侧的
+`/data/res/fonts/MiSans-Normal.ttf`，以及 `res/icons/*.png`；不会打包完整字体或
+`secrets.json`。`src/ui/lvgl/icons/*.c` 的 LVGL 字体图标则会直接编译进
+固件，不在数据镜像中；设备、风扇、灯等核心语义图标即使 LittleFS 中缺少 PNG 仍可显示。
+如需调试最小镜像，可传入 `WITH_FONTS=0 WITH_ICONS=0`。
+
+### 5. 真机验证命令
 
 ```text
 # dsi_probe 配置
@@ -86,9 +111,11 @@ nsh> dsi_probe video 10
 # smart_home 配置
 nsh> ls /dev/fb0
 nsh> fb
-nsh> smart_home
 nsh> ls /dev/input0
 nsh> gt911_probe 15
+nsh> ls /data/res/fonts
+nsh> ls /data/res/icons
+nsh> smart_home
 ```
 
 GT911 单指成功时，应观察到类似输出：
@@ -111,22 +138,23 @@ UP   id=0 x=944 y=133 size=30x30 flags=0x5c
 | `board/esp32p4/esp32p4-function-ev-board/` | `vendor/espressif/boards/esp32p4/esp32p4-function-ev-board/` | P4X 配置、bring-up、DSI framebuffer 与 GT911 装配 |
 | `drivers/nuttx/` | 软链接到 `nuttx/drivers/` | EK79007、GT911 的竞赛维护源码 |
 | `app/` | `apps/packages/demos/` | `dsi_probe`、`gt911_probe` 等独立硬件验证程序 |
-| `demos/smart_home/` | `apps/packages/demos/` | P2 静态 LVGL Smart Home 首页 |
+| `demos/smart_home/` | `apps/packages/demos/` | P2 静态首页与 P3.2 正式离线 Smart Home LVGL UI |
 
 不要把构建产生的对象文件、`.depend` 或 `Make.dep` 提交到本仓；它们已在
 `.gitignore` 中忽略。
 
 ## 分阶段边界
 
-当前 `smart_home` 采用静态本地模式：不初始化网络、cAGENT、模型密钥、MCP、Node
-Gateway 或 App Bridge。这样显示和触摸问题可以独立定位。
+当前 `smart_home` 采用正式 UI 的离线本地模式：初始化 cAGENT 对象、设备状态、工具和
+完整 LVGL 页面，但不初始化网络、不编入 TLS、不请求模型，也不启用 MCP、Node Gateway
+或 App Bridge。缺少运行时 skills 仅记录状态；这样显示和触摸问题仍可独立定位。
 
 下一阶段按以下顺序推进：
 
-1. 将 `/dev/input0` 绑定到 LVGL，完成四角、点击、拖动和滑动校准。
+1. 验证正式 UI 已创建 `/dev/input0` 输入设备，完成四角、点击、拖动和滑动校准。
 2. 验证 GT911 2~5 点 ID 稳定性、快速滑动和长时间轮询。
 3. 单独启用 P4X 网络、DNS 与 TLS，再验证模型 API。
-4. 最后引入 cAGENT、MCP、Node 协作和手机 App Bridge。
+4. 最后启用云端 cAGENT 请求、MCP、Node 协作和手机 App Bridge。
 
 ## 文档
 

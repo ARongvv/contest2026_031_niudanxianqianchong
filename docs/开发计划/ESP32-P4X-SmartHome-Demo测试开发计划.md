@@ -20,8 +20,8 @@
 | Host 内建色条 | 已通过 | `dsi_probe pattern 10` 真机可见。 |
 | PSRAM + GDMA RGB565 扫描 | 已通过 | `dsi_probe video 10` 真机可见。 |
 | NuttX framebuffer 设备 | 真机 PASS | `fb_probe` 在 board late-init 注册 RGB565 `/dev/fb0`；标准 `fb` 已完成绘制和刷新。 |
-| LVGL Smart Home 页面 | P2 首屏真机 PASS | 静态首页已通过 `/dev/fb0` 显示并进入 LVGL 定时刷新循环；完整 UI 路径已改为 Kconfig 指定显示设备。 |
-| GT911 触摸 | P3.1 单指真机通过 | `/dev/input0` 与 `gt911_probe` 已验证 `DOWN/MOVE/UP`、坐标和 size；已关闭临时串口统计，多点和 LVGL 接入待验证。 |
+| LVGL Smart Home 页面 | P2 首屏真机 PASS；P3.2 待测 | 静态首页已通过 `/dev/fb0` 显示；正式 Agent + LVGL 离线启动配置已就绪，待真机验证页面与输入设备创建。 |
+| GT911 触摸 | P3.1 单指真机通过；P3.2 待测 | `/dev/input0` 与 `gt911_probe` 已验证 `DOWN/MOVE/UP`、坐标和 size；待交给正式 LVGL 的 `indev`。 |
 | P4X 以太网、DNS、TLS、云端模型 | 未验证 | 必须与显示问题分阶段验证。 |
 | MCP / Node / App Bridge | 未上 P4X | 在本地 UI、网络和模型链路稳定后再启用。 |
 
@@ -43,7 +43,10 @@ P1：DSI DPI Panel -> /dev/fb0
 P2：LVGL 静态 Smart Home 首页（无网络、无触摸）
        |
        v
-P3：GT911 触摸与本地控制回归
+P3.1：GT911 原始触摸验证
+       |
+       v
+P3.2：正式 LVGL 离线 UI + GT911
        |
        v
 P4：以太网、DNS、TLS 与控制台 cAGENT
@@ -67,8 +70,9 @@ P6：MCP、Node、App Bridge（分别启用）
      defconfig
    ```
 
-   它以 P1 `/dev/fb0` 配置为显示基线，并选择 `SMART_HOME_DEMO` 的
-   `SMART_HOME_DEMO_STATIC_LVGL_HOME` 分支。
+   它以 P1 `/dev/fb0` 配置为显示基线。P2 选择
+   `SMART_HOME_DEMO_STATIC_LVGL_HOME`；当前 P3.2 改用常规 Agent + LVGL
+   分支，并选择 `SMART_HOME_DEMO_OFFLINE_UI`。
 
 2. 首版固定为单 RGB565 framebuffer：
 
@@ -79,14 +83,20 @@ P6：MCP、Node、App Bridge（分别启用）
    该缓冲区放入 PSRAM；不在首版启用双缓冲或全屏软件复制。P4X 已验证此大小的
    PSRAM DMA 扫描。
 
-3. 首版 LVGL 使用内置 Montserrat 字体和已编译的图标字形；不把 FreeType、外置
-   MiSans 字体、PNG 文件部署或 `/data` 挂载作为首屏验收条件。文件资源在后续视觉
-   优化阶段单独恢复。
+3. P3.2 使用 LittleFS 的外置视觉资源：`/data/res/fonts/MiSans-Normal.ttf` 与
+   `/data/res/icons/*.png`。`make_p4x_littlefs_data_image.sh` 默认打包 MiSans Normal
+   子集和 PNG 图标；LVGL 启用 TinyTTF、POSIX 文件系统和 LodePNG。TinyTTF 直接从
+   LittleFS 流式读取 TTF，不依赖 OpenVela 根目录 `external/freetype`。内置 Montserrat
+   与编译图标字形仍保留，作为资源缺失或加载失败时的兜底，首屏与触摸验收不依赖云端。
+   其中 `src/ui/lvgl/icons/*.c` 的 `ac_20`、`fan_20`、`light_20` 等是嵌入式
+   LVGL 字体图标，会直接链接进固件；它们不打包到 LittleFS，供导航和设备语义图标使用。
 
 4. P2 静态模式不只是“关闭” `SMART_HOME_MCP_BRIDGE`、
    `SMART_HOME_NODE_GATEWAY`、`SMART_HOME_APP_BRIDGE`：它不初始化 cAGENT、
    网络、模型密钥或完整智能体运行源文件。P3.1 可在同一固件注册触摸设备，但 LVGL
-   在原始事件验收前仍不打开 `/dev/input0`；这样首屏问题仍可与输入问题隔离。
+   在原始事件验收前仍不打开 `/dev/input0`；这样首屏问题仍可与输入问题隔离。P3.2
+   切回正式 UI 后，离线 profile 使用网络状态桩，不链接 Wi-Fi、DHCP、DNS 或 TLS；
+   缺少 `/data/res/skills` 仅记录技能不可用，不阻止 UI 启动。
 
 5. 云端链路启用后，模型密钥仅来自 `/data/smart_home/secrets.json`；示例文件或
    固件镜像不得携带真实密钥。
@@ -293,7 +303,21 @@ starting local dashboard without network, cAGENT, or touch
 单指 `DOWN/MOVE/UP`，坐标落在 1024×600 范围且 track ID 稳定。多点识别、
 坐标旋转和边界精度仍属 P3.1 剩余验收项。
 
-**P3.2 后续通过条件**：将 `/dev/input0` 接给 LVGL 后，点击首页、对话、设置导航项
+**P3.2 已实现、待真机验收**：`configs/smart_home/defconfig` 已取消静态首页分支，
+启用 GT911、`LV_USE_NUTTX_TOUCHSCREEN`、`NETUTILS_CJSON`、
+`SMART_HOME_DEMO_OFFLINE_UI` 与 64 KiB 应用栈。cJSON 是设备状态、后端配置和
+技能元数据共用的 JSON 依赖，即使离线 UI 不启用网络/TLS 也必须保留。常规
+`smart_home_main.c`、`smart_home_agent_app_init()`、
+`smart_home_lvgl.c` 会参与构建；`/dev/input0` 由 LVGL NuttX port 创建为输入设备。
+该配置同时启用 SPI Flash LittleFS：`0xE00000` 起的 1 MiB 分区自动挂载到
+`/data`，由 `scripts/make_p4x_littlefs_data_image.sh` 默认预置 skills、非敏感 JSON、
+MiSans Normal 子集（设备路径为 `/data/res/fonts/MiSans-Normal.ttf`）及
+`/data/res/icons/*.png`。完整 MiSans 字体不进入镜像，避免消耗约 7.6 MiB 的 Flash。
+没有 `/data/res/skills/*.md` 时应用记录 warning 并跳过场景目录，模型 Key 缺失时聊天页
+显示不可用状态，不应阻止首页、设置或本地设备面板出现。
+
+**P3.2 通过条件**：启动日志出现非空 `indev`，例如
+`[smart_home_lvgl] disp=... indev=... input=/dev/input0`；点击首页、对话、设置导航项
 正确切换，坐标方向和边缘区域无明显偏移。页面本地控制随后再映射为 `set_light`、
 `set_fan` 等本地工具，仍不引入云端。
 
@@ -372,7 +396,7 @@ flash size 必须复用当前 P4X 已验证固件的产物规则，不在本计�
 | 风险 | 识别方法 | 止损动作 |
 | --- | --- | --- |
 | framebuffer cache 不一致 | `/dev/fb0` 写色后不刷新或局部花屏 | 回到 P1，以 `FBIO_UPDATE` 和 cache clean 单独验证。 |
-| LVGL 资源过重 | 启动失败、PSRAM 紧张、字体加载失败 | 关闭 FreeType/运行时 PNG，保留内置字体与图标。 |
+| LVGL 资源过重 | 启动失败、PSRAM 紧张、字体加载失败 | 关闭 TinyTTF/运行时 PNG，保留内置字体与图标。 |
 | UI 与网络相互影响 | P4 控制台模型成功而 LVGL 对话失败 | 先运行 P5 的 worker/栈诊断，禁止同时调试 MCP。 |
 | TLS/熵源不可用 | `tls_probe` 失败 | 停留在 P4，先修复网络或 entropy，不改 UI。 |
 | 触摸影响显示 | 触摸后花屏或 DSI 停止 | 回到 P3，隔离 I2C/IRQ 与 display 任务。 |
