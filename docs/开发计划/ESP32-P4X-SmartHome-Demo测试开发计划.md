@@ -300,7 +300,7 @@ starting local dashboard without network, cAGENT, or touch
 | --- | --- |
 | `drivers/nuttx/drivers/input/gt911.c/.h` | NuttX touchscreen lower-half：GT911 ID、触点解析与轮询 worker。 |
 | `nuttx/drivers/input/{Kconfig,Make.defs,CMakeLists.txt}` | 新增 `CONFIG_INPUT_GT911`、临时 `CONFIG_INPUT_GT911_DIAGNOSTICS` 与 Make/CMake 构建入口。 |
-| `board/.../src/esp32p4_touch.c`（新增） | 获取 I2C0，以 `0x5d/400kHz/20ms` 注册 `/dev/input0`。 |
+| `board/.../src/esp32p4_touch.c`（新增） | 获取 I2C0，以 100 kHz 按 `0x5d -> 0x14` 自动探测，并以 20 ms 轮询注册 `/dev/input0`。 |
 | `board/.../{Kconfig,include/board.h,src/Make.defs,src/CMakeLists.txt,src/esp32p4_bringup.c}` | 声明、构建并在 board late bring-up 中装配触摸设备。 |
 | `app/gt911_probe/`（新增） | 在 LVGL 之前读取并打印原始 Down/Move/Up 事件。 |
 | `board/.../configs/smart_home/defconfig` | 启用 I2C0 GPIO8/7、GT911 和探针应用；暂不向 LVGL 指定输入路径。 |
@@ -316,13 +316,20 @@ starting local dashboard without network, cAGENT, or touch
 单指 `DOWN/MOVE/UP`，坐标落在 1024×600 范围且 track ID 稳定。多点识别、
 坐标旋转和边界精度仍属 P3.1 剩余验收项。
 
+**P3.1 与存储联合复测**：P4 I2C 已能输出原始错误掩码，将一次注册失败
+收敛为 `raw=0x400` 的地址 NACK，而非 timeout 或 arbitration lost。板级现按
+`0x5d -> 0x14` 自动探测，且仅在 `-EIO` 时回退地址；最新真机启动在
+`0x5d/100kHz` 读取到 Product ID `911`、注册 `/dev/input0`，随后成功将
+0x800000 起的 LittleFS 挂载到 `/data`。该结果证明当前顺序可以共存，仍需
+通过多次断电冷启动覆盖地址回退和上电稳定性。
+
 **P3.2 已实现、待真机验收**：`configs/smart_home/defconfig` 已取消静态首页分支，
 启用 GT911、`LV_USE_NUTTX_TOUCHSCREEN`、`NETUTILS_CJSON`、
 `SMART_HOME_DEMO_OFFLINE_UI` 与 64 KiB 应用栈。cJSON 是设备状态、后端配置和
 技能元数据共用的 JSON 依赖，即使离线 UI 不启用网络/TLS 也必须保留。常规
 `smart_home_main.c`、`smart_home_agent_app_init()`、
 `smart_home_lvgl.c` 会参与构建；`/dev/input0` 由 LVGL NuttX port 创建为输入设备。
-该配置同时启用 SPI Flash LittleFS：`0xE00000` 起的 1 MiB 分区自动挂载到
+该配置同时启用 SPI Flash LittleFS：`0x800000` 起的 1 MiB 分区自动挂载到
 `/data`，由 `scripts/make_p4x_littlefs_data_image.sh` 默认预置 skills、非敏感 JSON、
 MiSans Normal 子集（设备路径为 `/data/res/fonts/MiSans-Normal.ttf`）及
 `/data/res/icons/*.png`。完整 MiSans 字体不进入镜像，避免消耗约 7.6 MiB 的 Flash。

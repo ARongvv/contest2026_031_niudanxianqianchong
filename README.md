@@ -83,7 +83,7 @@ picocom -b 115200 /dev/ttyACM0
 ### 4. 写入 Smart Home 运行时资源
 
 P4X 正式 Smart Home UI 从 LittleFS 读取技能、配置、MiSans 字体和 PNG 图标。构建
-`smart_home` 固件后生成数据镜像并写入固定的 `0xE00000` 分区：
+`smart_home` 固件后生成数据镜像并写入固定的 `0x800000` 分区：
 
 ```bash
 cd ~/openvela
@@ -92,7 +92,7 @@ contest2026_031_niudanxianqianchong/scripts/make_p4x_littlefs_data_image.sh
 
 esptool --chip esp32p4 --port /dev/ttyACM0 --baud 921600 \
   write-flash -fs 16MB -fm dio -ff 80m \
-  0xE00000 out/p4x_littlefs_data/data_lfs.bin
+  0x800000 out/p4x_littlefs_data/data_lfs.bin
 ```
 
 脚本默认仅打包 `MiSans-Normal-subset.ttf` 并重命名为设备侧的
