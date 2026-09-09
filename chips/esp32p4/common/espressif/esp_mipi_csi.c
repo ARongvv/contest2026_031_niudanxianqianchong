@@ -1074,9 +1074,16 @@ int esp_mipi_csi_initialize(FAR struct esp_mipi_csi_s *csi,
   mipi_csi_brg_ll_set_intput_data_v_row_num(priv->hal.bridge_dev,
                                              config->height);
   mipi_csi_brg_ll_enable_has_hsync(priv->hal.bridge_dev, false);
+  /* The ESP32-P4 ISP is inserted between the CSI Host and Bridge.  The
+   * Bridge must therefore always forward the sensor RAW stream unchanged:
+   * RAW8-to-RGB565 is performed by the ISP, not by the Bridge.  Selecting
+   * the Bridge conversion path for RGB565 attempts an unsupported RAW
+   * conversion on early P4 revisions and prevents a frame from reaching
+   * GDMA.
+   */
+
   mipi_csi_brg_ll_enable_color_conversion(priv->hal.bridge_dev, true);
-  mipi_csi_brg_ll_set_color_mode_bypass(priv->hal.bridge_dev,
-    config->output != ESP_ISP_OUTPUT_RGB565);
+  mipi_csi_brg_ll_set_color_mode_bypass(priv->hal.bridge_dev, true);
   mipi_csi_brg_ll_set_data_type_min(priv->hal.bridge_dev, config->data_type);
   mipi_csi_brg_ll_set_data_type_max(priv->hal.bridge_dev, config->data_type);
   mipi_csi_brg_ll_set_burst_len(priv->hal.bridge_dev,
