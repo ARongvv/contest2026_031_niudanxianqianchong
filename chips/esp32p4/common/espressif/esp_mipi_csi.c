@@ -986,6 +986,7 @@ int esp_mipi_csi_initialize(FAR struct esp_mipi_csi_s *csi,
   FAR const char *stage;
   size_t frame_bytes;
   uint32_t line_bits;
+  uint16_t bridge_rows;
   int ret;
 
   if (csi != priv || config == NULL || config->lane_num == 0 ||
@@ -1004,6 +1005,20 @@ int esp_mipi_csi_initialize(FAR struct esp_mipi_csi_s *csi,
       line_bits / 32 > 0x1000 || config->height > 0xfff)
     {
       return -EINVAL;
+    }
+
+  bridge_rows = config->height;
+
+  /* The ISP frame generator stores its vertical extent as the last row
+   * index, while the direct CSI Host path reports a row count.  The CSI
+   * Bridge receives the ISP-generated frame in RGB565 mode, so it must use
+   * the former convention.  A count here makes the Bridge hold its DMA
+   * request and raise vadr_num_gt_real at every frame tail.
+   */
+
+  if (config->output == ESP_ISP_OUTPUT_RGB565)
+    {
+      bridge_rows--;
     }
 
   stage = "lock";
@@ -1124,23 +1139,21 @@ int esp_mipi_csi_initialize(FAR struct esp_mipi_csi_s *csi,
   stage = "bridge_configure";
   syslog(LOG_INFO,
          "INFO: MIPI-CSI initialize: stage=%s width=%u height=%u "
-         "dt=0x%02x burst_words=%u fifo_threshold=%u words64_per_line=%lu\n",
+         "dt=0x%02x burst_words=%u fifo_threshold=%u words64_per_line=%lu "
+         "bridge_rows=%u\n",
          stage, config->width, config->height, config->data_type,
          ESP_MIPI_CSI_DMA_BURST_WORDS, ESP_MIPI_CSI_DMA_FIFO_THRESHOLD,
-         (unsigned long)(frame_bytes / config->height / 8));
+         (unsigned long)(frame_bytes / config->height / 8), bridge_rows);
   mipi_csi_brg_ll_set_intput_data_h_pixel_num(priv->hal.bridge_dev,
     frame_bytes / config->height / 8);
   mipi_csi_brg_ll_set_intput_data_v_row_num(priv->hal.bridge_dev,
-                                             config->height);
+                                             bridge_rows);
   mipi_csi_brg_ll_enable_has_hsync(priv->hal.bridge_dev, false);
-  /* The ESP32-P4 ISP is inserted between the CSI Host and Bridge.  The
-   * Bridge must therefore always forward the sensor RAW stream unchanged:
-   * RAW8-to-RGB565 is performed by the ISP, not by the Bridge.  Selecting
-   * the Bridge conversion path for RGB565 attempts an unsupported RAW
-   * conversion on early P4 revisions and prevents a frame from reaching
-   * GDMA.
+  /* ESP32-P4 revisions before v3 do not implement Bridge color conversion;
+   * those HAL calls are compatibility no-ops.  The ISP owns RAW8-to-RGB565
+   * conversion, and this keeps the Bridge in its forwarding configuration
+   * on revisions that do implement the register.
    */
-
   mipi_csi_brg_ll_enable_color_conversion(priv->hal.bridge_dev, true);
   mipi_csi_brg_ll_set_color_mode_bypass(priv->hal.bridge_dev, true);
   mipi_csi_brg_ll_set_data_type_min(priv->hal.bridge_dev, config->data_type);
