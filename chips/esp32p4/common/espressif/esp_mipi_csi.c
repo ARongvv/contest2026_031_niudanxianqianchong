@@ -471,6 +471,65 @@ static void esp_mipi_csi_sample_receive_state(
   spin_unlock_irqrestore(&priv->irq_lock, flags);
 }
 
+/* The V4L2 upper half stops the imgdata side before it stops the sensor.
+ * Capture the live receiver state at that boundary when no video frame made
+ * it to GDMA.  Unlike a periodic probe, this reads the Host's read-clear
+ * status registers once and cannot perturb a healthy capture.
+ */
+
+static void esp_mipi_csi_log_video_no_frame(
+  FAR struct esp_mipi_csi_s *priv)
+{
+  struct esp_mipi_csi_stats_s stats;
+  FAR isp_dev_t *isp = ISP_LL_GET_HW(0);
+  uint32_t dma_dst = 0;
+  uint32_t dma_offset = 0;
+  irqstate_t flags;
+
+  esp_mipi_csi_sample_receive_state(priv);
+  esp_mipi_csi_sample_bridge_errors(priv);
+
+  if (priv->dma_dev != NULL)
+    {
+      dma_dst = priv->dma_dev->ch[ESP_MIPI_CSI_DMA_CHANNEL].dar0.val;
+      if (priv->frame_buffer != NULL &&
+          dma_dst >= (uint32_t)(uintptr_t)priv->frame_buffer)
+        {
+          dma_offset = dma_dst - (uint32_t)(uintptr_t)priv->frame_buffer;
+        }
+    }
+
+  flags = spin_lock_irqsave(&priv->irq_lock);
+  memcpy(&stats, &priv->stats, sizeof(stats));
+  spin_unlock_irqrestore(&priv->irq_lock, flags);
+
+  syslog(LOG_ERR,
+         "ERROR: MIPI-CSI video no frame: isp(cntl=0x%08lx frame=0x%08lx "
+         "raw=0x%08lx) bridge(host=0x%08lx frame=0x%08lx raw=0x%08lx "
+         "enable=0x%08lx buffer=0x%08lx)\n",
+         (unsigned long)isp->cntl.val, (unsigned long)isp->frame_cfg.val,
+         (unsigned long)isp->int_raw.val,
+         (unsigned long)priv->hal.bridge_dev->host_ctrl.val,
+         (unsigned long)priv->hal.bridge_dev->frame_cfg.val,
+         (unsigned long)stats.last_bridge_raw_status,
+         (unsigned long)stats.last_bridge_enable_status,
+         (unsigned long)stats.last_bridge_buffer_status);
+  syslog(LOG_ERR,
+         "ERROR: MIPI-CSI video no frame: host(main=0x%08lx phy=0x%08lx "
+         "pkt=0x%08lx rx=0x%08lx stop=0x%08lx) dma(status=0x%08lx "
+         "done64=%lu fifo64=%lu source=0x%08lx dst=0x%08lx offset=%lu)\n",
+         (unsigned long)stats.last_host_status,
+         (unsigned long)stats.last_host_phy_status,
+         (unsigned long)stats.last_host_packet_fatal_status,
+         (unsigned long)stats.last_phy_rx_status,
+         (unsigned long)stats.last_phy_stopstate_status,
+         (unsigned long)stats.last_dma_channel_status,
+         (unsigned long)stats.last_dma_transfer_units,
+         (unsigned long)stats.last_dma_fifo_units,
+         (unsigned long)stats.last_dma_source_status,
+         (unsigned long)dma_dst, (unsigned long)dma_offset);
+}
+
 static int esp_mipi_csi_dma_interrupt(int irq, FAR void *context,
                                       FAR void *arg)
 {
@@ -1636,6 +1695,8 @@ out:
 int esp_mipi_csi_stop(FAR struct esp_mipi_csi_s *csi)
 {
   FAR struct esp_mipi_csi_s *priv = &g_esp_mipi_csi;
+  irqstate_t flags;
+  bool no_video_frame;
   int ret;
 
   if (csi != priv)
@@ -1659,6 +1720,14 @@ int esp_mipi_csi_stop(FAR struct esp_mipi_csi_s *csi)
     }
   else
     {
+      flags = spin_lock_irqsave(&priv->irq_lock);
+      no_video_frame = priv->video_mode && priv->stats.frame_count == 0;
+      spin_unlock_irqrestore(&priv->irq_lock, flags);
+      if (no_video_frame)
+        {
+          esp_mipi_csi_log_video_no_frame(priv);
+        }
+
       mipi_csi_brg_ll_enable(priv->hal.bridge_dev, false);
       priv->running = false;
       esp_mipi_csi_release_dma(priv);
