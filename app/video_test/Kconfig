@@ -1,0 +1,16 @@
+#
+# ESP32-P4X SC2336 V4L2 video capture test.
+#
+
+config LVX_USE_DEMO_CONTEST2026_031_VIDEO_TEST
+	bool "ESP32-P4X SC2336 video capture test"
+	depends on ARCH_BOARD_ESP32P4_FUNCTION_EV_BOARD
+	depends on ESP32P4_FUNCTION_EV_BOARD_CAMERA_SC2336_VIDEO
+	default n
+	---help---
+		Build video_test, a V4L2 acceptance program for the P4X SC2336
+		camera.  It opens the board-registered /dev/video0 device, negotiates
+		the fixed 1024x600 RGB565 format, and verifies bounded continuous
+		capture with three USERPTR buffers.  It does not initialize camera
+		hardware directly and cannot be enabled with the csi_probe RAW
+		diagnostic.

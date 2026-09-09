@@ -1,0 +1,7 @@
+############################################################################
+# Contest 2026 team 031 SC2336 V4L2 video capture test
+############################################################################
+
+ifneq ($(CONFIG_LVX_USE_DEMO_CONTEST2026_031_VIDEO_TEST),)
+CONFIGURED_APPS += $(APPDIR)/packages/demos/contest2026_031_video_test
+endif
