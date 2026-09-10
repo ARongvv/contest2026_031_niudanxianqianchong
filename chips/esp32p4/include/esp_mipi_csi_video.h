@@ -52,6 +52,11 @@ struct esp_mipi_csi_video_s
   imgdata_capture_t callback;
   FAR void *callback_arg;
   spinlock_t lock;
+  uint32_t delivered_frames;
+  uint32_t no_buffer_frames;
+  uint32_t requeue_errors;
+  uint32_t copy_max_us;
+  uint64_t copy_total_us;
   bool streaming;
 };
 

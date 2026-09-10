@@ -13,11 +13,13 @@
 
 #include <nuttx/config.h>
 
+#include <nuttx/clock.h>
 #include <nuttx/kmalloc.h>
 
 #include <errno.h>
 #include <string.h>
 #include <sys/time.h>
+#include <syslog.h>
 
 #include <arch/chip/esp_mipi_csi_video.h>
 
@@ -73,6 +75,9 @@ static void esp_mipi_csi_video_done(FAR void *buffer, size_t bytes,
   FAR void *callback_arg;
   FAR uint8_t *v4l2_buffer;
   struct timeval timestamp;
+  struct timespec begin;
+  struct timespec end;
+  uint32_t copy_us;
   irqstate_t flags;
   bool requeue;
 
@@ -84,11 +89,26 @@ static void esp_mipi_csi_video_done(FAR void *buffer, size_t bytes,
   requeue = video->streaming;
   spin_unlock_irqrestore(&video->lock, flags);
 
-  if (v4l2_buffer != NULL && callback != NULL)
+  if (requeue && v4l2_buffer != NULL && callback != NULL)
     {
+      clock_systime_timespec(&begin);
       memcpy(v4l2_buffer, buffer, bytes);
+      clock_systime_timespec(&end);
+      copy_us = (end.tv_sec - begin.tv_sec) * 1000000 +
+                (end.tv_nsec - begin.tv_nsec) / 1000;
+      video->copy_total_us += copy_us;
+      if (copy_us > video->copy_max_us)
+        {
+          video->copy_max_us = copy_us;
+        }
+
+      video->delivered_frames++;
       gettimeofday(&timestamp, NULL);
       callback(0, bytes, &timestamp, callback_arg);
+    }
+  else if (requeue)
+    {
+      video->no_buffer_frames++;
     }
 
   flags = spin_lock_irqsave(&video->lock);
@@ -96,12 +116,22 @@ static void esp_mipi_csi_video_done(FAR void *buffer, size_t bytes,
   spin_unlock_irqrestore(&video->lock, flags);
   if (requeue)
     {
-      esp_mipi_csi_queue_buffer(video->csi, buffer, bytes);
+      if (esp_mipi_csi_queue_buffer(video->csi, buffer, bytes) < 0)
+        {
+          video->requeue_errors++;
+        }
     }
 }
 
 static int esp_mipi_csi_video_init(FAR struct imgdata_s *data)
 {
+  FAR struct esp_mipi_csi_video_s *video = (FAR void *)data;
+
+  video->delivered_frames = 0;
+  video->no_buffer_frames = 0;
+  video->requeue_errors = 0;
+  video->copy_max_us = 0;
+  video->copy_total_us = 0;
   return OK;
 }
 
@@ -125,6 +155,20 @@ static int esp_mipi_csi_video_uninit(FAR struct imgdata_s *data)
     {
       esp_mipi_csi_wait_video_idle(video->csi);
     }
+
+  /* Sensor uninit may already have gated the CSI clocks.  Only read the
+   * software counters here, after the frame worker has stopped.
+   */
+
+  syslog(LOG_INFO,
+         "CSI delivery: delivered=%lu no_buffer=%lu requeue_errors=%lu "
+         "copy_avg_us=%lu copy_max_us=%lu\n",
+         (unsigned long)video->delivered_frames,
+         (unsigned long)video->no_buffer_frames,
+         (unsigned long)video->requeue_errors,
+         (unsigned long)(video->delivered_frames == 0 ? 0 :
+           video->copy_total_us / video->delivered_frames),
+         (unsigned long)video->copy_max_us);
 
   esp_mipi_csi_video_free_dma_buffers(video);
   return OK;
