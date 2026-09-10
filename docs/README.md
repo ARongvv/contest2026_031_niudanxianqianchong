@@ -37,6 +37,8 @@ docs/
 | [P4X SC2336 CSI/DMA 数据流与调用链](开发日志/SC2336-CSI-DMA数据流与调用链.md) | SCCB 控制面、MIPI 数据面、CSI Host/Bridge、GDMA、IRQ 与首帧超时定位边界 | 排查 SC2336 RAW 采集时 |
 | [P4X SC2336 摄像头 Demo 接入指南](开发指南/ESP32-P4X-SC2336摄像头Demo接入指南.md) | 在 Demo 中调用 SC2336 板级接口、CSI 接收 API、缓存同步和 RAW 数据流 | 新增摄像头 Demo 或接入算法时 |
 | [P4X SC2336 CSI RAW 接收故障修复](开发日志/ESP32-P4X-SC2336-CSI-RAW接收故障修复.md) | ISP/Bridge/GDMA/缓存同步故障的根因、修复和真机验收 | 追溯 CSI RAW 接收实现时 |
+| [P4X video_test 实现方案](开发日志/应用/ESP32-P4X-video_test实现方案.md) | RGB565 V4L2 取帧、轻量与全帧模式、验收条件 | 构建或运行 video_test 时 |
+| [SC2336 video_test 问题与解决方案归档](开发日志/应用/2026-09-10-SC2336-video_test问题与解决方案.md) | 首帧超时、低吞吐、重复序号修复与 300 帧 30 fps 验收 | 追溯修复和验收证据时 |
 | [P4X SC2336 CSI RAW 接收交接](硬件适配/ESP32-P4X-SC2336-CSI-RAW接收交接.md) | 当前完成度、首帧超时证据、排查边界和后续接手顺序 | 继续 SC2336 MIPI 采集适配时 |
 | [P4X framebuffer 真机验收](开发日志/编译/2026-08-24-ESP32-P4X-framebuffer真机验收.md) | `/dev/fb0` 注册、标准 `fb` 示例和 `FBIO_UPDATE` 的真机结果 | 接入 LVGL 前确认显示设备时 |
 | [P4X LVGL 静态首页真机验收](开发日志/编译/2026-08-24-ESP32-P4X-LVGL静态首页真机验收.md) | P2 静态 Smart Home 首页绑定 `/dev/fb0`、首帧显示与定时刷新循环的真机结果 | 进入触摸或完整 Smart Home 前确认 UI 基线时 |

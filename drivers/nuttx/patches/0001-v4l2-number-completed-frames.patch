@@ -1,0 +1,13 @@
+diff --git a/drivers/video/v4l2_cap.c b/drivers/video/v4l2_cap.c
+index 731b0467294..d2a55a30101 100644
+--- a/drivers/video/v4l2_cap.c
++++ b/drivers/video/v4l2_cap.c
+@@ -2038,0 +2039,6 @@ static int complete_capture(uint8_t err_code,
++  /* Assign every completed frame here, including the first buffer supplied
++   * by QBUF.  Numbering only the next buffer duplicates sequence zero at
++   * stream start and leaves the first sequence under application control.
++   */
++
++  type_inf->bufinf.vbuf_next->buf.sequence = type_inf->seqnum++;
+@@ -2099 +2104,0 @@ static int complete_capture(uint8_t err_code,
+-          container->buf.sequence = type_inf->seqnum++;

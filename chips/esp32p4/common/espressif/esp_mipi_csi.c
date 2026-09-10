@@ -31,6 +31,7 @@
 #include "esp_private/esp_clk_tree_common.h"
 #include "esp_private/periph_ctrl.h"
 #include "hal/dw_gdma_ll.h"
+#include "hal/efuse_hal.h"
 #include "hal/isp_ll.h"
 #include "hal/mipi_csi_brg_ll.h"
 #include "hal/mipi_csi_hal.h"
@@ -51,6 +52,8 @@
 #define ESP_MIPI_CSI_CACHE_LINE_BYTES            64
 #define ESP_MIPI_CSI_DMA_BURST_WORDS           512
 #define ESP_MIPI_CSI_DMA_FIFO_THRESHOLD        960
+#define ESP_MIPI_CSI_BRG_DATA_TYPE_MIN        0x12
+#define ESP_MIPI_CSI_BRG_DATA_TYPE_MAX        0x2f
 #define ESP_MIPI_CSI_VIDEO_BUFFER_COUNT           3
 #define ESP_MIPI_CSI_DMA_DONE_EVENTS \
   (DW_GDMA_LL_CHANNEL_EVENT_BLOCK_TFR_DONE | \
@@ -986,6 +989,7 @@ int esp_mipi_csi_initialize(FAR struct esp_mipi_csi_s *csi,
   FAR const char *stage;
   size_t frame_bytes;
   uint32_t line_bits;
+  uint32_t revision;
   uint16_t bridge_rows;
   int ret;
 
@@ -1008,6 +1012,15 @@ int esp_mipi_csi_initialize(FAR struct esp_mipi_csi_s *csi,
     }
 
   bridge_rows = config->height;
+
+  revision = efuse_hal_chip_revision();
+  syslog(LOG_INFO,
+         "INFO: MIPI-CSI revision: chip=%lu.%lu build_min=%u "
+         "bridge_color_conversion=%u\n",
+         (unsigned long)(revision / 100),
+         (unsigned long)(revision % 100),
+         (unsigned int)HAL_CONFIG(CHIP_SUPPORT_MIN_REV),
+         (unsigned int)(HAL_CONFIG(CHIP_SUPPORT_MIN_REV) >= 300));
 
   /* The ISP frame generator stores its vertical extent as the last row
    * index, while the direct CSI Host path reports a row count.  The CSI
@@ -1154,16 +1167,37 @@ int esp_mipi_csi_initialize(FAR struct esp_mipi_csi_s *csi,
    * conversion, and this keeps the Bridge in its forwarding configuration
    * on revisions that do implement the register.
    */
+
   mipi_csi_brg_ll_enable_color_conversion(priv->hal.bridge_dev, true);
   mipi_csi_brg_ll_set_color_mode_bypass(priv->hal.bridge_dev, true);
-  mipi_csi_brg_ll_set_data_type_min(priv->hal.bridge_dev, config->data_type);
-  mipi_csi_brg_ll_set_data_type_max(priv->hal.bridge_dev, config->data_type);
+
+  /* Match the standard data type range used by the Espressif CSI HAL.
+   * The sensor data type describes the ISP input, not necessarily the
+   * processed stream received by the Bridge.  Filtering only RAW8 here
+   * can reject the pixels produced by the RGB565 pipeline.
+   */
+
+  mipi_csi_brg_ll_set_data_type_min(priv->hal.bridge_dev,
+                                  ESP_MIPI_CSI_BRG_DATA_TYPE_MIN);
+  mipi_csi_brg_ll_set_data_type_max(priv->hal.bridge_dev,
+                                  ESP_MIPI_CSI_BRG_DATA_TYPE_MAX);
   mipi_csi_brg_ll_set_burst_len(priv->hal.bridge_dev,
                                 ESP_MIPI_CSI_DMA_BURST_WORDS);
   mipi_csi_brg_ll_set_flow_ctl_buf_afull_thrd(
     priv->hal.bridge_dev, ESP_MIPI_CSI_DMA_FIFO_THRESHOLD);
   syslog(LOG_INFO,
          "INFO: MIPI-CSI initialize: stage=%s result=%d\n", stage, OK);
+
+  syslog(LOG_INFO,
+         "INFO: MIPI-CSI bridge: data_type=0x%08lx dma_req=0x%08lx "
+         "dmablk_size=0x%08lx\n",
+         (unsigned long)priv->hal.bridge_dev->data_type_cfg.val,
+         (unsigned long)priv->hal.bridge_dev->dma_req_cfg.val,
+         (unsigned long)priv->hal.bridge_dev->dmablk_size.val);
+#if HAL_CONFIG(CHIP_SUPPORT_MIN_REV) >= 300
+  syslog(LOG_INFO, "INFO: MIPI-CSI bridge: host_cm_ctrl=0x%08lx\n",
+         (unsigned long)priv->hal.bridge_dev->host_cm_ctrl.val);
+#endif
 
   memset(&priv->stats, 0, sizeof(priv->stats));
   nxsem_init(&priv->frame_sem, 0, 0);

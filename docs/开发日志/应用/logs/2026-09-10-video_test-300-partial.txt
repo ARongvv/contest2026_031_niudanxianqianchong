@@ -1,0 +1,96 @@
+nsh> video_test 300
+INFO: MIPI-CSI D-PHY LDO ready channel=3 voltage_mv=2500
+SC2336 CSI prepare: stage=i2c_initialize bus=0
+SC2336 CSI prepare: stage=i2c_initialize result=0
+SC2336 CSI prepare: stage=product_id address=0x30 frequency=100000
+SC2336 detected: address=0x30 product_id=0xcb3a
+SC2336 CSI prepare: stage=product_id result=0 product_id=0xcb3a
+SC2336 CSI prepare: stage=profile_configure raw8=1024x600 lanes=2 dt=0x2a
+SC2336 profile configured: RAW8 1024x600 30fps, 2-lane 288Mbps
+SC2336 CSI prepare: stage=profile_configure result=0
+SC2336 CSI profile ready: 2 lane(s), dt=0x2a, 1024x600 RAW8 sensor_rate=288Mbps/lane phy_rate=200Mbps/lane
+INFO: MIPI-CSI revision: chip=3.2 build_min=301 bridge_color_conversion=1
+INFO: MIPI-CSI initialize: stage=begin lanes=2 dt=0x2a raw_bpp=8 width=1024 height=600 lane_rate_mbps=200
+INFO: MIPI-CSI initialize: stage=lock result=0
+INFO: MIPI-CSI initialize: stage=phy_clock_enable source=6
+INFO: MIPI-CSI initialize: stage=host_bridge_clock_reset
+INFO: MIPI-CSI initialize: stage=host_bridge_clock_reset result=0
+INFO: MIPI-CSI initialize: stage=hal_initialize lanes=2 width=1024 height=600 bpp=8 lane_rate_mbps=200
+INFO: MIPI-CSI initialize: stage=hal_initialize result=0
+INFO: MIPI-CSI initialize: stage=isp_configure result=0 isp_en=1 mipi_data_en=1 input_words32=1024 cntl=0x80002443
+INFO: MIPI-CSI initialize: stage=bridge_configure width=1024 height=600 dt=0x2a burst_words=512 fifo_threshold=960 words64_per_line=256 bridge_rows=599
+INFO: MIPI-CSI initialize: stage=bridge_configure result=0
+INFO: MIPI-CSI bridge: data_type=0x00002f12 dma_req=0x00020200 dmablk_size=0x00001fff
+INFO: MIPI-CSI bridge: host_cm_ctrl=0x00000803
+INFO: MIPI-CSI initialize: stage=complete frame_bytes=1228800
+=== ESP32-P4X SC2336 V4L2 Capture Test ===
+request: frames=300 timeout=1500ms
+video_test: device=/dev/video0 driver=SC2336 capabilities=0x04000001
+video_test: format=RGB565 1024x600 size=1228800 interval=1/30
+
+INFO: MIPI-CSI start: stage=frame_buffer_cache_sync result=0
+INFO: MIPI-CSI start: stage=dma_prepare
+INFO: MIPI-CSI DMA prepare: stage=begin bytes=1228800 alignment=0
+INFO: MIPI-CSI DMA prepare: stage=dma_clock_reset
+INFO: MIPI-CSI DMA prepare: stage=dma_clock_reset result=0
+INFO: MIPI-CSI DMA prepare: stage=dma_channel_configure
+INFO: MIPI-CSI DMA prepare: stage=dma_channel_configure result=0
+INFO: MIPI-CSI DMA prepare: stage=dma_lli_cache_sync
+INFO: MIPI-CSI DMA prepare: stage=dma_lli_cache_sync result=0
+INFO: MIPI-CSI DMA prepare: stage=dma_irq_setup
+INFO: MIPI-CSI DMA prepare: stage=dma_irq_setup result=0 cpuint=4
+INFO: MIPI-CSI DMA prepare: stage=bridge_error_polling
+INFO: MIPI-CSI DMA prepare: stage=bridge_error_polling result=0
+INFO: MIPI-CSI DMA prepare: stage=irq_enable
+INFO: MIPI-CSI DMA prepare: stage=complete result=0
+INFO: MIPI-CSI start: stage=dma_channel_enable channel=0
+INFO: MIPI-CSI start: stage=dma_channel_enable channel=0 chen=0x00000001 enabled=1
+INFO: MIPI-CSI start: stage=bridge_enable
+INFO: MIPI-CSI start: stage=complete result=0
+SC2336 stream on
+SC2336 stream off
+CSI delivery: delivered=300 no_buffer=0 requeue_errors=0 copy_avg_us=20000 copy_max_us=20000
+video_test: frame=0 sequence=0 timestamp=8.040000 sample_crc32=0x33e556ba
+video_test: frame=1 sequence=1 timestamp=8.070000 sample_crc32=0x6e47c4e1
+video_test: frame=2 sequence=2 timestamp=8.100000 sample_crc32=0x7c66aaa2
+video_test: frame=3 sequence=3 timestamp=8.140000 sample_crc32=0xf65e2252
+video_test: frame=4 sequence=4 timestamp=8.170000 sample_crc32=0x33196662
+video_test: frame=5 sequence=5 timestamp=8.200000 sample_crc32=0x8b5bf919
+video_test: frame=6 sequence=6 timestamp=8.240000 sample_crc32=0x42d85e14
+video_test: frame=7 sequence=7 timestamp=8.270000 sample_crc32=0x28bc4e82
+video_test: frame=8 sequence=8 timestamp=8.300000 sample_crc32=0xbf42dbb9
+video_test: frame=9 sequence=9 timestamp=8.340000 sample_crc32=0xb60f4ac2
+video_test: frame=10 sequence=10 timestamp=8.370000 sample_crc32=0x8d629af5
+video_test: frame=11 sequence=11 timestamp=8.400000 sample_crc32=0x79d2ea44
+video_test: frame=12 sequence=12 timestamp=8.440000 sample_crc32=0x542575b1
+video_test: frame=13 sequence=13 timestamp=8.470000 sample_crc32=0x352aeb78
+video_test: frame=14 sequence=14 timestamp=8.500000 sample_crc32=0x51fa50b5
+video_test: frame=15 sequence=15 timestamp=8.540000 sample_crc32=0x78c3d933
+video_test: frame=16 sequence=16 timestamp=8.570000 sample_crc32=0x45bc075f
+video_test: frame=17 sequence=17 timestamp=8.600000 sample_crc32=0x4706b11a
+video_test: frame=18 sequence=18 timestamp=8.640000 sample_crc32=0xefddfa96
+video_test: frame=19 sequence=19 timestamp=8.670000 sample_crc32=0x4fe65e38
+video_test: frame=20 sequence=20 timestamp=8.700000 sample_crc32=0x8c524a87
+video_test: frame=21 sequence=21 timestamp=8.740000 sample_crc32=0x1d437252
+video_test: frame=22 sequence=22 timestamp=8.770000 sample_crc32=0x01874e50
+video_test: frame=23 sequence=23 timestamp=8.800000 sample_crc32=0xf64d3172
+video_test: frame=24 sequence=24 timestamp=8.840000 sample_crc32=0xf49cbf9f
+video_test: frame=25 sequence=25 timestamp=8.870000 sample_crc32=0xc9dcc3b0
+video_test: frame=26 sequence=26 timestamp=8.900000 sample_crc32=0x3d80569e
+video_test: frame=27 sequence=27 timestamp=8.940000 sample_crc32=0x1dae9e46
+video_test: frame=28 sequence=28 timestamp=8.970000 sample_crc32=0x5fa21040
+video_test: frame=29 sequence=29 timestamp=9.000000 sample_crc32=0xb112b8b2
+video_test: frame=30 sequence=30 timestamp=9.040000 sample_crc32=0xc4429adb
+video_test: frame=31 sequence=31 timestamp=9.070000 sample_crc32=0xd29e03a2
+video_test: frame=32 sequence=32 timestamp=9.100000 sample_crc32=0xd62f4182
+video_test: frame=33 sequence=33 timestamp=9.140000 sample_crc32=0x80fa606c
+video_test: frame=34 sequence=34 timestamp=9.170000 sample_crc32=0x3569f7b1
+video_test: frame=35 sequence=35 timestamp=9.200000 sample_crc32=0x418d1b33
+video_test: frame=36 sequence=36 timestamp=9.240000 sample_crc32=0x89b7b011
+video_test: frame=37 sequence=37 timestamp=9.270000 sample_crc32=0x3292dc82
+video_test: frame=38 sequence=38 timestamp=9.300000 sample_crc32=0x3f316a39
+video_test: frame=39 sequence=39 timestamp=9.340000 sample_crc32=0x618250c3
+video_test: frame=40 sequence=40 timestamp=9.370000 sample_crc32=0x5fdc6891
+video_test: frame=41 sequence=41 timestamp=9.400000 sample_crc32=0xa9d7a446
+video_test: frame=42 sequence=42 timestamp=9.440000 sample_crc32=0x61507bed
+video_test: frame=43 sequence=43 timestamp=9.470000 sample_crc32=0x397bf868

@@ -24,6 +24,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/videoio.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <nuttx/crc32.h>
@@ -42,9 +43,13 @@
 #define VIDEO_TEST_FRAME_INTERVAL_DEN  30
 #define VIDEO_TEST_BUFFER_COUNT        3
 #define VIDEO_TEST_BUFFER_ALIGNMENT    64
-#define VIDEO_TEST_DEFAULT_FRAMES      10
-#define VIDEO_TEST_MAX_FRAMES          100
+#define VIDEO_TEST_DEFAULT_FRAMES      100
+#define VIDEO_TEST_MAX_FRAMES          1000
 #define VIDEO_TEST_POLL_TIMEOUT_MS     1500
+#define VIDEO_TEST_SAMPLE_BLOCKS       64
+#define VIDEO_TEST_SAMPLE_BYTES        64
+#define VIDEO_TEST_MIN_FPS_X100        2850
+#define VIDEO_TEST_MAX_FPS_X100        3150
 
 /****************************************************************************
  * Private Types
@@ -58,21 +63,36 @@ struct video_test_frame_stats_s
   bool nonzero;
 };
 
+struct video_test_result_s
+{
+  struct video_test_frame_stats_s stats;
+  struct timeval timestamp;
+  uint64_t dequeue_us;
+  uint32_t sequence;
+};
+
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
 
 static void video_test_usage(FAR const char *program)
 {
-  fprintf(stderr, "Usage: %s [frames: 1-%u]\n", program,
+  fprintf(stderr, "Usage: %s [frames: 1-%u] [--full]\n", program,
           VIDEO_TEST_MAX_FRAMES);
 }
 
 static int video_test_parse_frames(int argc, FAR char *argv[],
-                                   FAR unsigned int *frames)
+                                   FAR unsigned int *frames, FAR bool *full)
 {
   FAR char *end;
   unsigned long value;
+
+  *full = false;
+  if (argc > 1 && strcmp(argv[argc - 1], "--full") == 0)
+    {
+      *full = true;
+      argc--;
+    }
 
   *frames = VIDEO_TEST_DEFAULT_FRAMES;
   if (argc == 1)
@@ -109,36 +129,46 @@ static int video_test_ioctl(int fd, int request, FAR void *arg,
 }
 
 static void video_test_frame_stats(
-  FAR const uint8_t *buffer, size_t bytes,
+  FAR const uint8_t *buffer, size_t bytes, bool full,
   FAR struct video_test_frame_stats_s *stats)
 {
+  size_t blocks = full ? 1 : VIDEO_TEST_SAMPLE_BLOCKS;
+  size_t length = full ? bytes : VIDEO_TEST_SAMPLE_BYTES;
+  size_t block;
   size_t index;
+  size_t offset;
 
   stats->min = UINT8_MAX;
   stats->max = 0;
   stats->nonzero = false;
+  stats->crc = 0;
 
-  for (index = 0; index < bytes; index++)
+  /* Sample equally spaced cache-line-sized windows, including both ends.
+   * Full inspection is intentionally separate from the throughput test.
+   */
+
+  for (block = 0; block < blocks; block++)
     {
-      uint8_t value = buffer[index];
-
-      if (value != 0)
+      offset = full ? 0 : block * (bytes - length) / (blocks - 1);
+      for (index = 0; index < length; index++)
         {
-          stats->nonzero = true;
+          uint8_t value = buffer[offset + index];
+
+          if (value < stats->min)
+            {
+              stats->min = value;
+            }
+
+          if (value > stats->max)
+            {
+              stats->max = value;
+            }
         }
 
-      if (value < stats->min)
-        {
-          stats->min = value;
-        }
-
-      if (value > stats->max)
-        {
-          stats->max = value;
-        }
+      stats->crc = crc32part(buffer + offset, length, stats->crc);
     }
 
-  stats->crc = crc32(buffer, bytes);
+  stats->nonzero = stats->max != 0;
 }
 
 static int video_test_check_capability(int fd)
@@ -357,11 +387,13 @@ static int video_test_queue_all_buffers(int fd, FAR uint8_t *buffers[])
 
 static int video_test_capture_frames(int fd, unsigned int frames,
                                      FAR uint8_t *buffers[],
-                                     FAR bool *streaming)
+                                     FAR bool *streaming, bool full,
+                                     FAR struct video_test_result_s *results)
 {
   struct pollfd pollfd;
   struct v4l2_buffer v4l2_buffer;
   struct video_test_frame_stats_s stats;
+  struct timespec now;
   uint32_t previous_sequence = 0;
   bool have_previous_sequence = false;
   enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -413,6 +445,16 @@ static int video_test_capture_frames(int fd, unsigned int frames,
           return ret;
         }
 
+      if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+        {
+          return -errno;
+        }
+
+      results[frame].dequeue_us = (uint64_t)now.tv_sec * 1000000 +
+                                  now.tv_nsec / 1000;
+      results[frame].sequence = v4l2_buffer.sequence;
+      results[frame].timestamp = v4l2_buffer.timestamp;
+
       if (v4l2_buffer.index >= VIDEO_TEST_BUFFER_COUNT ||
           v4l2_buffer.m.userptr != (unsigned long)buffers[v4l2_buffer.index])
         {
@@ -437,7 +479,7 @@ static int video_test_capture_frames(int fd, unsigned int frames,
         }
 
       if (have_previous_sequence &&
-          v4l2_buffer.sequence <= previous_sequence)
+          (int32_t)(v4l2_buffer.sequence - previous_sequence) <= 0)
         {
           fprintf(stderr, "video_test: FAIL step=sequence frame=%u "
                   "previous=%" PRIu32 " actual=%" PRIu32 "\n", frame,
@@ -446,7 +488,7 @@ static int video_test_capture_frames(int fd, unsigned int frames,
         }
 
       video_test_frame_stats(buffers[v4l2_buffer.index],
-                             v4l2_buffer.bytesused, &stats);
+                             v4l2_buffer.bytesused, full, &stats);
       if (!stats.nonzero || stats.min == stats.max)
         {
           fprintf(stderr, "video_test: FAIL step=frame_content frame=%u "
@@ -454,11 +496,11 @@ static int video_test_capture_frames(int fd, unsigned int frames,
           return -EIO;
         }
 
-      printf("video_test: frame=%u sequence=%" PRIu32
-             " bytes=%" PRIu32 " timestamp=%ld.%06ld crc32=0x%08" PRIx32
-             " nonzero=yes nonconstant=yes\n", frame, v4l2_buffer.sequence,
-             v4l2_buffer.bytesused, (long)v4l2_buffer.timestamp.tv_sec,
-             (long)v4l2_buffer.timestamp.tv_usec, stats.crc);
+      results[frame].stats = stats;
+
+      /* Return ownership before any logging.  Never inspect pixels after
+       * QBUF: the capture engine may overwrite them immediately.
+       */
 
       previous_sequence = v4l2_buffer.sequence;
       have_previous_sequence = true;
@@ -468,6 +510,57 @@ static int video_test_capture_frames(int fd, unsigned int frames,
         {
           return ret;
         }
+    }
+
+  return OK;
+}
+
+static int video_test_report(FAR const struct video_test_result_s *results,
+                             unsigned int frames, bool full)
+{
+  uint64_t elapsed;
+  uint64_t fps_x100;
+  uint32_t gaps = 0;
+  unsigned int frame;
+
+  for (frame = 0; frame < frames; frame++)
+    {
+      if (frame > 0)
+        {
+          gaps += results[frame].sequence - results[frame - 1].sequence - 1;
+        }
+
+      printf("video_test: frame=%u sequence=%" PRIu32
+             " timestamp=%ld.%06ld %s_crc32=0x%08" PRIx32 "\n",
+             frame, results[frame].sequence,
+             (long)results[frame].timestamp.tv_sec,
+             (long)results[frame].timestamp.tv_usec,
+             full ? "full" : "sample", results[frame].stats.crc);
+    }
+
+  if (frames < 30)
+    {
+      printf("video_test: content-only frames=%u sequence_gaps=%" PRIu32
+             " (30fps acceptance requires >=30 frames)\n", frames, gaps);
+      return OK;
+    }
+
+  /* Use dequeue wall time, excluding startup and all serial output.  V4L2
+   * sequence gaps detect ring overwrites, not losses before delivery.
+   */
+
+  elapsed = results[frames - 1].dequeue_us - results[0].dequeue_us;
+  fps_x100 = elapsed == 0 ? 0 : (uint64_t)(frames - 1) * 100000000 / elapsed;
+  printf("video_test: app_fps=%" PRIu64 ".%02" PRIu64
+         " sequence_gaps=%" PRIu32 " mode=%s\n",
+         fps_x100 / 100, fps_x100 % 100, gaps,
+         full ? "full-content" : "throughput");
+
+  if (!full && (gaps != 0 || fps_x100 < VIDEO_TEST_MIN_FPS_X100 ||
+                fps_x100 > VIDEO_TEST_MAX_FPS_X100))
+    {
+      fprintf(stderr, "video_test: FAIL step=30fps\n");
+      return -EIO;
     }
 
   return OK;
@@ -485,12 +578,14 @@ int main(int argc, FAR char *argv[])
   };
 
   enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  FAR struct video_test_result_s *results;
   unsigned int frames;
+  bool full;
   bool streaming = false;
   int fd;
   int ret;
 
-  ret = video_test_parse_frames(argc, argv, &frames);
+  ret = video_test_parse_frames(argc, argv, &frames, &full);
   if (ret < 0)
     {
       video_test_usage(argv[0]);
@@ -502,6 +597,13 @@ int main(int argc, FAR char *argv[])
     {
       fprintf(stderr, "video_test: FAIL step=open path=%s errno=%d\n",
               VIDEO_TEST_PATH, errno);
+      return EXIT_FAILURE;
+    }
+
+  results = calloc(frames, sizeof(*results));
+  if (results == NULL)
+    {
+      close(fd);
       return EXIT_FAILURE;
     }
 
@@ -532,7 +634,8 @@ int main(int argc, FAR char *argv[])
 
   if (ret >= 0)
     {
-      ret = video_test_capture_frames(fd, frames, buffers, &streaming);
+      ret = video_test_capture_frames(fd, frames, buffers, &streaming,
+                                       full, results);
     }
 
   if (streaming)
@@ -545,14 +648,26 @@ int main(int argc, FAR char *argv[])
         }
     }
 
-  video_test_free_buffers(buffers);
+  /* Close drains the lower-half frame worker.  A copy already in progress
+   * at STREAMOFF must finish before its USERPTR destination is freed.
+   */
+
   close(fd);
+  video_test_free_buffers(buffers);
+
+  if (ret >= 0)
+    {
+      ret = video_test_report(results, frames, full);
+    }
+
+  free(results);
 
   if (ret < 0)
     {
       return EXIT_FAILURE;
     }
 
-  printf("video_test: PASS frames=%u\n", frames);
+  printf("video_test: PASS frames=%u acceptance=%s\n", frames,
+         full || frames < 30 ? "content" : "30fps-app");
   return EXIT_SUCCESS;
 }
