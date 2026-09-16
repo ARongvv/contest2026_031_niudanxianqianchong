@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Host regression checks for the actual C RPC encoder and callback removal.
+"""Host regression checks for ESP-Hosted RPC, callbacks, and FIFO transfers.
 
 Compiles selected production functions against a small transport/OS fixture.
 No device, credentials, downloaded packages or cross compiler are required.
@@ -42,9 +42,11 @@ FIXTURE = r'''
 #define MSEC2TICK(x) (x)
 typedef int (*esp_hosted_transport_wlan_rx_t)(void *, const uint8_t *, size_t);
 struct esp_hosted_transport_s {
-  bool initialized, data_path_open, rx_active, checksum_enabled, rpc_pending;
+  bool initialized, function_ready, data_path_open, rx_active, checksum_enabled,
+       rpc_pending;
   int rpc_lock, rpc_sem, rpc_result;
   uint32_t rpc_uid, rpc_response_id;
+  void *sdio;
   esp_hosted_transport_wlan_rx_t wlan_rx;
   void *wlan_rx_arg;
 };
@@ -55,6 +57,12 @@ static int send_result, wait_result, remote_result;
 static uint32_t expected_response;
 static bool link_up;
 static unsigned int link_changes;
+struct transfer_call_s {
+  uint32_t argument;
+  size_t length;
+};
+static struct transfer_call_s transfers[8];
+static unsigned int transfer_count;
 static int nxmutex_lock(int *lock) { assert(!*lock); *lock = 1; return 0; }
 static void nxmutex_unlock(int *lock) { assert(*lock); *lock = 0; }
 static int nxsem_trywait(int *sem) { (void)sem; return -EAGAIN; }
@@ -83,6 +91,16 @@ static int callback(void *a, const uint8_t *d, size_t n) {
 static void esp_hosted_wlan_set_link(bool up) {
   link_up = up;
   link_changes++;
+}
+static int esp_hosted_sdio_transfer(void *sdio, uint32_t argument,
+                                    void *buffer, size_t length,
+                                    uint16_t block_size) {
+  (void)sdio; (void)buffer;
+  assert(block_size == 512 && transfer_count < 8);
+  transfers[transfer_count].argument = argument;
+  transfers[transfer_count].length = length;
+  transfer_count++;
+  return 0;
 }
 static void dump(void) {
   for (size_t i = 0; i < captured_length; i++) printf("%02x", captured[i]);
@@ -164,6 +182,37 @@ int main(void) {
     assert(!link_up && link_changes == 2);
     assert(esp_hosted_transport_handle_sta_link_event(malformed,
            sizeof(malformed), true) == -EPROTO);
+  }
+  {
+    uint8_t fifo[1600];
+    const uint32_t fifo_start = ESP_HOSTED_TRANSPORT_SLC_FIFO_END - 600;
+    g_transport.function_ready = true;
+    g_transport.sdio = &g_transport;
+    transfer_count = 0;
+    assert(esp_hosted_transport_read_fifo(&g_transport, fifo, 600) == 0);
+    assert(transfer_count == 2);
+    assert(transfers[0].length == 512);
+    assert((transfers[0].argument & (UINT32_C(1) << 27)) != 0);
+    assert((transfers[0].argument & 0x1ff) == 1);
+    assert((transfers[0].argument >> 9 & 0x1ffff) == fifo_start);
+    assert(transfers[1].length == 88);
+    assert((transfers[1].argument & (UINT32_C(1) << 27)) == 0);
+    assert((transfers[1].argument >> 9 & 0x1ffff) == fifo_start + 512);
+
+    transfer_count = 0;
+    assert(esp_hosted_transport_read_fifo(&g_transport, fifo, 513) == 0);
+    assert(transfer_count == 2 && transfers[0].length == 512 &&
+           transfers[1].length == 1);
+
+    transfer_count = 0;
+    assert(esp_hosted_transport_read_fifo(&g_transport, fifo, 1020) == 0);
+    assert(transfer_count == 2 && transfers[0].length == 512 &&
+           transfers[1].length == 508);
+
+    transfer_count = 0;
+    assert(esp_hosted_transport_read_fifo(&g_transport, fifo, 1537) == 0);
+    assert(transfer_count == 2 && transfers[0].length == 1536 &&
+           transfers[1].length == 1);
   }
   g_transport.initialized = false;
   assert(esp_hosted_transport_register_wlan_rx(&g_transport, NULL, NULL)
@@ -277,6 +326,7 @@ def main():
         "send_scalar_request", "send_sta_config", "scalar_rpc",
         "set_wifi_mode", "set_wifi_storage_ram", "register_wlan_rx",
         "get_varint", "skip_field", "handle_sta_link_event",
+        "transfer_once", "transfer", "read_fifo",
     ]
     constants = "\n".join(re.findall(
         r"^#define ESP_HOSTED_TRANSPORT_\w+[^\n]*", source, re.M))
@@ -317,7 +367,8 @@ def main():
         check_legacy_decoder(sta_messages, args.decoder_dir)
     print("PASS: storage/mode wire format, RPC errors/timeouts, STA credential "
           "boundaries, required nested messages and encoder bounds, "
-          "callback removal after RX fault, STA carrier event handling")
+          "callback removal after RX fault, STA carrier event handling, "
+          "unaligned FIFO RX block/tail splitting")
 
 
 if __name__ == "__main__":

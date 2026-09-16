@@ -34,7 +34,9 @@
 
 static bool smart_home_network_is_wifi_platform(void)
 {
-#if defined(CONFIG_ARCH_CHIP_ESP32S3) || defined(CONFIG_ESP32S3_WIFI)
+#if defined(CONFIG_ARCH_CHIP_ESP32S3) || defined(CONFIG_ESP32S3_WIFI) || \
+    (defined(CONFIG_ARCH_CHIP_ESP32P4) && \
+     defined(CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED))
   return true;
 #else
   return false;
@@ -303,7 +305,12 @@ const char *smart_home_network_platform_name(
     case SMART_HOME_NETWORK_PLATFORM_SIMULATOR:
       return "Simulator";
     case SMART_HOME_NETWORK_PLATFORM_DEVICE_WIFI:
+#if defined(CONFIG_ARCH_CHIP_ESP32P4) && \
+    defined(CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED)
+      return "ESP32-P4 + C6 Wi-Fi";
+#else
       return "ESP32-S3 Wi-Fi";
+#endif
     case SMART_HOME_NETWORK_PLATFORM_ETHERNET:
       return "Ethernet";
     default:

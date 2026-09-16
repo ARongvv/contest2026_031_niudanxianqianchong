@@ -375,11 +375,38 @@ static int esp_hosted_transport_read_fifo(
   FAR struct esp_hosted_transport_s *transport, FAR uint8_t *buffer,
   size_t length)
 {
-  bool blocks = length >= 512 && length % 512 == 0;
+  size_t block_length = length & ~((size_t)511);
+  uint32_t address = ESP_HOSTED_TRANSPORT_SLC_FIFO_END - length;
+  int ret;
 
-  return esp_hosted_transport_transfer(transport, false,
-                                       ESP_HOSTED_TRANSPORT_SLC_FIFO_END -
-                                       length, buffer, length, blocks);
+  /* CMD53 byte mode cannot encode more than 512 bytes.  FIFO packet sizes
+   * are not necessarily 512-byte aligned, so read the full blocks first and
+   * finish with a byte-mode tail.  A 600-byte packet, for example, must be
+   * transferred as one 512-byte block followed by 88 bytes, rather than as
+   * an invalid 600-byte byte-mode command.
+   */
+
+  if (block_length != 0)
+    {
+      ret = esp_hosted_transport_transfer(transport, false, address, buffer,
+                                          block_length, true);
+      if (ret < 0)
+        {
+          return ret;
+        }
+
+      address += block_length;
+      buffer += block_length;
+      length -= block_length;
+    }
+
+  if (length == 0)
+    {
+      return OK;
+    }
+
+  return esp_hosted_transport_transfer(transport, false, address, buffer,
+                                       length, false);
 }
 
 static uint16_t esp_hosted_transport_checksum(FAR const uint8_t *packet,
