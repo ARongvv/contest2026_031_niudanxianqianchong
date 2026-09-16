@@ -2,6 +2,7 @@ const state = {
   currentPage: 'home',
   lightsOn: true,
   curtainOpen: true,
+  activeDeviceId: null,
   revision: 12,
   scenes: [
     { name: '回家模式', icon: 'home', desc: '温暖灯光 · 新风开启', color: '#c78855' },
@@ -10,12 +11,13 @@ const state = {
     { name: '离家模式', icon: 'home-shield', desc: '关闭设备 · 安防布防', color: '#4f9e82' }
   ],
   devices: [
-    { id: 'living-light', name: '客厅主灯', type: 'light', icon: 'bulb', on: true, detail: '亮度 70% · 暖白光' },
-    { id: 'desk-light', name: '阅读灯', type: 'light', icon: 'lamp', on: true, detail: '亮度 35% · 柔光' },
-    { id: 'ac', name: '客厅空调', type: 'air', icon: 'air-conditioning', on: true, detail: '26°C · 舒适模式' },
-    { id: 'curtain', name: '客厅窗帘', type: 'curtain', icon: 'blinds', on: true, detail: '已打开 100%' },
-    { id: 'speaker', name: '家庭音响', type: 'media', icon: 'boombox', on: false, detail: '待机中' },
-    { id: 'door', name: '入户门锁', type: 'safe', icon: 'lock', on: true, detail: '已上锁 · 电量 82%' }
+    { id: 'living-light', name: '客厅主灯', room: '客厅', type: 'light', icon: 'bulb', on: true, detail: '亮度 70% · 暖白光', brightness: 70, color: '暖白光' },
+    { id: 'desk-light', name: '阅读灯', room: '书房', type: 'light', icon: 'lamp', on: true, detail: '亮度 35% · 柔光', brightness: 35, color: '柔光' },
+    { id: 'ac', name: '客厅空调', room: '客厅', type: 'air', icon: 'air-conditioning', on: true, detail: '26°C · 舒适模式', temperature: 26, mode: '舒适', fan: '自动' },
+    { id: 'curtain', name: '客厅窗帘', room: '客厅', type: 'curtain', icon: 'blinds', on: true, detail: '已打开 100%', position: 100 },
+    { id: 'speaker', name: '家庭音响', room: '卧室', type: 'media', icon: 'boombox', on: false, detail: '待机中', volume: 38 },
+    { id: 'door', name: '入户门锁', room: '玄关', type: 'safe', icon: 'lock', on: true, detail: '已上锁 · 电量 82%', battery: 82 },
+    { id: 'camera', name: '摄像头 G3', room: '客厅', type: 'safe', icon: 'camera', on: true, detail: '在线 · AI 守护已开启', battery: null }
   ]
 };
 
@@ -46,10 +48,10 @@ function renderScenes() {
 
 function renderDevices() {
   $('#device-grid').innerHTML = state.devices.map((device) => `
-    <button class="device-card" data-device="${device.id}">
+    <button class="device-card" data-open-device="${device.id}">
       <img class="device-icon ${device.type}" src="${iconPath(device.icon)}" alt="" />
       <b>${device.name}</b><small>${device.detail}</small>
-      <i class="toggle ${device.on ? 'on' : ''}"></i>
+      <i class="toggle ${device.on ? 'on' : ''}" aria-hidden="true"></i>
     </button>`).join('');
   const quickLight = $('#quick-light-text');
   const lightSummary = $('#light-summary');
@@ -57,8 +59,8 @@ function renderDevices() {
   if (quickLight) quickLight.textContent = state.lightsOn ? '3 组已开启' : '全部已关闭';
   if (lightSummary) lightSummary.textContent = state.lightsOn ? '照明 3 组已开启' : '照明已全部关闭';
   if (curtainLabel) curtainLabel.textContent = state.curtainOpen ? '已打开' : '已关闭';
-  $$('[data-device="living-light"] .toggle').forEach((node) => node.classList.toggle('on', state.lightsOn));
-  $$('[data-device="curtain"] .toggle').forEach((node) => node.classList.toggle('on', state.curtainOpen));
+  $$('[data-device-id="living-light"] .toggle').forEach((node) => node.classList.toggle('on', state.lightsOn));
+  $$('[data-device-id="curtain"] .toggle').forEach((node) => node.classList.toggle('on', state.curtainOpen));
 }
 
 function adjustTemperature(delta) {
@@ -66,9 +68,63 @@ function adjustTemperature(delta) {
   const current = Number(temperature.textContent);
   const next = Math.max(16, Math.min(30, current + delta));
   temperature.textContent = next;
-  state.devices.find((device) => device.id === 'ac').detail = `${next}°C · 舒适模式`;
+  const ac = state.devices.find((device) => device.id === 'ac');
+  ac.temperature = next;
+  ac.detail = `${next}°C · ${ac.mode}模式`;
   state.revision += 1;
+  if (state.activeDeviceId === 'ac') renderDeviceDetail();
   showToast(`空调设定为 ${next}°C · 等待真实设备确认`);
+}
+
+function deviceById(id) {
+  return state.devices.find((device) => device.id === id);
+}
+
+function detailOptions(items, selected, property) {
+  return `<div class="detail-options">${items.map((item) => `<button class="detail-option ${item === selected ? 'active' : ''}" data-action="set-device-option" data-property="${property}" data-value="${item}">${item}</button>`).join('')}</div>`;
+}
+
+function renderDeviceDetail() {
+  const device = deviceById(state.activeDeviceId);
+  if (!device) return;
+  $('#device-sheet-title').innerHTML = `<b>${device.name}</b><small>${device.room} · ${device.on ? '在线' : '已关闭'}</small>`;
+  let primary = '';
+  let controls = '';
+
+  if (device.id === 'ac') {
+    primary = `<div class="device-primary"><div><p>当前设定温度</p><strong>${device.temperature}°C</strong></div><div class="detail-stepper"><button data-action="detail-temperature" data-delta="-1">−</button><button data-action="detail-temperature" data-delta="1">＋</button></div></div>`;
+    controls = `<section class="detail-section"><h3>运行模式</h3>${detailOptions(['舒适', '制冷', '除湿', '送风'], device.mode, 'mode')}</section><section class="detail-section"><h3>风速</h3>${detailOptions(['自动', '低风', '中风', '高风'], device.fan, 'fan')}</section><div class="detail-row"><span>摆风</span><span>上下自动 ›</span></div><div class="detail-row"><span>睡眠定时</span><span>未设置 ›</span></div>`;
+  } else if (device.type === 'light') {
+    primary = `<div class="device-primary"><div><p>亮度</p><strong>${device.brightness}%</strong></div><button class="detail-switch" data-action="toggle-device" data-device-id="${device.id}"><i class="toggle ${device.on ? 'on' : ''}"></i>${device.on ? '已开启' : '已关闭'}</button></div>`;
+    controls = `<section class="detail-section"><h3>亮度调节</h3><input class="detail-slider" type="range" min="1" max="100" value="${device.brightness}" data-property="brightness" /></section><section class="detail-section"><h3>灯光效果</h3>${detailOptions(['暖白光', '自然光', '冷白光', '夜灯'], device.color, 'color')}</section><div class="detail-row"><span>延时关灯</span><span>未设置 ›</span></div>`;
+  } else if (device.id === 'curtain') {
+    primary = `<div class="device-primary"><div><p>开合度</p><strong>${device.position}%</strong></div><button class="detail-switch" data-action="toggle-device" data-device-id="curtain"><i class="toggle ${device.on ? 'on' : ''}"></i>${device.on ? '已打开' : '已关闭'}</button></div>`;
+    controls = `<section class="detail-section"><h3>精确开合</h3><input class="detail-slider" type="range" min="0" max="100" value="${device.position}" data-property="position" /></section><section class="detail-section"><h3>快捷操作</h3>${detailOptions(['全开', '半开', '关闭'], device.position === 100 ? '全开' : device.position === 0 ? '关闭' : '半开', 'curtainPreset')}</section><div class="detail-row"><span>日出日落联动</span><span>未设置 ›</span></div>`;
+  } else if (device.id === 'camera') {
+    primary = `<div class="camera-preview-placeholder"><b>客厅 · 实时预览</b><small>Native Monitor / CameraPreview 保留帧缓冲</small><button data-action="native-preview">全屏预览</button></div>`;
+    controls = `<section class="detail-section"><h3>安防能力</h3>${detailOptions(['AI 守护', '隐私模式', '移动侦测'], 'AI 守护', 'cameraMode')}</section><div class="detail-row"><span>录像与回放</span><span>最近 7 天 ›</span></div><div class="detail-row"><span>画面叠加</span><span>显示 AI 事件 ›</span></div>`;
+  } else if (device.id === 'door') {
+    primary = `<div class="device-primary"><div><p>门锁状态</p><strong>${device.on ? '已上锁' : '已解锁'}</strong></div><button data-action="toggle-device" data-device-id="door">${device.on ? '临时解锁' : '立即上锁'}</button></div>`;
+    controls = `<div class="detail-row"><span>剩余电量</span><span>${device.battery}%</span></div><div class="detail-row"><span>临时密码</span><span>管理 ›</span></div><div class="detail-row"><span>开锁记录</span><span>今天 2 条 ›</span></div>`;
+  } else {
+    primary = `<div class="device-primary"><div><p>家庭音响</p><strong>${device.on ? '正在播放' : '待机中'}</strong></div><button data-action="toggle-device" data-device-id="speaker">${device.on ? '暂停播放' : '开始播放'}</button></div>`;
+    controls = `<section class="detail-section"><h3>音量</h3><input class="detail-slider" type="range" min="0" max="100" value="${device.volume}" data-property="volume" /></section><div class="detail-row"><span>播放队列</span><span>Last Dance ›</span></div><div class="detail-row"><span>定时关闭</span><span>未设置 ›</span></div>`;
+  }
+  $('#device-sheet-body').innerHTML = `${primary}${controls}<button class="outline-button" data-action="open-device-settings">设备设置</button>`;
+}
+
+function openDevice(id) {
+  if (!deviceById(id)) return;
+  state.activeDeviceId = id;
+  renderDeviceDetail();
+  $('#device-sheet').classList.add('open');
+  $('#device-sheet').setAttribute('aria-hidden', 'false');
+}
+
+function closeDevice() {
+  $('#device-sheet').classList.remove('open');
+  $('#device-sheet').setAttribute('aria-hidden', 'true');
+  state.activeDeviceId = null;
 }
 
 function switchPage(page) {
@@ -76,6 +132,7 @@ function switchPage(page) {
   $$('.page').forEach((node) => node.classList.toggle('active', node.dataset.page === page));
   $$('.nav-item').forEach((node) => node.classList.toggle('active', node.dataset.nav === page));
   $('#agent-sheet').classList.remove('open');
+  closeDevice();
 }
 
 function toggleDevice(id) {
@@ -88,14 +145,16 @@ function toggleDevice(id) {
     state.devices.find((device) => device.id === 'curtain').detail = state.curtainOpen ? '已打开 100%' : '已关闭';
     showToast(state.curtainOpen ? '窗帘已打开' : '窗帘已关闭');
   } else {
-    const device = state.devices.find((item) => item.id === id);
+    const device = deviceById(id);
     if (device) {
       device.on = !device.on;
+      if (id === 'door') device.detail = device.on ? '已上锁 · 电量 82%' : '已解锁 · 请注意安全';
       showToast(`${device.name}${device.on ? '已开启' : '已关闭'}`);
     }
   }
   state.revision += 1;
   renderDevices();
+  if (state.activeDeviceId === id) renderDeviceDetail();
 }
 
 function runScene(name) {
@@ -126,19 +185,67 @@ function askAgent(prompt) {
 document.addEventListener('click', (event) => {
   const nav = event.target.closest('[data-nav]');
   const scene = event.target.closest('[data-scene]');
-  const device = event.target.closest('[data-device]');
   const action = event.target.closest('[data-action]');
   if (nav) switchPage(nav.dataset.nav);
   if (scene) runScene(scene.dataset.scene);
   if (action?.dataset.action === 'ac-down') { adjustTemperature(-1); return; }
   if (action?.dataset.action === 'ac-up') { adjustTemperature(1); return; }
-  if (device) toggleDevice(device.dataset.device);
+  if (action?.dataset.action === 'detail-temperature') { adjustTemperature(Number(action.dataset.delta)); return; }
+  if (action?.dataset.action === 'toggle-device') { toggleDevice(action.dataset.deviceId); return; }
+  if (action?.dataset.action === 'close-device') { closeDevice(); return; }
+  if (action?.dataset.action === 'favorite-device') { showToast('已加入常用设备'); return; }
+  if (action?.dataset.action === 'native-preview') { showToast('真机将从 QuickApp 页面交接至 Native Monitor'); return; }
+  if (action?.dataset.action === 'open-device-settings') { showToast('设备设置将由原生服务提供参数页'); return; }
+  if (action?.dataset.action === 'set-device-option') {
+    const device = deviceById(state.activeDeviceId);
+    if (!device) return;
+    const { property, value } = action.dataset;
+    if (property === 'curtainPreset') {
+      device.position = value === '全开' ? 100 : value === '关闭' ? 0 : 50;
+      device.on = device.position > 0;
+      state.curtainOpen = device.on;
+      device.detail = device.position === 100 ? '已打开 100%' : `已打开 ${device.position}%`;
+    } else {
+      device[property] = value;
+      if (property === 'mode' && device.id === 'ac') device.detail = `${device.temperature}°C · ${value}模式`;
+      if (property === 'color' && device.type === 'light') device.detail = `亮度 ${device.brightness}% · ${value}`;
+    }
+    state.revision += 1;
+    renderDevices();
+    renderDeviceDetail();
+    showToast(`${device.name}已更新 · 等待真实状态确认`);
+    return;
+  }
+  const openDeviceButton = event.target.closest('[data-open-device]');
+  if (openDeviceButton) { openDevice(openDeviceButton.dataset.openDevice); return; }
   if (action?.dataset.action === 'open-agent') { $('#agent-sheet').classList.add('open'); $('#agent-sheet').setAttribute('aria-hidden', 'false'); }
   if (action?.dataset.action === 'close-agent') { $('#agent-sheet').classList.remove('open'); $('#agent-sheet').setAttribute('aria-hidden', 'true'); }
   if (action?.dataset.action === 'monitor') showToast('真机阶段将页面级交接至 Native Monitor');
   if (action?.dataset.action === 'trigger-alert') showToast('AI 提醒：客厅检测到人员活动（网页演示）');
   const prompt = event.target.closest('[data-prompt]');
   if (prompt) askAgent(prompt.dataset.prompt);
+});
+
+document.addEventListener('input', (event) => {
+  const control = event.target.closest('[data-property]');
+  const device = deviceById(state.activeDeviceId);
+  if (!control || !device) return;
+  const value = Number(control.value);
+  if (control.dataset.property === 'brightness') {
+    device.brightness = value;
+    device.detail = `亮度 ${value}% · ${device.color}`;
+  } else if (control.dataset.property === 'position') {
+    device.position = value;
+    device.on = value > 0;
+    state.curtainOpen = device.on;
+    device.detail = value === 0 ? '已关闭' : `已打开 ${value}%`;
+  } else if (control.dataset.property === 'volume') {
+    device.volume = value;
+    device.detail = device.on ? `正在播放 · 音量 ${value}%` : `待机中 · 音量 ${value}%`;
+  } else return;
+  state.revision += 1;
+  renderDevices();
+  renderDeviceDetail();
 });
 
 $('#agent-form').addEventListener('submit', (event) => { event.preventDefault(); askAgent($('#agent-input').value); $('#agent-input').value = ''; });
