@@ -3,6 +3,7 @@ const state = {
   lightsOn: true,
   curtainOpen: true,
   activeDeviceId: null,
+  activeRoom: '全部',
   revision: 12,
   scenes: [
     { name: '回家模式', icon: 'home', desc: '温暖灯光 · 新风开启', color: '#c78855' },
@@ -12,11 +13,12 @@ const state = {
   ],
   devices: [
     { id: 'living-light', name: '客厅主灯', room: '客厅', type: 'light', icon: 'bulb', on: true, detail: '亮度 70% · 暖白光', brightness: 70, color: '暖白光' },
-    { id: 'desk-light', name: '阅读灯', room: '书房', type: 'light', icon: 'lamp', on: true, detail: '亮度 35% · 柔光', brightness: 35, color: '柔光' },
     { id: 'ac', name: '客厅空调', room: '客厅', type: 'air', icon: 'air-conditioning', on: true, detail: '26°C · 舒适模式', temperature: 26, mode: '舒适', fan: '自动' },
     { id: 'curtain', name: '客厅窗帘', room: '客厅', type: 'curtain', icon: 'blinds', on: true, detail: '已打开 100%', position: 100 },
     { id: 'speaker', name: '家庭音响', room: '卧室', type: 'media', icon: 'boombox', on: false, detail: '待机中', volume: 38 },
-    { id: 'door', name: '入户门锁', room: '玄关', type: 'safe', icon: 'lock', on: true, detail: '已上锁 · 电量 82%', battery: 82 },
+    { id: 'bedside-light', name: '床头灯', room: '卧室', type: 'light', icon: 'lamp', on: true, detail: '亮度 35% · 柔光', brightness: 35, color: '柔光' },
+    { id: 'kitchen-light', name: '厨房主灯', room: '厨房', type: 'light', icon: 'lamp-2', on: true, detail: '亮度 85% · 自然光', brightness: 85, color: '自然光' },
+    { id: 'bath-fan', name: '卫生间排风', room: '卫生间', type: 'air', icon: 'propeller', on: false, detail: '已关闭 · 自动除湿', mode: '自动', fan: '低风' },
     { id: 'camera', name: '摄像头 G3', room: '客厅', type: 'safe', icon: 'camera', on: true, detail: '在线 · AI 守护已开启', battery: null }
   ]
 };
@@ -47,7 +49,10 @@ function renderScenes() {
 }
 
 function renderDevices() {
-  $('#device-grid').innerHTML = state.devices.map((device) => `
+  const visibleDevices = state.activeRoom === '全部'
+    ? state.devices
+    : state.devices.filter((device) => device.room === state.activeRoom);
+  $('#device-grid').innerHTML = visibleDevices.map((device) => `
     <button class="device-card" data-open-device="${device.id}">
       <img class="device-icon ${device.type}" src="${iconPath(device.icon)}" alt="" />
       <b>${device.name}</b><small>${device.detail}</small>
@@ -59,6 +64,7 @@ function renderDevices() {
   if (quickLight) quickLight.textContent = state.lightsOn ? '3 组已开启' : '全部已关闭';
   if (lightSummary) lightSummary.textContent = state.lightsOn ? '照明 3 组已开启' : '照明已全部关闭';
   if (curtainLabel) curtainLabel.textContent = state.curtainOpen ? '已打开' : '已关闭';
+  $$('.filter').forEach((node) => node.classList.toggle('active', node.dataset.room === state.activeRoom));
   $$('[data-device-id="living-light"] .toggle').forEach((node) => node.classList.toggle('on', state.lightsOn));
   $$('[data-device-id="curtain"] .toggle').forEach((node) => node.classList.toggle('on', state.curtainOpen));
 }
@@ -94,6 +100,9 @@ function renderDeviceDetail() {
   if (device.id === 'ac') {
     primary = `<div class="device-primary"><div><p>当前设定温度</p><strong>${device.temperature}°C</strong></div><div class="detail-stepper"><button data-action="detail-temperature" data-delta="-1">−</button><button data-action="detail-temperature" data-delta="1">＋</button></div></div>`;
     controls = `<section class="detail-section"><h3>运行模式</h3>${detailOptions(['舒适', '制冷', '除湿', '送风'], device.mode, 'mode')}</section><section class="detail-section"><h3>风速</h3>${detailOptions(['自动', '低风', '中风', '高风'], device.fan, 'fan')}</section><div class="detail-row"><span>摆风</span><span>上下自动 ›</span></div><div class="detail-row"><span>睡眠定时</span><span>未设置 ›</span></div>`;
+  } else if (device.type === 'air') {
+    primary = `<div class="device-primary"><div><p>运行状态</p><strong>${device.on ? '运行中' : '已关闭'}</strong></div><button class="detail-switch" data-action="toggle-device" data-device-id="${device.id}"><i class="toggle ${device.on ? 'on' : ''}"></i>${device.on ? '已开启' : '已关闭'}</button></div>`;
+    controls = `<section class="detail-section"><h3>运行模式</h3>${detailOptions(['自动', '换气', '除湿', '强劲'], device.mode, 'mode')}</section><section class="detail-section"><h3>风速</h3>${detailOptions(['低风', '中风', '高风'], device.fan, 'fan')}</section><div class="detail-row"><span>定时关闭</span><span>未设置 ›</span></div>`;
   } else if (device.type === 'light') {
     primary = `<div class="device-primary"><div><p>亮度</p><strong>${device.brightness}%</strong></div><button class="detail-switch" data-action="toggle-device" data-device-id="${device.id}"><i class="toggle ${device.on ? 'on' : ''}"></i>${device.on ? '已开启' : '已关闭'}</button></div>`;
     controls = `<section class="detail-section"><h3>亮度调节</h3><input class="detail-slider" type="range" min="1" max="100" value="${device.brightness}" data-property="brightness" /></section><section class="detail-section"><h3>灯光效果</h3>${detailOptions(['暖白光', '自然光', '冷白光', '夜灯'], device.color, 'color')}</section><div class="detail-row"><span>延时关灯</span><span>未设置 ›</span></div>`;
@@ -138,7 +147,7 @@ function switchPage(page) {
 function toggleDevice(id) {
   if (id === 'living-light') {
     state.lightsOn = !state.lightsOn;
-    state.devices.filter((device) => ['living-light', 'desk-light'].includes(device.id)).forEach((device) => { device.on = state.lightsOn; });
+    state.devices.filter((device) => device.type === 'light').forEach((device) => { device.on = state.lightsOn; });
     showToast(state.lightsOn ? '全屋灯光已打开 · 等待真实状态确认' : '全屋灯光已关闭 · 等待真实状态确认');
   } else if (id === 'curtain') {
     state.curtainOpen = !state.curtainOpen;
@@ -162,7 +171,7 @@ function runScene(name) {
   if (name === '睡眠模式' || name === '离家模式') { state.lightsOn = false; }
   if (name === '回家模式') { state.lightsOn = true; state.curtainOpen = true; }
   state.devices.find((device) => device.id === 'living-light').on = state.lightsOn;
-  state.devices.find((device) => device.id === 'desk-light').on = state.lightsOn;
+  state.devices.filter((device) => device.type === 'light').forEach((device) => { device.on = state.lightsOn; });
   state.devices.find((device) => device.id === 'curtain').detail = state.curtainOpen ? '已打开 100%' : '已关闭';
   state.revision += 1;
   renderDevices();
@@ -185,9 +194,11 @@ function askAgent(prompt) {
 document.addEventListener('click', (event) => {
   const nav = event.target.closest('[data-nav]');
   const scene = event.target.closest('[data-scene]');
+  const roomFilter = event.target.closest('[data-room]');
   const action = event.target.closest('[data-action]');
   if (nav) switchPage(nav.dataset.nav);
   if (scene) runScene(scene.dataset.scene);
+  if (roomFilter) { state.activeRoom = roomFilter.dataset.room; renderDevices(); return; }
   if (action?.dataset.action === 'ac-down') { adjustTemperature(-1); return; }
   if (action?.dataset.action === 'ac-up') { adjustTemperature(1); return; }
   if (action?.dataset.action === 'detail-temperature') { adjustTemperature(Number(action.dataset.delta)); return; }
