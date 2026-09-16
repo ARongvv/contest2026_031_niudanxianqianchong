@@ -32,7 +32,11 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define ESP_HOSTED_WLAN_RX_QUOTA 4
+/* TLS certificate and HTTP response bursts can contain more packets than
+ * the NETDEV_RX_WORK consumer drains in one scheduling interval.
+ */
+
+#define ESP_HOSTED_WLAN_RX_QUOTA 8
 #define ESP_HOSTED_WLAN_TX_QUOTA 1
 
 /****************************************************************************

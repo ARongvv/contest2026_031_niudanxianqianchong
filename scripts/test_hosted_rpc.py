@@ -46,6 +46,7 @@ struct esp_hosted_transport_s {
        rpc_pending;
   int rpc_lock, rpc_sem, rpc_result;
   uint32_t rpc_uid, rpc_response_id;
+  uint16_t tx_buffer_count;
   void *sdio;
   esp_hosted_transport_wlan_rx_t wlan_rx;
   void *wlan_rx_arg;
@@ -60,9 +61,18 @@ static unsigned int link_changes;
 struct transfer_call_s {
   uint32_t argument;
   size_t length;
+  void *buffer;
 };
 static struct transfer_call_s transfers[16];
 static unsigned int transfer_count;
+static unsigned int fail_transfer;
+static int tx_wait_result;
+static int esp_hosted_transport_wait_tx_buffers(
+    struct esp_hosted_transport_s *t, unsigned int needed) {
+  (void)t;
+  assert(needed == 1);
+  return tx_wait_result;
+}
 static int nxmutex_lock(int *lock) { assert(!*lock); *lock = 1; return 0; }
 static void nxmutex_unlock(int *lock) { assert(*lock); *lock = 0; }
 static int nxsem_trywait(int *sem) { (void)sem; return -EAGAIN; }
@@ -99,8 +109,9 @@ static int esp_hosted_sdio_transfer(void *sdio, uint32_t argument,
   assert(block_size == 512 && length <= 4096 && transfer_count < 16);
   transfers[transfer_count].argument = argument;
   transfers[transfer_count].length = length;
+  transfers[transfer_count].buffer = buffer;
   transfer_count++;
-  return 0;
+  return transfer_count == fail_transfer ? -EIO : 0;
 }
 static void dump(void) {
   for (size_t i = 0; i < captured_length; i++) printf("%02x", captured[i]);
@@ -219,6 +230,56 @@ int main(void) {
     assert(transfer_count == 3 && transfers[0].length == 4096 &&
            transfers[1].length == 4096 && transfers[2].length == 1);
   }
+  {
+    uint8_t packet[1536];
+    /* All lengths, including word/512-byte boundaries and full MTU.
+     * Check the real send path, CMD53 direction/count/address and pointer
+     * progression, not just the receive helper.
+     */
+    for (size_t length = 1; length <= sizeof(packet); length++) {
+      size_t offset = 0;
+      uint16_t previous = g_transport.tx_buffer_count;
+      transfer_count = 0;
+      assert(esp_hosted_transport_send_packet_locked(&g_transport,
+                                                    packet, length) == 0);
+      assert(g_transport.tx_buffer_count == (previous + 1) % 4096);
+      for (unsigned int i = 0; i < transfer_count; i++) {
+        uint32_t arg = transfers[i].argument;
+        assert(arg & (UINT32_C(1) << 31));
+        assert((arg >> 9 & 0x1ffff) ==
+               ESP_HOSTED_TRANSPORT_SLC_FIFO_END - length + offset);
+        assert(transfers[i].buffer == packet + offset);
+        if (arg & (UINT32_C(1) << 27)) {
+          assert((arg & 0x1ff) * 512 == transfers[i].length);
+        } else {
+          assert(transfers[i].length <= 512);
+          assert((arg & 0x1ff) == transfers[i].length % 512);
+        }
+        offset += transfers[i].length;
+      }
+      assert(offset == length);
+    }
+    for (unsigned int failed = 1; failed <= 3; failed++) {
+      uint16_t previous = g_transport.tx_buffer_count;
+      transfer_count = 0;
+      fail_transfer = failed;
+      assert(esp_hosted_transport_send_packet_locked(&g_transport,
+                                                    packet, 1517) == -EIO);
+      assert(transfer_count == failed);
+      assert(g_transport.tx_buffer_count == previous);
+    }
+    fail_transfer = 0;
+    transfer_count = 0;
+    tx_wait_result = -ETIMEDOUT;
+    assert(esp_hosted_transport_send_packet_locked(&g_transport,
+                                                  packet, 600) == -ETIMEDOUT);
+    assert(transfer_count == 0);
+    tx_wait_result = 0;
+    assert(esp_hosted_transport_send_packet_locked(&g_transport,
+                                                  packet, 0) == -EMSGSIZE);
+    assert(esp_hosted_transport_send_packet_locked(&g_transport,
+                                                  packet, 1537) == -EMSGSIZE);
+  }
   g_transport.initialized = false;
   assert(esp_hosted_transport_register_wlan_rx(&g_transport, NULL, NULL)
          == -EPIPE);
@@ -331,7 +392,8 @@ def main():
         "send_scalar_request", "send_sta_config", "scalar_rpc",
         "set_wifi_mode", "set_wifi_storage_ram", "register_wlan_rx",
         "get_varint", "skip_field", "handle_sta_link_event",
-        "transfer_once", "transfer", "read_fifo",
+        "transfer_once", "transfer", "transfer_fifo", "read_fifo",
+        "send_packet_locked",
     ]
     constants = "\n".join(re.findall(
         r"^#define ESP_HOSTED_TRANSPORT_\w+[^\n]*(?:\n[ \t]+[^\n]*)*", source,
@@ -374,7 +436,8 @@ def main():
     print("PASS: storage/mode wire format, RPC errors/timeouts, STA credential "
           "boundaries, required nested messages and encoder bounds, "
           "callback removal after RX fault, STA carrier event handling, "
-          "unaligned and multi-transfer FIFO RX block/tail splitting")
+          "FIFO RX/TX splitting, all TX lengths 1..1536, transfer failures "
+          "and TX credit accounting")
 
 
 if __name__ == "__main__":

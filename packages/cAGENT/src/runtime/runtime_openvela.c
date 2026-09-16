@@ -135,6 +135,14 @@ void ov_mem_bulk_diag(const char *point)
 #define CAGENT_OV_TLS_HDR_BUF_SIZE 4096u
 #endif
 
+#ifndef CAGENT_OV_TLS_WRITE_CHUNK_SIZE
+#define CAGENT_OV_TLS_WRITE_CHUNK_SIZE 1024u
+#endif
+
+#if CAGENT_OV_TLS_WRITE_CHUNK_SIZE == 0
+#error CAGENT_OV_TLS_WRITE_CHUNK_SIZE must be positive
+#endif
+
 #ifndef CAGENT_OV_SOCKET_TIMEOUT_SEC
 #define CAGENT_OV_SOCKET_TIMEOUT_SEC 60
 #endif
@@ -289,6 +297,7 @@ static int ov_tls_wait_fd(const ov_tls_ctx_t *ctx, short events,
         ov_tls_diag("phase=%s wait invalid fd=%d events=0x%x",
                     phase ? phase : "tls", ctx ? ctx->net.fd : -1,
                     (unsigned int)events);
+        errno = EINVAL;
         return -1;
     }
     descriptor.fd = ctx->net.fd;
@@ -299,6 +308,7 @@ static int ov_tls_wait_fd(const ov_tls_ctx_t *ctx, short events,
         ov_tls_diag("phase=%s wait timeout fd=%d events=0x%x timeout_ms=%u",
                     phase ? phase : "tls", descriptor.fd,
                     (unsigned int)events, timeout_ms);
+        errno = ETIMEDOUT;
         return -1;
     }
     if (result < 0) {
@@ -310,10 +320,12 @@ static int ov_tls_wait_fd(const ov_tls_ctx_t *ctx, short events,
     ov_tls_diag("phase=%s wait ready fd=%d events=0x%x revents=0x%x",
                 phase ? phase : "tls", descriptor.fd,
                 (unsigned int)events, (unsigned int)descriptor.revents);
-    if (descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+    if ((descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) ||
+        !(descriptor.revents & events)) {
         ov_tls_diag("phase=%s wait socket_error fd=%d revents=0x%x",
                     phase ? phase : "tls", descriptor.fd,
                     (unsigned int)descriptor.revents);
+        errno = EIO;
         return -1;
     }
     return 0;
@@ -362,9 +374,11 @@ static int ov_tls_wait_io(ov_tls_ctx_t *ctx, int tls_ret,
 
     remaining_ms = deadline_ms ? ov_tls_remaining_ms(deadline_ms) :
                    fallback_timeout_ms;
-    if (remaining_ms == 0u ||
-        ov_tls_wait_fd(ctx, events, remaining_ms, phase) != 0) {
+    if (remaining_ms == 0u) {
         return AGENT_ERROR_TIMEOUT;
+    }
+    if (ov_tls_wait_fd(ctx, events, remaining_ms, phase) != 0) {
+        return errno == ETIMEDOUT ? AGENT_ERROR_TIMEOUT : AGENT_ERROR_NETWORK;
     }
 
     return AGENT_OK;
@@ -592,7 +606,15 @@ int ov_tls_connect(ov_tls_ctx_t *ctx,
         /* Non-blocking connect */
 
         int flags = fcntl(fd, F_GETFL, 0);
-        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+        if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0 ||
+            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO,
+                       &tv_conn, sizeof(tv_conn)) < 0) {
+            ov_tls_diag("phase=tcp configure_failed fd=%d errno=%d",
+                        fd, errno);
+            close(fd);
+            freeaddrinfo(res);
+            return AGENT_ERROR_NETWORK;
+        }
 
         ret = connect(fd, res->ai_addr, res->ai_addrlen);
         if (ret < 0 && errno == EINPROGRESS) {
@@ -743,15 +765,76 @@ int ov_tls_connect(ov_tls_ctx_t *ctx,
 
 /* ── HTTP/1.1 request write ─────────────────────────────────── */
 
+static int ov_tls_write_all(ov_tls_ctx_t *ctx,
+                            const unsigned char *buffer, size_t length,
+                            uint64_t deadline_ms,
+                            uint32_t fallback_timeout_ms,
+                            const char *phase)
+{
+    size_t written = 0;
+
+    while (written < length) {
+        uint32_t remaining_ms = deadline_ms ?
+            ov_tls_remaining_ms(deadline_ms) : fallback_timeout_ms;
+        struct timeval timeout;
+        int ret;
+
+        /* Check even after successful partial writes, not just WANT_*.
+         * Bound the underlying send as well as the subsequent poll.
+         */
+
+        if (remaining_ms == 0u) {
+            ov_tls_diag("phase=%s timeout written=%zu total=%zu",
+                        phase, written, length);
+            return AGENT_ERROR_TIMEOUT;
+        }
+        timeout.tv_sec = (time_t)(remaining_ms / 1000u);
+        timeout.tv_usec = (suseconds_t)(remaining_ms % 1000u) * 1000;
+        if (setsockopt(ctx->net.fd, SOL_SOCKET, SO_SNDTIMEO,
+                       &timeout, sizeof(timeout)) < 0) {
+            ov_tls_diag("phase=%s set_send_timeout_failed errno=%d",
+                        phase, errno);
+            return AGENT_ERROR_NETWORK;
+        }
+
+        ret = mbedtls_ssl_write(&ctx->ssl, buffer + written,
+                                length - written);
+
+        if (ret > 0) {
+            written += (size_t)ret;
+            continue;
+        }
+
+        if (ret == MBEDTLS_ERR_SSL_WANT_READ ||
+            ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
+            ret = ov_tls_wait_io(ctx, ret, deadline_ms,
+                                 fallback_timeout_ms, phase);
+            if (ret != AGENT_OK) {
+                return ret;
+            }
+
+            continue;
+        }
+
+        ov_tls_diag_mbed(phase, ret);
+        return AGENT_ERROR_NETWORK;
+    }
+
+    return AGENT_OK;
+}
+
 static int ov_tls_write_request(ov_tls_ctx_t *ctx,
                                  const char *method,
                                  const char *host,
                                  const char *path,
                                  const char *headers_str,
                                  const char *body,
-                                 size_t body_len)
+                                 size_t body_len,
+                                 uint32_t timeout_ms)
 {
     char *hdr = malloc(CAGENT_OV_TLS_HDR_BUF_SIZE);
+    uint32_t effective_timeout_ms;
+    uint64_t deadline_ms;
     if (!hdr) {
         return AGENT_ERROR_NOMEM;
     }
@@ -760,6 +843,16 @@ static int ov_tls_write_request(ov_tls_ctx_t *ctx,
     int pos = 0;
     int n;
     int ret;
+
+    effective_timeout_ms = timeout_ms ? timeout_ms :
+                           CAGENT_OV_SOCKET_TIMEOUT_SEC * 1000u;
+    deadline_ms = ov_tls_monotonic_ms();
+    if (!deadline_ms) {
+        ov_tls_diag("phase=http write clock_unavailable");
+        free(hdr);
+        return AGENT_ERROR_TIMEOUT;
+    }
+    deadline_ms += effective_timeout_ms;
 
 #define HDR_APPEND(fmt, ...)                                            \
     n = snprintf(hdr + pos, CAGENT_OV_TLS_HDR_BUF_SIZE - pos,          \
@@ -786,41 +879,46 @@ static int ov_tls_write_request(ov_tls_ctx_t *ctx,
     HDR_APPEND("\r\n");
 #undef HDR_APPEND
 
-    int written = 0;
-    while (written < pos) {
-        ret = mbedtls_ssl_write(&ctx->ssl,
-                                (const unsigned char *)(hdr + written),
-                                (size_t)(pos - written));
-        if (ret > 0) {
-            written += ret;
-        } else if (ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
-            continue;
-        } else {
-            ov_tls_diag_mbed("ssl_write header", ret);
-            free(hdr);
-            return AGENT_ERROR_NETWORK;
-        }
-    }
+    ov_tls_diag("phase=http write-header bytes=%d", pos);
+    ret = ov_tls_write_all(ctx, (const unsigned char *)hdr, (size_t)pos,
+                           deadline_ms, effective_timeout_ms,
+                           "http_write_header");
 
     free(hdr);
+    if (ret != AGENT_OK) {
+        return ret;
+    }
 
     if (body && body_len > 0) {
-        size_t bw = 0;
-        while (bw < body_len) {
-            ret = mbedtls_ssl_write(&ctx->ssl,
-                                    (const unsigned char *)(body + bw),
-                                    body_len - bw);
-            if (ret > 0) {
-                bw += (size_t)ret;
-            } else if (ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
-                continue;
-            } else {
-                ov_tls_diag_mbed("ssl_write body", ret);
-                return AGENT_ERROR_NETWORK;
+        size_t offset = 0;
+
+        ov_tls_diag("phase=http write-body bytes=%zu chunk=%u", body_len,
+                    (unsigned int)CAGENT_OV_TLS_WRITE_CHUNK_SIZE);
+        while (offset < body_len) {
+            size_t chunk_size = body_len - offset;
+
+            if (chunk_size > CAGENT_OV_TLS_WRITE_CHUNK_SIZE) {
+                chunk_size = CAGENT_OV_TLS_WRITE_CHUNK_SIZE;
             }
+
+            ret = ov_tls_write_all(ctx,
+                                   (const unsigned char *)body + offset,
+                                   chunk_size, deadline_ms,
+                                   effective_timeout_ms,
+                                   "http_write_body");
+            if (ret != AGENT_OK) {
+                ov_tls_diag("phase=http write-body failed offset=%zu "
+                            "total=%zu err=%d", offset, body_len, ret);
+                return ret;
+            }
+
+            offset += chunk_size;
+            ov_tls_diag("phase=http write-body progress=%zu/%zu",
+                        offset, body_len);
         }
     }
 
+    ov_tls_diag("phase=http write-complete");
     return AGENT_OK;
 }
 
@@ -1014,7 +1112,8 @@ static int ov_http_post(const agent_http_request_t *request,
                                 request->path,
                                 request->headers,
                                 (const char *)request->body,
-                                request->body_size);
+                                request->body_size,
+                                request->timeout_ms);
     if (ret != AGENT_OK) {
         ov_tls_diag("http_post write failed err=%d", ret);
         ov_tls_ctx_free(&ctx);

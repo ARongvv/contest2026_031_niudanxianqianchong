@@ -375,9 +375,9 @@ static int esp_hosted_transport_read_registers(
   return ret;
 }
 
-static int esp_hosted_transport_read_fifo(
-  FAR struct esp_hosted_transport_s *transport, FAR uint8_t *buffer,
-  size_t length)
+static int esp_hosted_transport_transfer_fifo(
+  FAR struct esp_hosted_transport_s *transport, bool write,
+  FAR uint8_t *buffer, size_t length)
 {
   size_t block_length;
   size_t transfer_length;
@@ -386,8 +386,9 @@ static int esp_hosted_transport_read_fifo(
 
   /* The C6 can accumulate its complete RX queue while the P4 worker is
    * delayed.  CMD53 has a 4096-byte transfer limit, and byte mode cannot
-   * encode more than 512 bytes.  Drain the FIFO in full block transfers and
-   * finish each final fragment with a byte-mode transfer.
+   * encode more than 512 bytes.  Both RX and TX use full block transfers
+   * followed by a byte-mode tail.  FIFO_END minus the remaining length
+   * identifies the continuation of the same packet, not a new packet.
    */
 
   while (length != 0)
@@ -399,7 +400,7 @@ static int esp_hosted_transport_read_fifo(
       if (block_length != 0)
         {
           ret = esp_hosted_transport_transfer(
-            transport, false, address, buffer, block_length, true);
+            transport, write, address, buffer, block_length, true);
           if (ret < 0)
             {
               return ret;
@@ -414,7 +415,7 @@ static int esp_hosted_transport_read_fifo(
       if (transfer_length != 0)
         {
           ret = esp_hosted_transport_transfer(
-            transport, false, address, buffer, transfer_length, false);
+            transport, write, address, buffer, transfer_length, false);
           if (ret < 0)
             {
               return ret;
@@ -427,6 +428,14 @@ static int esp_hosted_transport_read_fifo(
     }
 
   return OK;
+}
+
+static int esp_hosted_transport_read_fifo(
+  FAR struct esp_hosted_transport_s *transport, FAR uint8_t *buffer,
+  size_t length)
+{
+  return esp_hosted_transport_transfer_fifo(transport, false,
+                                             buffer, length);
 }
 
 static uint16_t esp_hosted_transport_checksum(FAR const uint8_t *packet,
@@ -482,8 +491,8 @@ static int esp_hosted_transport_wait_tx_buffers(
       available %= ESP_HOSTED_TRANSPORT_TX_TOKEN_MAX;
       if (available >= needed)
         {
-          syslog(LOG_INFO,
-                 "INFO: ESP-Hosted C6 TX buffers: token=0x%08" PRIx32
+          syslog(LOG_DEBUG,
+                 "DEBUG: ESP-Hosted C6 TX buffers: token=0x%08" PRIx32
                  " available=%u needed=%u\n", token, available, needed);
           return OK;
         }
@@ -516,15 +525,20 @@ static int esp_hosted_transport_send_packet_locked(
   ret = esp_hosted_transport_wait_tx_buffers(transport, buffers);
   if (ret == OK)
     {
-      ret = esp_hosted_transport_transfer(
-        transport, true, ESP_HOSTED_TRANSPORT_SLC_FIFO_END - packet_length,
-        packet, packet_length, false);
+      ret = esp_hosted_transport_transfer_fifo(transport, true, packet,
+                                               packet_length);
       if (ret == OK)
         {
           transport->tx_buffer_count =
             (transport->tx_buffer_count + buffers) %
             ESP_HOSTED_TRANSPORT_TX_TOKEN_MAX;
         }
+    }
+
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: ESP-Hosted C6 TX: bytes=%zu result=%d\n",
+             packet_length, ret);
     }
 
   return ret;
