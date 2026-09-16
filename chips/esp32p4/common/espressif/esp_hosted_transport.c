@@ -70,7 +70,11 @@
 #define ESP_HOSTED_TRANSPORT_LEN_OFFSET   16
 #define ESP_HOSTED_TRANSPORT_SLC_REGISTER_BYTES   20
 #define ESP_HOSTED_TRANSPORT_INIT_PACKET_MAX      256
-#define ESP_HOSTED_TRANSPORT_RX_PACKET_MAX       1600
+#define ESP_HOSTED_TRANSPORT_RX_FRAME_BYTES      1600
+#define ESP_HOSTED_TRANSPORT_RX_QUEUE_DEPTH        20
+#define ESP_HOSTED_TRANSPORT_RX_PACKET_MAX \
+  (ESP_HOSTED_TRANSPORT_RX_FRAME_BYTES * ESP_HOSTED_TRANSPORT_RX_QUEUE_DEPTH)
+#define ESP_HOSTED_TRANSPORT_SDIO_TRANSFER_MAX   4096
 #define ESP_HOSTED_TRANSPORT_INIT_WAIT_RETRIES    100
 #define ESP_HOSTED_TRANSPORT_INIT_WAIT_US       10000
 #define ESP_HOSTED_TRANSPORT_TX_WAIT_RETRIES       10
@@ -375,38 +379,54 @@ static int esp_hosted_transport_read_fifo(
   FAR struct esp_hosted_transport_s *transport, FAR uint8_t *buffer,
   size_t length)
 {
-  size_t block_length = length & ~((size_t)511);
+  size_t block_length;
+  size_t transfer_length;
   uint32_t address = ESP_HOSTED_TRANSPORT_SLC_FIFO_END - length;
   int ret;
 
-  /* CMD53 byte mode cannot encode more than 512 bytes.  FIFO packet sizes
-   * are not necessarily 512-byte aligned, so read the full blocks first and
-   * finish with a byte-mode tail.  A 600-byte packet, for example, must be
-   * transferred as one 512-byte block followed by 88 bytes, rather than as
-   * an invalid 600-byte byte-mode command.
+  /* The C6 can accumulate its complete RX queue while the P4 worker is
+   * delayed.  CMD53 has a 4096-byte transfer limit, and byte mode cannot
+   * encode more than 512 bytes.  Drain the FIFO in full block transfers and
+   * finish each final fragment with a byte-mode transfer.
    */
 
-  if (block_length != 0)
+  while (length != 0)
     {
-      ret = esp_hosted_transport_transfer(transport, false, address, buffer,
-                                          block_length, true);
-      if (ret < 0)
+      transfer_length = length > ESP_HOSTED_TRANSPORT_SDIO_TRANSFER_MAX ?
+                        ESP_HOSTED_TRANSPORT_SDIO_TRANSFER_MAX : length;
+      block_length = transfer_length & ~((size_t)511);
+
+      if (block_length != 0)
         {
-          return ret;
+          ret = esp_hosted_transport_transfer(
+            transport, false, address, buffer, block_length, true);
+          if (ret < 0)
+            {
+              return ret;
+            }
+
+          address += block_length;
+          buffer += block_length;
+          length -= block_length;
+          transfer_length -= block_length;
         }
 
-      address += block_length;
-      buffer += block_length;
-      length -= block_length;
+      if (transfer_length != 0)
+        {
+          ret = esp_hosted_transport_transfer(
+            transport, false, address, buffer, transfer_length, false);
+          if (ret < 0)
+            {
+              return ret;
+            }
+
+          address += transfer_length;
+          buffer += transfer_length;
+          length -= transfer_length;
+        }
     }
 
-  if (length == 0)
-    {
-      return OK;
-    }
-
-  return esp_hosted_transport_transfer(transport, false, address, buffer,
-                                       length, false);
+  return OK;
 }
 
 static uint16_t esp_hosted_transport_checksum(FAR const uint8_t *packet,
@@ -1552,6 +1572,11 @@ static int esp_hosted_transport_receive_one(
   if (packet_length == 0 ||
       packet_length > ESP_HOSTED_TRANSPORT_RX_PACKET_MAX)
     {
+      syslog(LOG_ERR,
+             "ERROR: ESP-Hosted C6 RX: invalid backlog=%zu max=%u"
+             " counter=0x%05" PRIx32 " previous=0x%05" PRIx32 "\n",
+             packet_length, (unsigned int)ESP_HOSTED_TRANSPORT_RX_PACKET_MAX,
+             packet_count, transport->rx_packet_count);
       ret = -EMSGSIZE;
       goto out;
     }

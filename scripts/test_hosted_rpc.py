@@ -61,7 +61,7 @@ struct transfer_call_s {
   uint32_t argument;
   size_t length;
 };
-static struct transfer_call_s transfers[8];
+static struct transfer_call_s transfers[16];
 static unsigned int transfer_count;
 static int nxmutex_lock(int *lock) { assert(!*lock); *lock = 1; return 0; }
 static void nxmutex_unlock(int *lock) { assert(*lock); *lock = 0; }
@@ -96,7 +96,7 @@ static int esp_hosted_sdio_transfer(void *sdio, uint32_t argument,
                                     void *buffer, size_t length,
                                     uint16_t block_size) {
   (void)sdio; (void)buffer;
-  assert(block_size == 512 && transfer_count < 8);
+  assert(block_size == 512 && length <= 4096 && transfer_count < 16);
   transfers[transfer_count].argument = argument;
   transfers[transfer_count].length = length;
   transfer_count++;
@@ -184,7 +184,7 @@ int main(void) {
            sizeof(malformed), true) == -EPROTO);
   }
   {
-    uint8_t fifo[1600];
+    uint8_t fifo[8193];
     const uint32_t fifo_start = ESP_HOSTED_TRANSPORT_SLC_FIFO_END - 600;
     g_transport.function_ready = true;
     g_transport.sdio = &g_transport;
@@ -213,6 +213,11 @@ int main(void) {
     assert(esp_hosted_transport_read_fifo(&g_transport, fifo, 1537) == 0);
     assert(transfer_count == 2 && transfers[0].length == 1536 &&
            transfers[1].length == 1);
+
+    transfer_count = 0;
+    assert(esp_hosted_transport_read_fifo(&g_transport, fifo, 8193) == 0);
+    assert(transfer_count == 3 && transfers[0].length == 4096 &&
+           transfers[1].length == 4096 && transfers[2].length == 1);
   }
   g_transport.initialized = false;
   assert(esp_hosted_transport_register_wlan_rx(&g_transport, NULL, NULL)
@@ -329,7 +334,8 @@ def main():
         "transfer_once", "transfer", "read_fifo",
     ]
     constants = "\n".join(re.findall(
-        r"^#define ESP_HOSTED_TRANSPORT_\w+[^\n]*", source, re.M))
+        r"^#define ESP_HOSTED_TRANSPORT_\w+[^\n]*(?:\n[ \t]+[^\n]*)*", source,
+        re.M))
     functions = "\n".join(function(source, "esp_hosted_transport_" + name)
                           for name in names)
     with tempfile.TemporaryDirectory(prefix="hosted-rpc-test-") as directory:
@@ -368,7 +374,7 @@ def main():
     print("PASS: storage/mode wire format, RPC errors/timeouts, STA credential "
           "boundaries, required nested messages and encoder bounds, "
           "callback removal after RX fault, STA carrier event handling, "
-          "unaligned FIFO RX block/tail splitting")
+          "unaligned and multi-transfer FIFO RX block/tail splitting")
 
 
 if __name__ == "__main__":

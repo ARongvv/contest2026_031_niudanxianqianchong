@@ -32,10 +32,10 @@ if(CONFIG_SMART_HOME_DEMO)
   if(CONFIG_SMART_HOME_DEMO_OFFLINE_UI)
     list(APPEND SMART_HOME_SRCS src/net/smart_home_network_offline.c)
   else()
-    list(APPEND SMART_HOME_SRCS
-      src/net/smart_home_network.c
-      src/net/smart_home_wifi.c
-    )
+    list(APPEND SMART_HOME_SRCS src/net/smart_home_network.c)
+    if(NOT CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED)
+      list(APPEND SMART_HOME_SRCS src/net/smart_home_wifi.c)
+    endif()
   endif()
 
   if(CONFIG_SMART_HOME_NODE_GATEWAY OR CONFIG_SMART_HOME_MCP_BRIDGE OR CONFIG_SMART_HOME_APP_BRIDGE)

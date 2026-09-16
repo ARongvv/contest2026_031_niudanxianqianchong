@@ -261,6 +261,7 @@ config CAGENT_RUNTIME_OPENVELA_TLS
     bool "Enable mbedTLS HTTPS support in openvela runtime"
     default y
     select CRYPTO_MBEDTLS
+    select DEV_RANDOM if ARCH_HAVE_RNG
     help
       Compile mbedTLS-based HTTPS http_post callback into the
       openvela runtime adapter.  When disabled, http_post remains

@@ -117,6 +117,10 @@ void ov_mem_bulk_diag(const char *point)
 #include <sys/socket.h>
 #include <sys/types.h>
 
+#if defined(__NuttX__) && defined(CONFIG_DEV_RANDOM)
+#include <sys/random.h>
+#endif
+
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/entropy.h"
 #include "mbedtls/error.h"
@@ -172,6 +176,47 @@ static void ov_tls_diag_mbed(const char *step, int ret)
     ov_tls_diag("%s ret=-0x%04x", step, -ret);
 #endif
 }
+
+/*
+ * mbedTLS 4 on ESP targets needs a platform-specific entropy adapter.  The
+ * generic entropy context is not wired to NuttX's hardware RNG, even though
+ * ESP32-P4 exposes it as /dev/random.  Seed CTR-DRBG directly from that
+ * trusted device so HTTPS does not depend on the mbedTLS platform fallback.
+ */
+
+#if defined(__NuttX__) && defined(CONFIG_DEV_RANDOM)
+static int ov_tls_entropy_from_random_device(void *context,
+                                             unsigned char *output,
+                                             size_t length)
+{
+    size_t offset = 0;
+
+    (void)context;
+
+    while (offset < length)
+      {
+        ssize_t ret = getrandom(output + offset, length - offset,
+                                GRND_RANDOM);
+
+        if (ret > 0)
+          {
+            offset += (size_t)ret;
+            continue;
+          }
+
+        if (ret < 0 && errno == EINTR)
+          {
+            continue;
+          }
+
+        ov_tls_diag("entropy /dev/random failed ret=%zd errno=%d",
+                    ret, ret < 0 ? errno : 0);
+        return MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
+      }
+
+    return 0;
+}
+#endif
 
 /* ── Chunked transfer decoding ──────────────────────────────── */
 
@@ -457,9 +502,15 @@ int ov_tls_connect(ov_tls_ctx_t *ctx,
     mbedtls_ctr_drbg_init(&ctx->ctr_drbg);
     mbedtls_entropy_init(&ctx->entropy);
 
+#if defined(__NuttX__) && defined(CONFIG_DEV_RANDOM)
+    ret = mbedtls_ctr_drbg_seed(&ctx->ctr_drbg,
+                                ov_tls_entropy_from_random_device, NULL,
+                                (const unsigned char *)pers, strlen(pers));
+#else
     ret = mbedtls_ctr_drbg_seed(&ctx->ctr_drbg, mbedtls_entropy_func,
-                                 &ctx->entropy,
-                                 (const unsigned char *)pers, strlen(pers));
+                                &ctx->entropy,
+                                (const unsigned char *)pers, strlen(pers));
+#endif
     if (ret != 0) {
         syslog(LOG_ERR, "[%s] ctr_drbg_seed ret=-0x%04x\n", OV_TAG, -ret);
         ov_tls_diag_mbed("ctr_drbg_seed", ret);

@@ -31,7 +31,9 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
     CSRCS   += src/net/smart_home_network_offline.c
   else
     CSRCS   += src/net/smart_home_network.c
+  ifeq ($(CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED),)
     CSRCS   += src/net/smart_home_wifi.c
+  endif
   endif
   CSRCS     += src/skills/smart_home_skill_loader.c
   CSRCS     += src/skills/smart_home_scene_catalog.c
