@@ -5,6 +5,7 @@ const state = {
   activeDeviceId: null,
   activeRoom: '全部',
   modelBackend: 'DeepSeek',
+  activeSettingsSection: 'model',
   revision: 12,
   scenes: [
     { name: '回家模式', icon: 'home', desc: '温暖灯光 · 新风开启', color: '#c78855' },
@@ -142,6 +143,12 @@ function updateModelSummary() {
   if (summary) summary.textContent = `${state.modelBackend} · 就绪`;
 }
 
+function selectSettingsSection(section) {
+  state.activeSettingsSection = section;
+  $$('.settings-category').forEach((node) => node.classList.toggle('active', node.dataset.section === section));
+  $$('[data-settings-group]').forEach((node) => node.classList.toggle('active', node.dataset.settingsGroup === section));
+}
+
 function switchPage(page) {
   state.currentPage = page;
   $$('.page').forEach((node) => node.classList.toggle('active', node.dataset.page === page));
@@ -213,8 +220,8 @@ document.addEventListener('click', (event) => {
   if (action?.dataset.action === 'favorite-device') { showToast('已加入常用设备'); return; }
   if (action?.dataset.action === 'native-preview') { showToast('真机将从 QuickApp 页面交接至 Native Monitor'); return; }
   if (action?.dataset.action === 'open-device-settings') { showToast('设备设置将由原生服务提供参数页'); return; }
-  if (action?.dataset.action === 'toggle-settings-section') {
-    event.target.closest('.settings-group').classList.toggle('collapsed');
+  if (action?.dataset.action === 'select-settings-section') {
+    selectSettingsSection(action.dataset.section);
     return;
   }
   if (action?.dataset.action === 'test-model') { showToast(`${state.modelBackend} 连接测试成功（网页演示）`); return; }
