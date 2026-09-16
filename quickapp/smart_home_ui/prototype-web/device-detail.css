@@ -1,0 +1,29 @@
+/* 设备二级页：网页原型采用右侧抽屉，真机 QuickApp 可映射为同一页面语义。 */
+.device-sheet { position: absolute; z-index: 7; top: 64px; right: 0; bottom: 46px; width: 670px; padding: 18px 22px; overflow: auto; color: #27302d; background: #fbfaf8; border-left: 1px solid #ddd9d3; box-shadow: -18px 0 45px #534e4324; transform: translateX(102%); transition: transform .24s ease; }
+.device-sheet.open { transform: translateX(0); }
+.device-sheet-head { display: grid; grid-template-columns: 30px 1fr 30px; align-items: center; gap: 10px; }
+.device-sheet-head .icon-button { width: 30px; height: 30px; }
+#device-sheet-title b { display: block; font-size: 18px; }
+#device-sheet-title small { color: var(--muted); font-size: 11px; }
+.device-favorite { width: 30px; height: 30px; background: transparent; color: #b2743d; font-size: 24px; }
+.device-primary { display: flex; align-items: center; justify-content: space-between; min-height: 96px; margin: 16px 0 12px; padding: 16px 18px; border-radius: 18px; background: linear-gradient(135deg, #f3ebe3, #f6f2ec); }
+.device-primary p { margin: 0; color: #756c65; font-size: 12px; }
+.device-primary strong { display: block; margin-top: 4px; font-size: 34px; font-weight: 550; }
+.device-primary button { border-radius: 12px; padding: 9px 13px; background: #fff; color: #4e4036; }
+.detail-stepper { display: flex; align-items: center; gap: 11px; }
+.detail-stepper button { width: 41px; height: 41px; padding: 0; border-radius: 50%; font-size: 22px; }
+.detail-switch { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.detail-section { margin-top: 15px; }
+.detail-section h3 { margin: 0 0 8px; color: #69736f; font-size: 11px; letter-spacing: .6px; }
+.detail-options { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.detail-option { min-height: 46px; padding: 8px; border: 1px solid #e5e1db; border-radius: 11px; background: #fff; color: #59615e; font-size: 11px; }
+.detail-option.active { border-color: #9cbfad; background: #e8f2eb; color: #2e684b; }
+.detail-row { display: flex; align-items: center; min-height: 49px; padding: 0 3px; border-bottom: 1px solid #ebe8e2; color: #58615e; font-size: 12px; }
+.detail-row span:last-child { margin-left: auto; color: #293430; font-weight: 600; }
+.detail-slider { width: 180px; accent-color: #4f906a; }
+.camera-preview-placeholder { position: relative; height: 176px; margin: 16px 0 12px; overflow: hidden; border-radius: 17px; color: #f4f8f5; background: linear-gradient(135deg, #6b807d, #374a48 55%, #273634); }
+.camera-preview-placeholder::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(125deg, transparent 0 32px, #ffffff12 33px 34px); }
+.camera-preview-placeholder b, .camera-preview-placeholder small { position: absolute; z-index: 1; left: 16px; }
+.camera-preview-placeholder b { bottom: 32px; font-size: 15px; }.camera-preview-placeholder small { bottom: 16px; color: #d7e7df; }
+.camera-preview-placeholder button { position: absolute; z-index: 1; top: 14px; right: 14px; padding: 7px 10px; border-radius: 9px; background: #ffffffd9; color: #305244; font-size: 11px; }
+.device-sheet-body .outline-button { width: 100%; margin-top: 15px; }

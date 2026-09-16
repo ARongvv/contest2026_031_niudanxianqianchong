@@ -22,3 +22,4 @@
 .wifi-status i:nth-child(2) { height: 10px; opacity: .82; }
 .wifi-status i:nth-child(3) { height: 14px; }
 .top-clock { display: block; font-size: 22px; font-weight: 500; line-height: 1; letter-spacing: .2px; }
+.device-grid { grid-template-columns: repeat(4, 1fr); }
