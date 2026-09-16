@@ -1,0 +1,120 @@
+/* 浅色视觉原型主题：仅覆盖展示色，不改变卡片结构和业务交互。 */
+:root {
+  color-scheme: light;
+  --bg: #f3f1ee;
+  --surface: #fbfaf8;
+  --card: #ffffff;
+  --card-hi: #f8f7f5;
+  --muted: #78817f;
+  --text: #202725;
+  --line: rgba(42, 51, 48, .11);
+  --warm: #bd7832;
+  --blue: #4782a0;
+  --green: #438665;
+  --purple: #766cb4;
+  --danger: #b95f59;
+}
+
+body { background: radial-gradient(circle at 50% 0, #ffffff 0, #f4f1ed 56%, #eae7e1 100%); }
+.panel { background: #f7f6f3; border-color: #e3e0da; box-shadow: 0 28px 80px #625b4b2e; }
+.topbar { background: #fbfaf8eF; }
+.brand b { color: #5a8070; }
+.brand-mark { color: #fff; background: linear-gradient(135deg, #86baa4, #7198c5); }
+.room-tabs { background: #efede9; }
+.room-tab.active, .filter.active { background: #e2ede7; color: #244939; }
+.network { color: #68726f; }
+.avatar { background: linear-gradient(145deg, #a5a0dd, #736ba9); color: #fff; }
+.eyebrow { color: #7a8380; }
+.weather { color: #66716d; }
+.text-button { color: #346a54; }
+.scene-card { color: #382f2b; background: #f8eee9; }
+.scene-card:before { opacity: .34; background: radial-gradient(circle at 85% 5%, var(--scene-color), transparent 54%), linear-gradient(120deg, #fff7f2, #f6e9e2); }
+.scene-card small { color: #655c57; }
+.large-card, .security-card, .device-card, .scene-page-card, .monitor-card, .alert-card, .more-card { background: #fff; box-shadow: 0 4px 14px #5f55400c; }
+.device-card:hover, .more-card:hover { background: #f8f7f4; }
+.card-title { color: #27302d; }
+.icon-button { background: #e9e7e2; color: #53605b; }
+.quick-control { background: #fff; border-color: #e5e2dc; }
+.quick-control:hover { background: #f6f5f1; }
+.quick-icon.more { background: #ecebe7; color: #59625e; }
+.toggle { background: #c6cbc8; }
+.toggle:after { background: #fff; }
+.bottom-nav { background: #fbfaf8; }
+.nav-item { color: #7d8581; }
+.nav-item.active { color: #327557; }
+.filter { background: #ecebe7; }
+.outline-button { background: #fff; border-color: #d9d6cf; color: #3a4641; }
+.scene-page-card:after { opacity: .15; }
+.armed { color: #3a825e; }
+.monitor-art { background: linear-gradient(135deg, #6c7d7e, #354445 52%, #222d2f); }
+.monitor-grid { border-color: #d5f1e866; }
+.monitor-bar { color: #397e5b; }
+.alert-card .text-button { color: #a8534e; }
+.agent-sheet { color: #28312e; background: linear-gradient(135deg, #f8f5ff, #f0f4fa); border-color: #dedcea; box-shadow: 0 18px 50px #58516b26; }
+.agent-suggestions button { background: #e8e7f6; color: #45406f; }
+.agent-answer { background: #eaeef5; color: #414758; }
+#agent-input { border-color: #d7d4dd; background: #fff; color: #27302d; }
+#agent-form button { background: #756cba; color: #fff; }
+.toast { background: #fefdfb; color: #28543f; border-color: #d5e2da; box-shadow: 0 8px 22px #3e4d4520; }
+
+/* 首页异构卡片采用低饱和的暖白、雾蓝与鼠尾草色。 */
+.weather-tile { color: #26312f; background: radial-gradient(circle at 80% 18%, #b5d8e177 0, transparent 35%), linear-gradient(160deg, #edf5f5, #dcebec 58%, #d5e4e5); }
+.weather-symbol { color: #5c909d; text-shadow: 0 12px 24px #6caab033; }
+.weather-footer { color: #506866; }
+.weather-footer small { color: #71817e; }
+.scene-slot .scene-card { color: #513c34; background: #f6e7df; }
+.scene-slot .scene-card:before { background: radial-gradient(circle at 66% 30%, var(--scene-color), transparent 52%), linear-gradient(145deg, #fff5ef, #f4e2d8); }
+.ac-tile { color: #48342d; background: radial-gradient(circle at 80% 14%, #e3a38277, transparent 44%), linear-gradient(135deg, #fae8df, #f2d5c9); }
+.tile-icon { background: #fff7f0; color: #ad694b; }
+.tile-title small, .camera-room small, .music-tile small { color: #765d54; }
+.tile-power { background: #d97d52; }
+.tile-power:after { background: #fff; }
+.temperature-control button { color: #624338; background: #ffffffa8; }
+.camera-tile { color: #243432; background: linear-gradient(135deg, #e8f0ef, #cfdedc 68%); }
+.camera-tile:before { background: repeating-linear-gradient(125deg, transparent 0 29px, #43635c16 30px 31px); }
+.camera-tile .camera-live { color: #33805b; }
+.camera-enter { color: #4b6962; }
+.agent-tile { color: #56352c; background: radial-gradient(circle at 60% 74%, #ff9b5c9c 0, #f7c09666 12%, transparent 26%), linear-gradient(145deg, #fff0e8, #f6ddd1); }
+.agent-tile i { color: #fff; background: linear-gradient(135deg, #f09a54, #db6445); box-shadow: 0 0 20px #ed966766; }
+.agent-tile small { color: #785a50; }
+.music-tile { color: #513830; background: radial-gradient(circle at 83% 18%, #e1a18066, transparent 36%), linear-gradient(135deg, #f9e9e2, #f1d9cf); }
+.record { background: repeating-radial-gradient(circle, #4f4544 0 4px, #716867 5px 6px); color: #fac18c; }
+.status-tile { color: #30443c; background: linear-gradient(145deg, #edf4ed, #dce9e0); }
+.status-tile span { color: #4b7e60; }
+.status-tile small { color: #74847c; }
+
+/* 屏保也切换为浅色，仍保留轻量的呼吸提示。 */
+.screensaver { color: #26312e; background: radial-gradient(ellipse at 54% 28%, #ffffff 0, #eaf2ed 34%, #e6ece9 70%, #dce4e1 100%); }
+.screensaver::before { background: repeating-linear-gradient(125deg, transparent 0 75px, #4b8c7410 76px 77px); }
+.screensaver-top { color: #557169; }
+.screensaver-network { color: #377a5b; }
+.screensaver-network i { background: #56a477; box-shadow: 0 0 10px #56a47788; }
+.screensaver-center > p:first-child { color: #61736d; }
+.screensaver-center time { text-shadow: 0 8px 28px #5872661f; }
+.screensaver-weather { color: #4f6961; }
+.screensaver-summary { border-color: #98b5a855; background: #ffffffa6; color: #4d675f; }
+.screensaver-summary i { background: #8ea69b; }
+.swipe-hint { color: #517168; }
+.swipe-arrows { color: #3d8a68; }
+
+.top-status, .status-glyph { color: #384640; }
+.wifi-status i { background: #3d4d47; }
+
+/* 导入的图标均为透明底单色 PNG；网页仅在浅色主题下直接使用黑色母版。 */
+.top-status-icon { width: 21px; height: 21px; object-fit: contain; }
+.weather-symbol { width: 78px; height: 78px; object-fit: contain; }
+.tile-icon { display: block; object-fit: contain; padding: 3px; }
+.scene-slot .scene-icon { display: block; width: 35px; height: 35px; margin: 36px 0 5px; object-fit: contain; }
+.scene-page-icon { display: block; width: 33px; height: 33px; object-fit: contain; }
+.device-icon { display: block; object-fit: contain; padding: 6px; }
+.camera-asset { position: absolute; top: 40px; right: 18px; width: 60px; height: 60px; object-fit: contain; opacity: .34; }
+.agent-asset { width: 54px; height: 54px; margin: auto; object-fit: contain; opacity: .72; }
+.record { padding: 10px; object-fit: contain; background: #fff8f4; color: inherit; }
+.music-controls img { width: 19px; height: 19px; object-fit: contain; }
+.status-asset { position: absolute; top: 14px; right: 14px; width: 42px; height: 42px; object-fit: contain; opacity: .55; }
+.more-asset { width: 30px; height: 30px; object-fit: contain; }
+.nav-item img { width: 18px; height: 18px; object-fit: contain; }
+.screensaver-home { display: inline-flex; align-items: center; gap: 6px; }
+.screensaver-home img { width: 17px; height: 17px; object-fit: contain; }
+.screensaver-weather { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.screensaver-weather img { width: 20px; height: 20px; object-fit: contain; }

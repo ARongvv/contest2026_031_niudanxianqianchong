@@ -30,6 +30,16 @@ ESP32-P4 ISP 输出 RGB565、V4L2 多缓冲队列”的路径；改动文件、�
 单元吸收、本地 DSI overlay 保留”的策略，详见
 [ESP32-P4 上游成熟适配吸收计划](ESP32-P4上游成熟适配吸收计划.md)。
 
+## UI 与 QuickApp 设计
+
+| 文档 | 内容 |
+| --- | --- |
+| [智能家居中控面板 UI 设计方案](应用与AI/ESP32-P4X-智能家居中控面板UI设计方案.md) | 1024×600 中控面板的信息架构、交互、性能目标和 UI 模式取舍 |
+| [QuickApp UI 与原生服务分层方案](应用与AI/ESP32-P4X-SmartHome快应用UI与原生服务分层方案.md) | QuickApp、原生服务、cAGENT、设备数据与摄像头预览的边界 |
+| [QuickApp 模拟器最小闭环验证方案](应用与AI/ESP32-P4X-SmartHome-QuickApp模拟器最小闭环验证方案.md) | Goldfish 验证和迁移至 P4X 的阶段门 |
+| [UI 视觉资源设计与导入方案](应用与AI/ESP32-P4X-SmartHome-UI视觉资源设计与导入方案.md) | 图标、插画、字体资源及 LVGL/QuickApp 导入规范 |
+| [UI 资源清单](应用与AI/ESP32-P4X-SmartHome-UI资源清单.md) | 当前原型所需和已准备的视觉资源 |
+
 ## 当前验收目标
 
 最小 `nsh` 固件完成构建，并在 ESP32-P4 Function EV Board 上获得可交互的
