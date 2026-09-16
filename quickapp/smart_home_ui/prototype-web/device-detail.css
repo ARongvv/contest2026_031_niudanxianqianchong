@@ -1,5 +1,5 @@
 /* 设备二级页：网页原型采用右侧抽屉，真机 QuickApp 可映射为同一页面语义。 */
-.device-sheet { position: absolute; z-index: 7; top: 64px; right: 0; bottom: 46px; width: 670px; padding: 18px 22px; overflow: auto; color: #27302d; background: #fbfaf8; border-left: 1px solid #ddd9d3; box-shadow: -18px 0 45px #534e4324; transform: translateX(102%); transition: transform .24s ease; }
+.device-sheet { position: absolute; z-index: 7; top: 64px; right: 0; bottom: 64px; width: 670px; padding: 18px 22px; overflow: auto; color: #27302d; background: #fbfaf8; border-left: 1px solid #ddd9d3; box-shadow: -18px 0 45px #534e4324; transform: translateX(102%); transition: transform .24s ease; }
 .device-sheet.open { transform: translateX(0); }
 .device-sheet-head { display: grid; grid-template-columns: 30px 1fr 30px; align-items: center; gap: 10px; }
 .device-sheet-head .icon-button { width: 30px; height: 30px; }
