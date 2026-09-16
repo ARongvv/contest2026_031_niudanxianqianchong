@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7f6f3" />
+    <title>OpenVela AI Smart Home Panel</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="screensaver.css" />
+    <link rel="stylesheet" href="home-layout.css" />
+    <link rel="stylesheet" href="light-theme.css" />
+  </head>
+  <body>
+    <main class="preview-shell" aria-label="OpenVela 智能家居中控面板网页原型">
+      <section class="panel" id="panel">
+        <header class="topbar">
+          <button class="brand" data-nav="home" aria-label="返回首页">
+            <span class="brand-mark">⌂</span>
+            <span>OpenVela <b>HOME</b></span>
+          </button>
+          <div class="top-status" aria-label="系统状态">
+            <img class="top-status-icon" src="assets/icons/microphone.png" alt="麦克风可用" title="麦克风可用" />
+            <img class="top-status-icon" src="assets/icons/camera.png" alt="摄像头可用" title="摄像头可用" />
+            <img class="top-status-icon" src="assets/icons/moon.png" alt="勿扰模式已开启" title="勿扰模式已开启" />
+            <img class="top-status-icon" src="assets/icons/wifi.png" alt="家庭网络已连接" title="家庭网络已连接" />
+            <time class="top-clock" id="top-clock">10:28</time>
+          </div>
+        </header>
+
+        <section class="page active" data-page="home">
+          <div class="home-board">
+            <article class="board-tile weather-tile">
+              <p class="eyebrow" id="date-label">9月14日 星期一</p><time id="clock">10:28</time>
+              <img class="weather-symbol" src="assets/icons/cloud-rain.png" alt="阴转小雨" /><p class="weather-main">26°</p><p class="weather-copy">阴转小雨</p>
+              <div class="weather-footer"><span>◉ 78%</span><span>⌁ 优</span><small>深圳市南山区</small></div>
+            </article>
+            <div class="board-tile scene-slot" id="home-scenes"></div>
+            <article class="board-tile ac-tile" data-device="ac">
+              <div><img class="tile-icon air" src="assets/icons/air-conditioning.png" alt="空调" /><span class="tile-title">空调伴侣<small>客厅</small></span></div><i class="tile-power toggle on"></i>
+              <div class="temperature-control"><button data-action="ac-down">−</button><b><span id="ac-temperature">26</span>°</b><button data-action="ac-up">＋</button></div>
+            </article>
+            <button class="board-tile camera-tile" data-nav="security"><img class="camera-asset" src="assets/icons/camera.png" alt="" /><span class="camera-live">● 在线</span><span class="camera-room">摄像头 G3<small>客厅</small></span><span class="camera-enter">进入安防 ›</span></button>
+            <button class="board-tile agent-tile" data-action="open-agent"><span>Hi，小乔</span><img class="agent-asset" src="assets/icons/sparkle-2.png" alt="" /><small>问问家庭状态</small></button>
+            <button class="board-tile music-tile" data-device="speaker"><img class="record" src="assets/icons/music-circle-outline.png" alt="" /><p><b>Last Dance</b><small>卧室 · 家庭音响</small></p><div class="music-controls"><img src="assets/icons/player-track-prev.png" alt="上一首" /><img src="assets/icons/player-play.png" alt="播放" /><img src="assets/icons/player-track-next.png" alt="下一首" /></div></button>
+            <button class="board-tile status-tile" data-nav="devices"><img class="status-asset" src="assets/icons/home-shield.png" alt="" /><p class="eyebrow">家庭状态</p><b id="light-summary">照明 3 组已开启</b><span>门窗全部关闭</span><small>点击查看设备 ›</small></button>
+          </div>
+        </section>
+
+        <section class="page" data-page="devices">
+          <div class="page-header"><div><p class="eyebrow">全屋设备</p><h1>设备控制</h1></div><p class="page-hint">点按切换，长按进入精细设置</p></div>
+          <div class="device-filters" role="tablist"><button class="filter active">全部</button><button class="filter">照明</button><button class="filter">冷暖新风</button><button class="filter">遮阳</button><button class="filter">影音</button></div>
+          <div class="device-grid" id="device-grid"></div>
+        </section>
+
+        <section class="page" data-page="scenes">
+          <div class="page-header"><div><p class="eyebrow">让设备协同工作</p><h1>我的场景</h1></div><button class="outline-button">＋ 新建场景</button></div>
+          <div class="scene-page-grid" id="scene-page-grid"></div>
+        </section>
+
+        <section class="page" data-page="security">
+          <div class="page-header"><div><p class="eyebrow">家庭守护中</p><h1>安防</h1></div><span class="armed"><i></i> 已布防</span></div>
+          <div class="security-layout">
+            <article class="monitor-card"><div class="monitor-art"><span class="monitor-grid"></span><span class="person-dot"></span><span class="monitor-title">客厅 · 实时预览占位</span><span class="monitor-meta">原生 Monitor / CameraPreview</span></div><div class="monitor-bar"><span>● 摄像头在线</span><button class="outline-button" data-action="monitor">进入监控</button></div></article>
+            <article class="alert-card"><p class="eyebrow">最近动态</p><h3>当前没有需要处理的提醒</h3><p>AI 事件、门窗异常和设备离线会在这里出现。</p><button class="text-button" data-action="trigger-alert">模拟一条 AI 提醒 ›</button></article>
+          </div>
+        </section>
+
+        <section class="page" data-page="more">
+          <div class="page-header"><div><p class="eyebrow">家庭服务</p><h1>更多</h1></div></div>
+          <div class="more-grid">
+            <button class="more-card" data-action="open-agent"><img class="more-asset" src="assets/icons/sparkle-2.png" alt="" /><b>智能管家</b><small>家庭问答与受控执行</small></button>
+            <button class="more-card"><img class="more-asset" src="assets/icons/volume.png" alt="" /><b>能耗中心</b><small>本周用电概览</small></button>
+            <button class="more-card"><img class="more-asset" src="assets/icons/sofa-single-outline.png" alt="" /><b>家庭成员</b><small>2 人在家</small></button>
+            <button class="more-card"><img class="more-asset" src="assets/icons/cloud-cog.png" alt="" /><b>系统设置</b><small>网络、设备与主题</small></button>
+          </div>
+        </section>
+
+        <section class="quick-bar" aria-label="常用控制">
+          <button class="quick-control" data-device="living-light"><span class="quick-icon light">☀</span><span><small>全屋灯光</small><b id="quick-light-text">3 组已开启</b></span><i class="toggle on"></i></button>
+          <button class="quick-control" data-device="ac"><span class="quick-icon air">⌁</span><span><small>空调</small><b>26°C 舒适</b></span><i class="chevron">›</i></button>
+          <button class="quick-control" data-device="curtain"><span class="quick-icon curtain">◫</span><span><small>窗帘</small><b id="curtain-label">已打开</b></span><i class="toggle on"></i></button>
+          <button class="quick-control" data-nav="devices"><span class="quick-icon more">···</span><span><small>更多控制</small><b>设备中心</b></span><i class="chevron">›</i></button>
+        </section>
+
+        <nav class="bottom-nav" aria-label="主导航">
+          <button class="nav-item active" data-nav="home"><img src="assets/icons/home.png" alt="" />首页</button>
+          <button class="nav-item" data-nav="devices"><img src="assets/icons/devices.png" alt="" />设备</button>
+          <button class="nav-item" data-nav="scenes"><img src="assets/icons/sun.png" alt="" />场景</button>
+          <button class="nav-item" data-nav="security"><img src="assets/icons/shield.png" alt="" />安防</button>
+          <button class="nav-item" data-nav="more"><img src="assets/icons/dots.png" alt="" />更多</button>
+        </nav>
+
+        <section class="screensaver" id="screensaver" aria-label="屏保，向上滑动进入首页">
+          <div class="screensaver-glow glow-one"></div><div class="screensaver-glow glow-two"></div>
+          <div class="screensaver-top"><span class="screensaver-home"><img src="assets/icons/home.png" alt="" />OPENVELA HOME</span><span class="screensaver-network"><i></i> 家庭守护中</span></div>
+          <div class="screensaver-center"><p id="screensaver-date">9月14日 星期一</p><time id="screensaver-clock">10:28</time><p class="screensaver-weather"><img src="assets/icons/cloud.png" alt="" />26°C　多云</p></div>
+          <div class="screensaver-summary"><span>客厅舒适</span><i></i><span>门窗已关闭</span><i></i><span>3 个设备正在运行</span></div>
+          <div class="swipe-hint" aria-hidden="true"><span class="swipe-arrows">⌃</span><b>向上滑动进入首页</b></div>
+        </section>
+
+        <aside class="agent-sheet" id="agent-sheet" aria-hidden="true">
+          <div class="agent-sheet-head"><div><p class="eyebrow">OPENVELA AGENT</p><h2>有什么可以帮你？</h2></div><button class="icon-button" data-action="close-agent">×</button></div>
+          <div class="agent-suggestions"><button data-prompt="客厅现在怎么样？">客厅现在怎么样？</button><button data-prompt="打开观影模式">打开观影模式</button><button data-prompt="家里有异常吗？">家里有异常吗？</button></div>
+          <div class="agent-answer" id="agent-answer">我可以查询家庭状态，并执行已授权的设备控制。</div>
+          <form id="agent-form"><input id="agent-input" placeholder="例如：打开客厅灯" aria-label="输入问题" /><button>发送</button></form>
+        </aside>
+        <div class="toast" id="toast" role="status"></div>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

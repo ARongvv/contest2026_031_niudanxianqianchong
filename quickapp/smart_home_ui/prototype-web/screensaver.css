@@ -1,0 +1,33 @@
+.screensaver {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 28px 35px;
+  background: radial-gradient(ellipse at 54% 28%, #253835 0, #182222 27%, #111516 65%, #0c0e0f 100%);
+  transition: opacity .42s ease, transform .42s ease;
+}
+
+.screensaver.hidden { opacity: 0; transform: translateY(-28px); pointer-events: none; }
+.screensaver::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(125deg, transparent 0 75px, #b4e8da05 76px 77px); opacity: .55; }
+.screensaver-glow { position: absolute; border-radius: 50%; opacity: .48; }
+.glow-one { width: 370px; height: 370px; right: -110px; top: 75px; background: radial-gradient(circle, #839be466 0, transparent 67%); }
+.glow-two { width: 290px; height: 290px; left: -110px; bottom: -120px; background: radial-gradient(circle, #72cba766 0, transparent 69%); }
+.screensaver-top, .screensaver-center, .screensaver-summary, .swipe-hint { position: relative; }
+.screensaver-top { display: flex; align-items: center; justify-content: space-between; color: #d5e3ddaa; font-size: 11px; letter-spacing: 1px; }
+.screensaver-home { font-weight: 700; }
+.screensaver-network { font-size: 10px; letter-spacing: .5px; color: #a9d8c0; }
+.screensaver-network i { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #8ed3a9; box-shadow: 0 0 12px #8ed3a9; }
+.screensaver-center { margin: auto; text-align: center; transform: translateY(11px); }
+.screensaver-center p { margin: 0; }
+.screensaver-center > p:first-child { font-size: 14px; letter-spacing: 1px; color: #d1dcd8; }
+.screensaver-center time { display: block; font-size: 105px; line-height: .96; font-weight: 300; letter-spacing: -5px; text-shadow: 0 8px 32px #0009; }
+.screensaver-weather { margin-top: 13px !important; font-size: 14px; color: #e7efecbb; }
+.screensaver-summary { margin: 0 auto 38px; display: flex; align-items: center; gap: 14px; padding: 10px 16px; border: 1px solid #ffffff14; border-radius: 30px; background: #ffffff0a; color: #d9e4dfcc; font-size: 11px; }
+.screensaver-summary i { width: 3px; height: 3px; border-radius: 50%; background: #b4c5bf; }
+.swipe-hint { margin: 0 auto; display: flex; flex-direction: column; align-items: center; gap: 3px; color: #e5efeaab; font-size: 11px; letter-spacing: .6px; animation: hint-breathe 2.4s ease-in-out infinite; }
+.swipe-hint b { font-weight: 400; }
+.swipe-arrows { font-size: 22px; line-height: 14px; color: #c9eadb; }
+@keyframes hint-breathe { 0%, 100% { transform: translateY(0); opacity: .5; } 50% { transform: translateY(-6px); opacity: 1; } }
