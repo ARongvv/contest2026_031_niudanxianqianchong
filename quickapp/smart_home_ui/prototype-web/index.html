@@ -86,10 +86,16 @@
               <div><img src="assets/icons/sparkle-2.png" alt="" /><span><small>AI 服务</small><b id="settings-model-summary">DeepSeek · 就绪</b></span></div>
               <div><img src="assets/icons/shield.png" alt="" /><span><small>系统健康</small><b>运行正常</b></span></div>
             </section>
-            <div class="settings-columns">
-              <section class="settings-group">
-                <button class="settings-group-head" data-action="toggle-settings-section" data-section="model"><span><img src="assets/icons/sparkle-2.png" alt="" />智能服务</span><i>⌄</i></button>
-                <div class="settings-group-body" data-settings-section="model">
+            <nav class="settings-category-nav" aria-label="设置分类">
+              <button class="settings-category active" data-action="select-settings-section" data-section="model"><img src="assets/icons/sparkle-2.png" alt="" />智能服务</button>
+              <button class="settings-category" data-action="select-settings-section" data-section="tools"><img src="assets/icons/devices.png" alt="" />工具与权限</button>
+              <button class="settings-category" data-action="select-settings-section" data-section="skills"><img src="assets/icons/playlist.png" alt="" />Skills</button>
+              <button class="settings-category" data-action="select-settings-section" data-section="system"><img src="assets/icons/home-shield.png" alt="" />系统健康</button>
+            </nav>
+            <div class="settings-focus">
+              <section class="settings-group active" data-settings-group="model">
+                <div class="settings-group-head"><span><img src="assets/icons/sparkle-2.png" alt="" />智能服务</span><small>模型连接与会话配置</small></div>
+                <div class="settings-group-body">
                   <div class="settings-row"><span>AI 后端<small>模型连接由原生服务管理</small></span><select id="model-backend" aria-label="AI 后端"><option value="DeepSeek">DeepSeek</option><option value="Qwen">Qwen</option><option value="Custom">自定义</option></select></div>
                   <div class="settings-row"><span>模型<small>下一次对话生效</small></span><select id="model-name" aria-label="模型"><option>deepseek-v4-flash</option><option>deepseek-chat</option><option>qwen-turbo</option></select></div>
                   <div class="settings-row"><span>API 密钥<small>仅显示安全存储状态</small></span><b class="settings-ok">已配置</b></div>
@@ -97,25 +103,23 @@
                   <button class="settings-action" data-action="test-model">测试 AI 连接</button>
                 </div>
               </section>
-              <section class="settings-group">
-                <button class="settings-group-head" data-action="toggle-settings-section" data-section="tools"><span><img src="assets/icons/devices.png" alt="" />工具与权限 <small>6 个可用</small></span><i>⌄</i></button>
-                <div class="settings-group-body" data-settings-section="tools">
+              <section class="settings-group" data-settings-group="tools">
+                <div class="settings-group-head"><span><img src="assets/icons/devices.png" alt="" />工具与权限</span><small>6 个可用</small></div>
+                <div class="settings-group-body">
                   <div class="status-list"><div><span><b>get_home_status</b><small>读取家庭状态</small></span><em class="status-ready">可用</em></div><div><span><b>set_light / set_ac</b><small>设备控制，执行结果需确认</small></span><em class="status-ready">可用</em></div><div><span><b>run_scene</b><small>执行已授权场景</small></span><em class="status-ready">可用</em></div><div><span><b>门锁与安防</b><small>敏感操作必须二次确认</small></span><em class="status-guarded">受保护</em></div></div>
                   <button class="settings-link" data-action="open-policy">查看工具权限策略 ›</button>
                 </div>
               </section>
-            </div>
-            <div class="settings-columns settings-bottom">
-              <section class="settings-group">
-                <button class="settings-group-head" data-action="toggle-settings-section" data-section="skills"><span><img src="assets/icons/playlist.png" alt="" />Skills 与自动化 <small>5 个已加载</small></span><i>⌄</i></button>
-                <div class="settings-group-body" data-settings-section="skills">
+              <section class="settings-group" data-settings-group="skills">
+                <div class="settings-group-head"><span><img src="assets/icons/playlist.png" alt="" />Skills 与自动化</span><small>5 个已加载</small></div>
+                <div class="settings-group-body">
                   <div class="status-list compact"><div><span><b>smart_home_safety</b><small>高风险控制与确认策略</small></span><em class="status-ready">已加载</em></div><div><span><b>smart_home_weather</b><small>天气和环境感知策略</small></span><em class="status-ready">已加载</em></div><div><span><b>scene_assistant</b><small>多设备场景编排</small></span><em class="status-ready">已加载</em></div></div>
                   <button class="settings-action" data-action="reload-skills">重新加载 Skills</button>
                 </div>
               </section>
-              <section class="settings-group">
-                <button class="settings-group-head" data-action="toggle-settings-section" data-section="system"><span><img src="assets/icons/home-shield.png" alt="" />系统健康</span><i>⌄</i></button>
-                <div class="settings-group-body" data-settings-section="system">
+              <section class="settings-group" data-settings-group="system">
+                <div class="settings-group-head"><span><img src="assets/icons/home-shield.png" alt="" />系统健康</span><small>所有关键服务正常</small></div>
+                <div class="settings-group-body">
                   <div class="status-list compact"><div><span><b>网络 / Wi-Fi</b><small>wlan0 · DHCP 与 DNS 正常</small></span><em class="status-ready">在线</em></div><div><span><b>Agent / Model API</b><small>cAGENT 就绪，模型连接已配置</small></span><em class="status-ready">正常</em></div><div><span><b>摄像头 / 存储</b><small>预览服务在线 · 62% 可用</small></span><em class="status-ready">正常</em></div><div><span><b>系统版本</b><small>OpenVela SmartHome · UI 分支</small></span><em>v0.1</em></div></div>
                   <button class="settings-link" data-action="open-diagnostics">查看诊断信息 ›</button>
                 </div>
