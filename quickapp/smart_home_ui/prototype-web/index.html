@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="device-detail.css" />
     <link rel="stylesheet" href="light-theme.css" />
     <link rel="stylesheet" href="ui-tokens.css" />
+    <link rel="stylesheet" href="settings.css" />
   </head>
   <body>
     <main class="preview-shell" aria-label="OpenVela 智能家居中控面板网页原型">
@@ -73,7 +74,53 @@
             <button class="more-card" data-action="open-agent"><img class="more-asset" src="assets/icons/sparkle-2.png" alt="" /><b>智能管家</b><small>家庭问答与受控执行</small></button>
             <button class="more-card"><img class="more-asset" src="assets/icons/volume.png" alt="" /><b>能耗中心</b><small>本周用电概览</small></button>
             <button class="more-card"><img class="more-asset" src="assets/icons/sofa-single-outline.png" alt="" /><b>家庭成员</b><small>2 人在家</small></button>
-            <button class="more-card"><img class="more-asset" src="assets/icons/cloud-cog.png" alt="" /><b>系统设置</b><small>网络、设备与主题</small></button>
+            <button class="more-card" data-nav="settings"><img class="more-asset" src="assets/icons/cloud-cog.png" alt="" /><b>系统设置</b><small>网络、智能服务与系统状态</small></button>
+          </div>
+        </section>
+
+        <section class="page settings-page" data-page="settings">
+          <div class="page-header"><div><p class="eyebrow">设备与智能服务</p><h1>系统设置</h1></div><button class="outline-button" data-nav="more">返回更多</button></div>
+          <div class="settings-layout">
+            <section class="settings-summary" aria-label="系统摘要">
+              <div><img src="assets/icons/wifi.png" alt="" /><span><small>家庭网络</small><b>已连接</b></span></div>
+              <div><img src="assets/icons/sparkle-2.png" alt="" /><span><small>AI 服务</small><b id="settings-model-summary">DeepSeek · 就绪</b></span></div>
+              <div><img src="assets/icons/shield.png" alt="" /><span><small>系统健康</small><b>运行正常</b></span></div>
+            </section>
+            <div class="settings-columns">
+              <section class="settings-group">
+                <button class="settings-group-head" data-action="toggle-settings-section" data-section="model"><span><img src="assets/icons/sparkle-2.png" alt="" />智能服务</span><i>⌄</i></button>
+                <div class="settings-group-body" data-settings-section="model">
+                  <div class="settings-row"><span>AI 后端<small>模型连接由原生服务管理</small></span><select id="model-backend" aria-label="AI 后端"><option value="DeepSeek">DeepSeek</option><option value="Qwen">Qwen</option><option value="Custom">自定义</option></select></div>
+                  <div class="settings-row"><span>模型<small>下一次对话生效</small></span><select id="model-name" aria-label="模型"><option>deepseek-v4-flash</option><option>deepseek-chat</option><option>qwen-turbo</option></select></div>
+                  <div class="settings-row"><span>API 密钥<small>仅显示安全存储状态</small></span><b class="settings-ok">已配置</b></div>
+                  <div class="settings-row"><span>请求超时</span><b>30 秒</b></div>
+                  <button class="settings-action" data-action="test-model">测试 AI 连接</button>
+                </div>
+              </section>
+              <section class="settings-group">
+                <button class="settings-group-head" data-action="toggle-settings-section" data-section="tools"><span><img src="assets/icons/devices.png" alt="" />工具与权限 <small>6 个可用</small></span><i>⌄</i></button>
+                <div class="settings-group-body" data-settings-section="tools">
+                  <div class="status-list"><div><span><b>get_home_status</b><small>读取家庭状态</small></span><em class="status-ready">可用</em></div><div><span><b>set_light / set_ac</b><small>设备控制，执行结果需确认</small></span><em class="status-ready">可用</em></div><div><span><b>run_scene</b><small>执行已授权场景</small></span><em class="status-ready">可用</em></div><div><span><b>门锁与安防</b><small>敏感操作必须二次确认</small></span><em class="status-guarded">受保护</em></div></div>
+                  <button class="settings-link" data-action="open-policy">查看工具权限策略 ›</button>
+                </div>
+              </section>
+            </div>
+            <div class="settings-columns settings-bottom">
+              <section class="settings-group">
+                <button class="settings-group-head" data-action="toggle-settings-section" data-section="skills"><span><img src="assets/icons/playlist.png" alt="" />Skills 与自动化 <small>5 个已加载</small></span><i>⌄</i></button>
+                <div class="settings-group-body" data-settings-section="skills">
+                  <div class="status-list compact"><div><span><b>smart_home_safety</b><small>高风险控制与确认策略</small></span><em class="status-ready">已加载</em></div><div><span><b>smart_home_weather</b><small>天气和环境感知策略</small></span><em class="status-ready">已加载</em></div><div><span><b>scene_assistant</b><small>多设备场景编排</small></span><em class="status-ready">已加载</em></div></div>
+                  <button class="settings-action" data-action="reload-skills">重新加载 Skills</button>
+                </div>
+              </section>
+              <section class="settings-group">
+                <button class="settings-group-head" data-action="toggle-settings-section" data-section="system"><span><img src="assets/icons/home-shield.png" alt="" />系统健康</span><i>⌄</i></button>
+                <div class="settings-group-body" data-settings-section="system">
+                  <div class="status-list compact"><div><span><b>网络 / Wi-Fi</b><small>wlan0 · DHCP 与 DNS 正常</small></span><em class="status-ready">在线</em></div><div><span><b>Agent / Model API</b><small>cAGENT 就绪，模型连接已配置</small></span><em class="status-ready">正常</em></div><div><span><b>摄像头 / 存储</b><small>预览服务在线 · 62% 可用</small></span><em class="status-ready">正常</em></div><div><span><b>系统版本</b><small>OpenVela SmartHome · UI 分支</small></span><em>v0.1</em></div></div>
+                  <button class="settings-link" data-action="open-diagnostics">查看诊断信息 ›</button>
+                </div>
+              </section>
+            </div>
           </div>
         </section>
 
