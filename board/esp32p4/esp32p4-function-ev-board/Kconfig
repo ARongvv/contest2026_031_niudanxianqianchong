@@ -15,6 +15,24 @@ config ARCH_BOARD_ESP32P4_FUNCTION_EV_BOARD
 	bool
 	default y
 
+config ESP32P4_FUNCTION_EV_BOARD_AUDIO_ES8311
+	bool "Initialize ES8311 audio codec"
+	select AUDIO
+	select AUDIO_ES8311
+	select AUDIO_FORMAT_PCM
+	select I2C
+	select I2S
+	select ESPRESSIF_I2C0
+	select ESPRESSIF_I2C0_MASTER_MODE
+	select ESPRESSIF_I2S0
+	default n
+	help
+		Initialize the ES8311 codec fitted to the P4X Function EV Board.
+		The board uses I2C0 for codec control and I2S0 for PCM playback and
+		capture, registering /dev/audio/pcm0 and /dev/audio/pcm_in0.  This
+		option owns I2S0 and must not be combined with the generic I2S audio
+		registration path.
+
 config ESP32P4_FUNCTION_EV_BOARD_DSI_FRAMEBUFFER
 	bool "Register the P4X MIPI-DSI framebuffer"
 	depends on ESPRESSIF_SPIRAM_USER_HEAP

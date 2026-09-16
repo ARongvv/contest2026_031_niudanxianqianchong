@@ -322,7 +322,8 @@ int esp_bringup(void)
 #  endif
 #endif /* CONFIG_ESPRESSIF_SPI */
 
-#if defined(CONFIG_ESPRESSIF_I2S)
+#if defined(CONFIG_ESPRESSIF_I2S) && \
+    !defined(CONFIG_ESP32P4_FUNCTION_EV_BOARD_AUDIO_ES8311)
   /* Configure I2S peripheral interfaces */
 
   ret = board_i2s_init();
@@ -340,6 +341,14 @@ int esp_bringup(void)
   if (ret < 0)
     {
       syslog(LOG_ERR, "Failed to initialize I2C driver: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_ESP32P4_FUNCTION_EV_BOARD_AUDIO_ES8311
+  ret = board_es8311_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize ES8311 audio: %d\n", ret);
     }
 #endif
 

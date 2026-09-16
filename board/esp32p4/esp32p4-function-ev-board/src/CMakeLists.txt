@@ -22,6 +22,12 @@
 
 set(SRCS esp32p4_boot.c esp32p4_bringup.c)
 
+if(CONFIG_ESP32P4_FUNCTION_EV_BOARD_AUDIO_ES8311)
+  list(APPEND SRCS esp32p4_es8311.c)
+  target_include_directories(board PRIVATE
+    ${CMAKE_SOURCE_DIR}/arch/risc-v/src/chip/common)
+endif()
+
 if(CONFIG_BOARDCTL)
   if(CONFIG_BOARDCTL_RESET)
     list(APPEND SRCS esp32p4_reset.c)

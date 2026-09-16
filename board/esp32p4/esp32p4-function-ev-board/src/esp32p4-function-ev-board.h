@@ -38,6 +38,12 @@
 #define RMT_RXCHANNEL       4
 #define RMT_TXCHANNEL       0
 
+#define BOARD_ES8311_I2C_PORT         0
+#define BOARD_ES8311_I2C_ADDR         0x18
+#define BOARD_ES8311_I2C_FREQUENCY    100000
+#define BOARD_ES8311_I2S_PORT         0
+#define BOARD_AUDIO_PA_ENABLE_GPIO    53
+
 #ifdef CONFIG_RMT_LOOP_TEST_MODE
 #  define RMT_INPUT_PIN     0
 #  define RMT_OUTPUT_PIN    0
@@ -76,6 +82,10 @@
  ****************************************************************************/
 
 int esp_bringup(void);
+
+#ifdef CONFIG_ESP32P4_FUNCTION_EV_BOARD_AUDIO_ES8311
+int board_es8311_initialize(void);
+#endif
 
 /****************************************************************************
  * Name: board_twai_setup
