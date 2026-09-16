@@ -23,3 +23,10 @@
 .wifi-status i:nth-child(3) { height: 14px; }
 .top-clock { display: block; font-size: 22px; font-weight: 500; line-height: 1; letter-spacing: .2px; }
 .device-grid { grid-template-columns: repeat(4, 1fr); }
+
+/* 一级导航是常驻触控区，保持比卡片内快捷控件更明确的尺寸与层级。 */
+.bottom-nav { height: 64px; gap: 24px; align-items: center; padding: 4px 0; }
+.nav-item { width: 70px; height: 56px; justify-content: center; gap: 4px; padding: 6px 4px; border-radius: 13px; transition: background .18s ease, color .18s ease; }
+.nav-item img { width: 21px; height: 21px; }
+.nav-item.active { background: #e6f0ea; color: #286a4b; font-weight: 650; }
+.nav-item:not(.active):hover { background: #f0efeb; }

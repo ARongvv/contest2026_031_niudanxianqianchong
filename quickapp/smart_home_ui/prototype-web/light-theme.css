@@ -41,7 +41,7 @@ body { background: radial-gradient(circle at 50% 0, #ffffff 0, #f4f1ed 56%, #eae
 .toggle:after { background: #fff; }
 .bottom-nav { background: #fbfaf8; }
 .nav-item { color: #7d8581; }
-.nav-item.active { color: #327557; }
+.nav-item.active { color: #286a4b; }
 .filter { background: #ecebe7; }
 .outline-button { background: #fff; border-color: #d9d6cf; color: #3a4641; }
 .scene-page-card:after { opacity: .15; }
