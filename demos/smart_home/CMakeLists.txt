@@ -90,6 +90,15 @@ if(CONFIG_SMART_HOME_DEMO)
     PRIORITY ${CONFIG_SMART_HOME_DEMO_PRIORITY}
   )
 
+  if(CONFIG_SMART_HOME_AUDIO_SMOKE)
+    nuttx_add_application(
+      NAME audio_smoke
+      SRCS src/audio/audio_smoke_main.c
+      STACKSIZE ${CONFIG_SMART_HOME_AUDIO_SMOKE_STACKSIZE}
+      PRIORITY ${CONFIG_SMART_HOME_DEMO_PRIORITY}
+    )
+  endif()
+
   # Resources: copy res/icons/*.png to /data/res/icons/ and
   # res/skills/*.md to /data/res/skills/ on the target.
   # This is handled by the platform's ROMFS/data-partition build step.

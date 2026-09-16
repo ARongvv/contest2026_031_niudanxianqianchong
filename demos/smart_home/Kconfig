@@ -28,6 +28,24 @@ config SMART_HOME_DEMO_PRIORITY
     int "Smart home demo task priority"
     default 100
 
+config SMART_HOME_AUDIO_SMOKE
+    bool "ES8311 audio smoke command"
+    depends on ESP32P4_FUNCTION_EV_BOARD_AUDIO_ES8311
+    default n
+    help
+      Build the audio_smoke NSH command for the P4X ES8311 bring-up.  The
+      command plays a fixed 16 kHz PCM tone or records raw PCM from the
+      board codec without starting LVGL, networking, ASR, or TTS.
+
+if SMART_HOME_AUDIO_SMOKE
+
+config SMART_HOME_AUDIO_SMOKE_STACKSIZE
+    int "ES8311 audio smoke command stack size"
+    default 8192
+    range 4096 16384
+
+endif
+
 config SMART_HOME_DEMO_OFFLINE_UI
     bool "Offline regular LVGL UI bring-up"
     depends on SMART_HOME_DEMO_UI_LVGL
