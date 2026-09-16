@@ -4,6 +4,7 @@ const state = {
   curtainOpen: true,
   activeDeviceId: null,
   activeRoom: '全部',
+  modelBackend: 'DeepSeek',
   revision: 12,
   scenes: [
     { name: '回家模式', icon: 'home', desc: '温暖灯光 · 新风开启', color: '#c78855' },
@@ -136,6 +137,11 @@ function closeDevice() {
   state.activeDeviceId = null;
 }
 
+function updateModelSummary() {
+  const summary = $('#settings-model-summary');
+  if (summary) summary.textContent = `${state.modelBackend} · 就绪`;
+}
+
 function switchPage(page) {
   state.currentPage = page;
   $$('.page').forEach((node) => node.classList.toggle('active', node.dataset.page === page));
@@ -207,6 +213,14 @@ document.addEventListener('click', (event) => {
   if (action?.dataset.action === 'favorite-device') { showToast('已加入常用设备'); return; }
   if (action?.dataset.action === 'native-preview') { showToast('真机将从 QuickApp 页面交接至 Native Monitor'); return; }
   if (action?.dataset.action === 'open-device-settings') { showToast('设备设置将由原生服务提供参数页'); return; }
+  if (action?.dataset.action === 'toggle-settings-section') {
+    event.target.closest('.settings-group').classList.toggle('collapsed');
+    return;
+  }
+  if (action?.dataset.action === 'test-model') { showToast(`${state.modelBackend} 连接测试成功（网页演示）`); return; }
+  if (action?.dataset.action === 'reload-skills') { showToast('Skills 已重新加载：5 个有效，0 个跳过（网页演示）'); return; }
+  if (action?.dataset.action === 'open-policy') { showToast('高风险控制由原生 tool guard 和管理员确认策略保护'); return; }
+  if (action?.dataset.action === 'open-diagnostics') { showToast('诊断页将展示原生服务采集的只读健康数据'); return; }
   if (action?.dataset.action === 'set-device-option') {
     const device = deviceById(state.activeDeviceId);
     if (!device) return;
@@ -259,6 +273,22 @@ document.addEventListener('input', (event) => {
   renderDeviceDetail();
 });
 
+document.addEventListener('change', (event) => {
+  if (event.target.id !== 'model-backend') return;
+  state.modelBackend = event.target.value;
+  const model = $('#model-name');
+  if (model) {
+    const options = state.modelBackend === 'Qwen'
+      ? ['qwen-turbo', 'qwen-plus']
+      : state.modelBackend === 'Custom'
+        ? ['custom-model']
+        : ['deepseek-v4-flash', 'deepseek-chat'];
+    model.innerHTML = options.map((name) => `<option>${name}</option>`).join('');
+  }
+  updateModelSummary();
+  showToast(`已选择 ${state.modelBackend}；模型配置将在下一次对话生效`);
+});
+
 $('#agent-form').addEventListener('submit', (event) => { event.preventDefault(); askAgent($('#agent-input').value); $('#agent-input').value = ''; });
 
 function updateClock() {
@@ -277,6 +307,7 @@ function updateClock() {
 
 renderScenes();
 renderDevices();
+updateModelSummary();
 updateClock();
 setInterval(updateClock, 30000);
 
