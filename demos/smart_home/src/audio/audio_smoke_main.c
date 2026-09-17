@@ -112,11 +112,15 @@ static int audio_smoke_configure(int fd, uint8_t type)
   caps.caps.ac_controls.hw[0] = AUDIO_SMOKE_SAMPLE_RATE;
   caps.caps.ac_controls.b[2] = 16;
 
+  printf("[audio_smoke] configure begin: type=%u rate=%u bps=%u\n",
+         (unsigned int)type, (unsigned int)AUDIO_SMOKE_SAMPLE_RATE,
+         (unsigned int)caps.caps.ac_controls.b[2]);
   if (ioctl(fd, AUDIOIOC_CONFIGURE, (unsigned long)(uintptr_t)&caps) < 0)
     {
       return -errno;
     }
 
+  printf("[audio_smoke] configure OK\n");
   return OK;
 }
 
@@ -125,6 +129,9 @@ static int audio_smoke_allocate_buffers(FAR struct audio_smoke_state_s *state)
   struct audio_buf_desc_s desc;
   unsigned int index;
 
+  printf("[audio_smoke] allocate buffers: count=%u size=%u\n",
+         (unsigned int)state->buffer_info.nbuffers,
+         (unsigned int)state->buffer_info.buffer_size);
   state->buffers = calloc(state->buffer_info.nbuffers,
                           sizeof(FAR struct ap_buffer_s *));
   if (state->buffers == NULL)
@@ -142,6 +149,8 @@ static int audio_smoke_allocate_buffers(FAR struct audio_smoke_state_s *state)
         {
           return -errno;
         }
+
+      printf("[audio_smoke] allocate buffer %u OK\n", index);
     }
 
   return OK;
@@ -209,17 +218,21 @@ static int audio_smoke_prepare(FAR struct audio_smoke_state_s *state,
   struct mq_attr attr;
   int ret;
 
+  printf("[audio_smoke] prepare: open %s\n", device);
   state->audio_fd = open(device, O_RDWR | O_CLOEXEC);
   if (state->audio_fd < 0)
     {
       return -errno;
     }
 
+  printf("[audio_smoke] prepare: open OK fd=%d\n", state->audio_fd);
+  printf("[audio_smoke] reserve begin\n");
   if (ioctl(state->audio_fd, AUDIOIOC_RESERVE, 0) < 0)
     {
       return -errno;
     }
 
+  printf("[audio_smoke] reserve OK\n");
   ret = audio_smoke_configure(state->audio_fd, type);
   if (ret < 0)
     {
@@ -236,6 +249,15 @@ static int audio_smoke_prepare(FAR struct audio_smoke_state_s *state,
 
       state->buffer_info.buffer_size = CONFIG_AUDIO_BUFFER_NUMBYTES;
       state->buffer_info.nbuffers = CONFIG_AUDIO_NUM_BUFFERS;
+      printf("[audio_smoke] buffer info fallback: count=%u size=%u\n",
+             (unsigned int)state->buffer_info.nbuffers,
+             (unsigned int)state->buffer_info.buffer_size);
+    }
+  else
+    {
+      printf("[audio_smoke] buffer info: count=%u size=%u\n",
+             (unsigned int)state->buffer_info.nbuffers,
+             (unsigned int)state->buffer_info.buffer_size);
     }
 
   if (state->buffer_info.nbuffers == 0 || state->buffer_info.buffer_size == 0)
@@ -248,18 +270,22 @@ static int audio_smoke_prepare(FAR struct audio_smoke_state_s *state,
   attr.mq_msgsize = sizeof(struct audio_msg_s);
   snprintf(state->mq_name, sizeof(state->mq_name), "/audio_smoke_%ld",
            (long)getpid());
+  printf("[audio_smoke] mq open: %s\n", state->mq_name);
   state->mq = mq_open(state->mq_name, O_RDWR | O_CREAT, 0644, &attr);
   if (state->mq < 0)
     {
       return -errno;
     }
 
+  printf("[audio_smoke] mq open OK\n");
+  printf("[audio_smoke] register mq begin\n");
   if (ioctl(state->audio_fd, AUDIOIOC_REGISTERMQ,
             (unsigned long)(uintptr_t)state->mq) < 0)
     {
       return -errno;
     }
 
+  printf("[audio_smoke] register mq OK\n");
   return audio_smoke_allocate_buffers(state);
 }
 

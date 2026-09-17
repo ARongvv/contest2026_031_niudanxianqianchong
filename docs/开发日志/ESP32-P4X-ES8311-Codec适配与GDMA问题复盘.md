@@ -153,6 +153,32 @@ patches/nuttx/0003-es8311-propagate-configure-errors.patch
 错误码，而不会再统一伪装成 `-ERANGE`。该补丁仅修改 NuttX 的通用 codec
 逻辑，不涉及 `esp-hal-3rdparty`。
 
+### 7. `audio_smoke play` 无输出卡在准备阶段
+
+修复配置返回值后，真机执行 `audio_smoke play 1` 仍可能没有任何后续输出。
+应用的“开始播放”提示在 `audio_smoke_prepare()` 成功之后才打印，因此仅从
+命令回显后无输出可以确认：阻塞发生在打开设备、reserve、configure、获取
+缓冲信息、创建/注册消息队列或分配音频缓冲的准备链路，而不是 DMA 完成回调
+等待阶段。
+
+为避免继续依据屏幕颜色或无输出猜测，新增临时 bring-up 日志：
+
+- `audio_smoke` 用 `printf` 标记每个准备阶段及每个缓冲分配结果；
+- ES8311 使用可见的 `syslog(LOG_INFO)` 标记输出模式复位、采样率/位宽的
+  I2S 配置边界；
+- 每一笔 ES8311 I2C 读写在进入总线调用前打印寄存器地址。若 I2C 调用阻塞，
+  最后一行日志即为阻塞前进入的寄存器事务。
+
+相关补丁为：
+
+```text
+patches/nuttx/0004-es8311-audio-smoke-diagnostics.patch
+```
+
+下一次验证只需重启后执行 `audio_smoke play 1`，保留从
+`[audio_smoke] prepare` 开始到串口静止为止的全部输出。真机定位完成后，应将
+逐笔 I2C `INFO` 日志删除或降级，避免长期占用串口带宽。
+
 ## 真机结果
 
 修复后启动日志显示：
