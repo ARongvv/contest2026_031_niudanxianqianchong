@@ -653,6 +653,8 @@ SECTIONS
      */
 
  . = ALIGN(4);
+ /* NuttX lib_cxx_initialize() consumes one contiguous constructor range. */
+ _sinit = ABSOLUTE(.);
  __init_priority_array_start = ABSOLUTE(.);
     KEEP (*(EXCLUDE_FILE (*crtend.* *crtbegin.*) .init_array.*))
     __init_priority_array_end = ABSOLUTE(.);
@@ -661,6 +663,7 @@ SECTIONS
  __init_array_start = ABSOLUTE(.);
     KEEP (*(EXCLUDE_FILE (*crtend.* *crtbegin.*) .init_array))
     __init_array_end = ABSOLUTE(.);
+ _einit = ABSOLUTE(.);
     /* Addresses of memory regions reserved via SOC_RESERVE_MEMORY_REGION() */
 
  . = ALIGN(4);
