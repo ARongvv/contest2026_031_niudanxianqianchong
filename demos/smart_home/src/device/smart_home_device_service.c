@@ -225,6 +225,22 @@ int smart_home_device_service_copy_state(smart_home_device_service_t *service,
     return AGENT_OK;
 }
 
+int smart_home_device_service_copy_state_with_revision(
+    smart_home_device_service_t *service,
+    smart_home_state_t *out_state,
+    uint32_t *out_revision)
+{
+    if (!service || !out_state || !out_revision || !service->mutex_initialized) {
+        return AGENT_ERROR_INVALID;
+    }
+
+    pthread_mutex_lock(&service->mutex);
+    *out_state = *service->state;
+    *out_revision = service->revision;
+    pthread_mutex_unlock(&service->mutex);
+    return AGENT_OK;
+}
+
 int smart_home_device_service_find_first(smart_home_device_service_t *service,
                                          const char *room,
                                          smart_home_device_type_t type,
@@ -386,6 +402,37 @@ int smart_home_device_service_set_light(smart_home_device_service_t *service,
     device = ret == AGENT_OK ? smart_home_device_find_first(service->state, room,
                                                               SMART_HOME_DEVICE_LIGHT) : NULL;
     snprintf(data, sizeof(data), "{\"deviceId\":\"%d\",\"state\":{\"on\":%s,\"brightness\":%d}}",
+             device ? device->id : 0, on ? "true" : "false",
+             device ? device->brightness : brightness);
+    return commit_mutation(service, ret, "device_state_changed", data);
+}
+
+int smart_home_device_service_set_light_if_revision(
+    smart_home_device_service_t *service,
+    const char *room,
+    uint32_t expected_revision,
+    int on,
+    int brightness)
+{
+    char data[SMART_HOME_DEVICE_EVENT_DATA_SIZE];
+    smart_home_device_t *device;
+    int ret;
+
+    if (!service || !service->mutex_initialized) {
+        return AGENT_ERROR_INVALID;
+    }
+
+    pthread_mutex_lock(&service->mutex);
+    if (service->revision != expected_revision) {
+        pthread_mutex_unlock(&service->mutex);
+        return SMART_HOME_DEVICE_SERVICE_ERROR_STALE_REVISION;
+    }
+
+    ret = smart_home_device_set_light(service->state, room, on, brightness);
+    device = ret == AGENT_OK ? smart_home_device_find_first(service->state, room,
+                                                              SMART_HOME_DEVICE_LIGHT) : NULL;
+    snprintf(data, sizeof(data),
+             "{\"deviceId\":\"%d\",\"state\":{\"on\":%s,\"brightness\":%d}}",
              device ? device->id : 0, on ? "true" : "false",
              device ? device->brightness : brightness);
     return commit_mutation(service, ret, "device_state_changed", data);
