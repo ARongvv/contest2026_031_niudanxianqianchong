@@ -1,0 +1,50 @@
+Subject: [PATCH 3/3] audio: propagate ES8311 configure results
+
+The configure paths initialize ret to -ERANGE for validation failures. The
+previous conditional expression translated -ENOTTY to OK, but kept the old
+-ERANGE value when the sample-rate or width helper succeeded. Consequently,
+valid AUDIOIOC_CONFIGURE requests always failed with -ERANGE.
+
+Store the helper result first and translate only -ENOTTY, which means the
+driver now returns OK for supported settings and preserves real errors from
+I2S clock or codec configuration. Apply the same correction to input and
+output paths.
+
+Apply after 0002-es8311-mutex-and-log-formats.patch.
+
+diff --git a/drivers/audio/es8311.c b/drivers/audio/es8311.c
+--- a/drivers/audio/es8311.c
++++ b/drivers/audio/es8311.c
+@@ -1047 +1047,6 @@ static int es8311_configure(FAR struct audio_lowerhalf_s *dev,
+-        ret = es8311_setsamplerate(priv) == -ENOTTY ? OK : ret;
++        ret = es8311_setsamplerate(priv);
++        if (ret == -ENOTTY)
++          {
++            ret = OK;
++          }
++
+@@ -1053 +1058,5 @@ static int es8311_configure(FAR struct audio_lowerhalf_s *dev,
+-        ret = es8311_setbitspersample(priv) == -ENOTTY ? OK : ret;
++        ret = es8311_setbitspersample(priv);
++        if (ret == -ENOTTY)
++          {
++            ret = OK;
++          }
+@@ -1094 +1103,6 @@ static int es8311_configure(FAR struct audio_lowerhalf_s *dev,
+-        ret = es8311_setsamplerate(priv) == -ENOTTY ? OK : ret;
++        ret = es8311_setsamplerate(priv);
++        if (ret == -ENOTTY)
++          {
++            ret = OK;
++          }
++
+@@ -1095 +1109 @@ static int es8311_configure(FAR struct audio_lowerhalf_s *dev,
+-        if (ret != OK)
++        if (ret < 0)
+@@ -1100 +1114,5 @@ static int es8311_configure(FAR struct audio_lowerhalf_s *dev,
+-        ret = es8311_setbitspersample(priv) == -ENOTTY ? OK : ret;
++        ret = es8311_setbitspersample(priv);
++        if (ret == -ENOTTY)
++          {
++            ret = OK;
++          }
