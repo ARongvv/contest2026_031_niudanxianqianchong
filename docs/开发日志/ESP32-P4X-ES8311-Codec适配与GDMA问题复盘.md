@@ -195,6 +195,12 @@ worker 创建，以及 `audio_smoke` 的 `AUDIOIOC_START` 和两个初始缓冲�
 首次 `es8311_processbegin()` 的返回值、首次消息队列等待，以及首个连续消息队列
 接收错误。该错误日志限速为每轮连续错误的第一条，避免高优先级 worker 诊断时刷屏。
 
+为避免逐笔 I2C 成功日志占满 UART，又保留“最后进入哪一笔事务”的阻塞证据，
+`0007-es8311-reduce-i2c-success-log.patch` 将 `I2C write done` 降为 `DEBUG`，
+而 I2C 写入开始和失败日志仍保持可见。共享 `smart_home/defconfig` 同时将
+`CONFIG_ES8311_WORKER_STACKSIZE` 从默认 2048 提升到临时诊断值 4096；
+`smart_home_local` 通过 include 继承此项，不单独写入其含凭据的 defconfig。
+
 ## 真机结果
 
 修复后启动日志显示：

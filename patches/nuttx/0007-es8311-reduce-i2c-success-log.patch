@@ -1,0 +1,15 @@
+Subject: [PATCH 7/7] audio: reduce ES8311 I2C success log noise
+
+Keep I2C transaction-entry and error diagnostics visible during bring-up, but
+demote the per-register successful write completion trace to DEBUG. This
+reduces UART pressure while retaining the last entered register transaction
+when a transfer blocks.
+
+Apply after 0006-es8311-worker-boundary-diagnostics.patch.
+
+diff --git a/drivers/audio/es8311.c b/drivers/audio/es8311.c
+--- a/drivers/audio/es8311.c
++++ b/drivers/audio/es8311.c
+@@ -369 +369 @@ static int es8311_writereg(FAR struct es8311_dev_s *priv,
+-          syslog(LOG_INFO,
++          syslog(LOG_DEBUG,
