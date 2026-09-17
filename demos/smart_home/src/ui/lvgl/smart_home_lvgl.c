@@ -50,6 +50,7 @@ smart_home_lvgl_t *smart_home_lvgl_init(smart_home_agent_app_t *app)
         return NULL;
     }
 
+    smart_home_lvgl_build_screensaver_screen(ui);
     smart_home_lvgl_build_home_screen(ui);
     smart_home_lvgl_build_panel_screen(ui);
     smart_home_lvgl_build_scene_screen(ui);
@@ -73,11 +74,11 @@ void smart_home_lvgl_set_app(smart_home_lvgl_t *ui,
 
 void smart_home_lvgl_show(smart_home_lvgl_t *ui)
 {
-    if (!ui || !ui->screen_home) {
+    if (!ui || !ui->screen_screensaver) {
         return;
     }
 
-    lv_scr_load(ui->screen_home);
+    lv_scr_load(ui->screen_screensaver);
 }
 
 void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
@@ -95,6 +96,9 @@ void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
     if (ui->remote_node_timer) {
         lv_timer_delete(ui->remote_node_timer);
         ui->remote_node_timer = NULL;
+    }
+    if (ui->screen_screensaver) {
+        lv_obj_del(ui->screen_screensaver);
     }
     if (ui->screen_home) {
         lv_obj_del(ui->screen_home);

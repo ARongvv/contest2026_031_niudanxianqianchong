@@ -97,6 +97,7 @@ lv_obj_t *smart_home_lvgl_build_nav_bar(lv_obj_t *screen,
                                         smart_home_lvgl_t *ui);
 
 void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui);
+void smart_home_lvgl_build_screensaver_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_scene_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_security_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_more_screen(smart_home_lvgl_t *ui);

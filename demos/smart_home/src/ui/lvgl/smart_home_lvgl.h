@@ -11,7 +11,7 @@
  * Usage:
  *   smart_home_lvgl_t *ui = smart_home_lvgl_init(&app);
  *   agent_set_event_callback(app->agent, smart_home_lvgl_event_cb, ui);
- *   smart_home_lvgl_show(ui);   // load panel screen
+ *   smart_home_lvgl_show(ui);   // load screensaver, then enter Home by touch
  *   smart_home_lvgl_deinit(ui); // cleanup
  */
 
@@ -44,6 +44,7 @@ typedef struct {
 
 typedef struct {
     /* Screens */
+    lv_obj_t *screen_screensaver;
     lv_obj_t *screen_home;
     lv_obj_t *screen_panel;    /* Devices page, legacy member name */
     lv_obj_t *screen_scenes;
@@ -173,7 +174,7 @@ smart_home_lvgl_t *smart_home_lvgl_init(smart_home_agent_app_t *app);
 /** Bind a new app object after init, if needed. */
 void smart_home_lvgl_set_app(smart_home_lvgl_t *ui, smart_home_agent_app_t *app);
 
-/** Load the panel screen (typically called once after init). */
+/** Load the lightweight screensaver (typically called once after init). */
 void smart_home_lvgl_show(smart_home_lvgl_t *ui);
 
 /** Tear down all screens and free state. */
