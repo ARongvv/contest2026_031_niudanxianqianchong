@@ -23,11 +23,22 @@ Promise 中返回最终确认的状态。
 ```text
 QuickApp Home 页面
   → system.smarthome Feature
-  → Native SmartHome Service / Simulator Device Provider
+  → QuickApp IPC Client（requestId 关联）
+  → POSIX message queue / 原生服务通道
+  → SmartHome Service / Simulator Device Provider
   → State Store（revision 唯一递增）
+  → IPC response
   → controlDevice() 的确认结果 / getSnapshot()
   → QuickApp Store 与卡片刷新
 ```
+
+`smart_home` 与 RPK 不得假定为同一进程：前者保存 `DeviceService` 的内存状态，后者由 VAPP
+启动并加载 Feature。因此 Feature 不能持有 `smart_home_device_service_t *`，也不能以全局变量
+直接调用 Provider。P0 的正式实现使用 POSIX message queue（或后续等价的本地 IPC）：
+
+- SmartHome 服务端在启动后持续接收固定大小的请求，调用 Provider，并按 `requestId` 回传结果；
+- Feature 客户端在非 JS 线程接收 IPC 回包，再通过 Feature 的异步队列 resolve/reject Promise；
+- 仅用于宿主机单测的 in-process Provider bridge 不构成模拟器或真机的运行时通道。
 
 模拟器中的“设备”可以是原生侧的确定性夹具，不是 P4X 的真实灯、C6、MQTT 或传感器。
 因此本阶段验证的是架构、生命周期与 API 契约；不把它误报为硬件或性能验收。
@@ -116,7 +127,8 @@ applySnapshot(result.snapshot)
 - 旧 `expectedRevision` 必须以 `1002`（stale revision）拒绝；页面随后重新获取 snapshot。
 - P0.0 不暴露 `subscribeState()`，也不以定时轮询替代。原生事件扇出完成后，P1 的订阅事件
   必须携带 `revision`；发现跳变或订阅断开时，QuickApp 重新获取 snapshot。
-- Native Feature 只做参数校验与桥接；不得阻塞 QuickApp JS 事件循环。
+- Native Feature 只做参数校验和 IPC 桥接；不得阻塞 QuickApp JS 事件循环，也不得在 Promise
+  包装函数中同步等待消息队列回包。
 
 首期不提供 `askAgent()`，也不仿造 `@system.velaclaw`。cAGENT 接入应在该四个接口稳定后，
 作为下一阶段独立验证。
@@ -147,8 +159,10 @@ applySnapshot(result.snapshot)
 
 1. 建立 `system.smarthome@1.0` JIDL 和 Goldfish 原生实现。
 2. 建立仅包含 `sim-living-room-light` 的 State Store/Simulator Device Provider。
-3. 完成 `getCapabilities()`、`getSnapshot()`，先不提供订阅。
-4. 在 QuickApp 启动时按“能力协商 → snapshot”顺序渲染卡片。
+3. 建立服务端与 Feature 端的 request/response IPC：请求必须带关联 ID，回包必须带状态码及
+   snapshot；接收在 worker/UV 异步队列中完成。
+4. 完成 `getCapabilities()`、`getSnapshot()`，先不提供订阅。
+5. 在 QuickApp 启动时按“能力协商 → snapshot”顺序渲染卡片。
 
 ### M2：控制与状态回写
 
