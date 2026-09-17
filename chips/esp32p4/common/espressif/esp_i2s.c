@@ -3318,14 +3318,42 @@ static int i2s_dma_setup(struct esp_i2s_s *priv)
   priv->dma_channel_tx = NULL;
   priv->dma_channel_rx = NULL;
 
-  if (priv->config->tx_en)
+  /* A full-duplex I2S peripheral needs both directions from one GDMA pair.
+   * Allocate them together instead of first creating TX and then creating RX
+   * from an already occupied pair.  This is the contract of
+   * gdma_new_ahb_channel() and avoids the second allocation's speculative
+   * group/pair allocation path.
+   */
+
+  if (priv->config->tx_en && priv->config->rx_en)
     {
-      gdma_channel_alloc_config_t tx_handle =
+      gdma_channel_alloc_config_t handle =
         {
           0
         };
 
-      err = gdma_new_ahb_channel(&tx_handle, &priv->dma_channel_tx, NULL);
+      err = gdma_new_ahb_channel(&handle, &priv->dma_channel_tx,
+                                 &priv->dma_channel_rx);
+      if (err != ESP_OK)
+        {
+          i2serr("Failed to register full-duplex dma pair: %d\n", err);
+          syslog(LOG_ERR,
+                 "ERROR: I2S%d GDMA TX/RX pair allocation failed: %d\n",
+                 priv->config->port, err);
+          return err == ESP_ERR_NO_MEM ? -ENOMEM : -EIO;
+        }
+
+      tx_allocated = true;
+      rx_allocated = true;
+    }
+  else if (priv->config->tx_en)
+    {
+      gdma_channel_alloc_config_t handle =
+        {
+          0
+        };
+
+      err = gdma_new_ahb_channel(&handle, &priv->dma_channel_tx, NULL);
       if (err != ESP_OK)
         {
           i2serr("Failed to register tx dma channel: %d\n", err);
@@ -3335,7 +3363,28 @@ static int i2s_dma_setup(struct esp_i2s_s *priv)
         }
 
       tx_allocated = true;
+    }
+  else if (priv->config->rx_en)
+    {
+      gdma_channel_alloc_config_t handle =
+        {
+          0
+        };
 
+      err = gdma_new_ahb_channel(&handle, NULL, &priv->dma_channel_rx);
+      if (err != ESP_OK)
+        {
+          i2serr("Failed to register rx dma channel: %d\n", err);
+          syslog(LOG_ERR, "ERROR: I2S%d GDMA RX allocation failed: %d\n",
+                 priv->config->port, err);
+          return err == ESP_ERR_NO_MEM ? -ENOMEM : -EIO;
+        }
+
+      rx_allocated = true;
+    }
+
+  if (priv->config->tx_en)
+    {
       err = gdma_connect(priv->dma_channel_tx, trig);
       if (err != ESP_OK)
         {
@@ -3372,23 +3421,6 @@ static int i2s_dma_setup(struct esp_i2s_s *priv)
 
   if (priv->config->rx_en)
     {
-      gdma_channel_alloc_config_t rx_handle =
-        {
-          0
-        };
-
-      err = gdma_new_ahb_channel(&rx_handle, NULL, &priv->dma_channel_rx);
-      if (err != ESP_OK)
-        {
-          i2serr("Failed to register rx dma channel: %d\n", err);
-          syslog(LOG_ERR, "ERROR: I2S%d GDMA RX create failed: %d\n",
-                 priv->config->port, err);
-          ret = err == ESP_ERR_NO_MEM ? -ENOMEM : -EIO;
-          goto errout;
-        }
-
-      rx_allocated = true;
-
       err = gdma_connect(priv->dma_channel_rx, trig);
       if (err != ESP_OK)
         {
