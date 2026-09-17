@@ -404,11 +404,13 @@ static int audio_smoke_run(FAR struct audio_smoke_state_s *state,
   FAR struct ap_buffer_s *apb;
   int ret = OK;
 
+  printf("[audio_smoke] start begin\n");
   if (ioctl(state->audio_fd, AUDIOIOC_START, 0) < 0)
     {
       return -errno;
     }
 
+  printf("[audio_smoke] start OK\n");
   state->started = true;
 
   /* Start the codec worker before it owns any application buffer.  This
@@ -418,11 +420,14 @@ static int audio_smoke_run(FAR struct audio_smoke_state_s *state,
   for (index = 0; index < state->buffer_info.nbuffers &&
                   (playback ? state->remaining > 0 : true); index++)
     {
+      printf("[audio_smoke] enqueue initial buffer %u begin\n", index);
       ret = audio_smoke_enqueue(state, state->buffers[index], playback);
       if (ret < 0)
         {
           return ret;
         }
+
+      printf("[audio_smoke] enqueue initial buffer %u OK\n", index);
     }
 
   if (state->outstanding == 0)

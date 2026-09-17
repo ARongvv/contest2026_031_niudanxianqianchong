@@ -179,6 +179,17 @@ patches/nuttx/0004-es8311-audio-smoke-diagnostics.patch
 `[audio_smoke] prepare` 开始到串口静止为止的全部输出。真机定位完成后，应将
 逐笔 I2C `INFO` 日志删除或降级，避免长期占用串口带宽。
 
+首轮启动日志已确认配置、缓冲和 I2C 时钟寄存器写入可以完成，但串口在
+ES8311 start 的最后控制寄存器写附近断开，尚不能区分“该笔写未返回”、
+worker 消息队列/线程创建失败或首个缓冲提交触发的复位。因此追加：
+
+```text
+patches/nuttx/0005-es8311-start-boundary-diagnostics.patch
+```
+
+该补丁记录 I2C 写返回值、codec 控制寄存器完成、worker 消息队列创建、
+worker 创建，以及 `audio_smoke` 的 `AUDIOIOC_START` 和两个初始缓冲提交边界。
+
 ## 真机结果
 
 修复后启动日志显示：

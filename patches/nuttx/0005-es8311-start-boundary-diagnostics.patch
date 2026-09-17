@@ -1,0 +1,43 @@
+Subject: [PATCH 5/5] audio: trace ES8311 start and initial enqueue
+
+The first smoke-test trace reaches the ES8311 start register sequence but
+the serial device disconnects before it can distinguish the final I2C write,
+worker startup, and first DMA buffer submission. Add completion and boundary
+logs at those transitions.
+
+These are temporary bring-up diagnostics. Apply after
+0004-es8311-audio-smoke-diagnostics.patch.
+
+diff --git a/drivers/audio/es8311.c b/drivers/audio/es8311.c
+--- a/drivers/audio/es8311.c
++++ b/drivers/audio/es8311.c
+@@ -361,0 +369,3 @@ static int es8311_writereg(FAR struct es8311_dev_s *priv,
++          syslog(LOG_INFO,
++                 "INFO: ES8311 I2C write done: reg=0x%02x ret=%d\n",
++                 (unsigned int)regaddr, ret);
+@@ -1417,0 +1473,2 @@ static int es8311_start(FAR struct audio_lowerhalf_s *dev)
++  syslog(LOG_INFO, "INFO: ES8311 start: begin mode=%d\n",
++         priv->audio_mode);
+@@ -1451,0 +1509,2 @@ static int es8311_start(FAR struct audio_lowerhalf_s *dev)
++  syslog(LOG_INFO, "INFO: ES8311 start: control registers complete ret=%d\n",
++         ret);
+@@ -1472,0 +1532 @@ static int es8311_start(FAR struct audio_lowerhalf_s *dev)
++  syslog(LOG_INFO, "INFO: ES8311 start: worker mq create begin\n");
+@@ -1484,0 +1545 @@ static int es8311_start(FAR struct audio_lowerhalf_s *dev)
++  syslog(LOG_INFO, "INFO: ES8311 start: worker mq create OK\n");
+@@ -1498,0 +1560 @@ static int es8311_start(FAR struct audio_lowerhalf_s *dev)
++  syslog(LOG_INFO, "INFO: ES8311 start: worker create begin\n");
+@@ -1508,0 +1571 @@ static int es8311_start(FAR struct audio_lowerhalf_s *dev)
++      syslog(LOG_INFO, "INFO: ES8311 start: worker create OK\n");
+diff --git a/demos/smart_home/src/audio/audio_smoke_main.c b/demos/smart_home/src/audio/audio_smoke_main.c
+--- a/demos/smart_home/src/audio/audio_smoke_main.c
++++ b/demos/smart_home/src/audio/audio_smoke_main.c
+@@ -406,0 +407 @@ static int audio_smoke_run(FAR struct audio_smoke_state_s *state,
++  printf("[audio_smoke] start begin\n");
+@@ -411,0 +413 @@ static int audio_smoke_run(FAR struct audio_smoke_state_s *state,
++  printf("[audio_smoke] start OK\n");
+@@ -420,0 +423 @@ static int audio_smoke_run(FAR struct audio_smoke_state_s *state,
++      printf("[audio_smoke] enqueue initial buffer %u begin\n", index);
+@@ -425,0 +429,2 @@ static int audio_smoke_run(FAR struct audio_smoke_state_s *state,
++
++      printf("[audio_smoke] enqueue initial buffer %u OK\n", index);
