@@ -7,6 +7,7 @@
 3. `0003-es8311-propagate-configure-errors.patch`：修复有效的采样率、位宽配置仍错误返回 `-ERANGE` 的问题，并保留 I2S 时钟或 codec 配置的真实错误码。
 4. `0004-es8311-audio-smoke-diagnostics.patch`：增加音频 smoke test、codec/I2S/I2C 边界日志，用于定位配置阶段阻塞。
 5. `0005-es8311-start-boundary-diagnostics.patch`：增加 codec 启动、worker 创建和首个音频缓冲提交边界日志，用于定位复位位置。
+6. `0006-es8311-worker-boundary-diagnostics.patch`：增加 worker 首次处理和消息队列等待边界日志，用于定位启动后的卡死。
 
 在尚未应用补丁的 NuttX 仓库中执行（本机工作区已经应用，不要重复执行）：
 
@@ -21,8 +22,10 @@ git apply --unidiff-zero --check ../contest2026_031_niudanxianqianchong/patches/
 git apply --unidiff-zero ../contest2026_031_niudanxianqianchong/patches/nuttx/0004-es8311-audio-smoke-diagnostics.patch
 git apply --unidiff-zero --check ../contest2026_031_niudanxianqianchong/patches/nuttx/0005-es8311-start-boundary-diagnostics.patch
 git apply --unidiff-zero ../contest2026_031_niudanxianqianchong/patches/nuttx/0005-es8311-start-boundary-diagnostics.patch
+git apply --unidiff-zero --check ../contest2026_031_niudanxianqianchong/patches/nuttx/0006-es8311-worker-boundary-diagnostics.patch
+git apply --unidiff-zero ../contest2026_031_niudanxianqianchong/patches/nuttx/0006-es8311-worker-boundary-diagnostics.patch
 ```
 
 当前配置未启用 `CONFIG_LIBC_SEM_MUTEX_NOINLINE`，`nxmutex_init/lock/unlock` 是头文件中的内联实现。缺少该头文件时，编译器按隐式外部函数处理，随后链接失败；不需要新增互斥锁库或更改同步实现。
 
-本机 NuttX 工作区已经按上述顺序应用五个补丁，不要重复执行。固件编译及板端录放音仍需验证。
+本机 NuttX 工作区已经按上述顺序应用六个补丁，不要重复执行。固件编译及板端录放音仍需验证。

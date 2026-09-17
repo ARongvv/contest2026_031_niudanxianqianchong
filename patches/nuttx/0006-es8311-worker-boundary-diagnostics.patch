@@ -1,0 +1,58 @@
+Subject: [PATCH 6/6] audio: trace ES8311 worker startup and queue wait
+
+The start boundary trace proves that AUDIOIOC_START returns after the ES8311
+worker is created, but the console stalls before the first application buffer
+is submitted. Trace the worker's first process pass and message-queue wait to
+distinguish normal blocking from a failed receive loop.
+
+The receive error log is rate-limited to the first consecutive failure so a
+high-priority worker cannot flood the console during diagnosis. Apply after
+0005-es8311-start-boundary-diagnostics.patch.
+
+diff --git a/drivers/audio/es8311.c b/drivers/audio/es8311.c
+--- a/drivers/audio/es8311.c
++++ b/drivers/audio/es8311.c
+@@ -2057,0 +2058 @@ static void *es8311_workerthread(pthread_addr_t pvarg)
++  int ret;
+@@ -2058,0 +2060,2 @@ static void *es8311_workerthread(pthread_addr_t pvarg)
++  unsigned int mq_errors = 0;
++  bool first_iteration = true;
+@@ -2060,0 +2063 @@ static void *es8311_workerthread(pthread_addr_t pvarg)
++  syslog(LOG_INFO, "INFO: ES8311 worker: entered\n");
+@@ -2091 +2095,14 @@ static void *es8311_workerthread(pthread_addr_t pvarg)
+-          es8311_processbegin(priv);
++          if (first_iteration)
++            {
++              syslog(LOG_INFO,
++                     "INFO: ES8311 worker: process begin inflight=%d\n",
++                     priv->inflight);
++            }
++
++          ret = es8311_processbegin(priv);
++          if (first_iteration)
++            {
++              syslog(LOG_INFO,
++                     "INFO: ES8311 worker: process end ret=%d inflight=%d\n",
++                     ret, priv->inflight);
++            }
+@@ -2095,0 +2111,6 @@ static void *es8311_workerthread(pthread_addr_t pvarg)
++      if (first_iteration)
++        {
++          syslog(LOG_INFO, "INFO: ES8311 worker: mq wait\n");
++          first_iteration = false;
++        }
++
+@@ -2102,0 +2124,8 @@ static void *es8311_workerthread(pthread_addr_t pvarg)
++          if (mq_errors == 0)
++            {
++              syslog(LOG_ERR,
++                     "ERROR: ES8311 worker: mq receive failed len=%d\n",
++                     msglen);
++            }
++
++          mq_errors++;
+@@ -2106,0 +2136,4 @@ static void *es8311_workerthread(pthread_addr_t pvarg)
++      mq_errors = 0;
++      syslog(LOG_INFO, "INFO: ES8311 worker: mq received len=%d id=%d\n",
++             msglen, msg.msg_id);
++

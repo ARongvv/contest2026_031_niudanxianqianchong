@@ -190,6 +190,11 @@ patches/nuttx/0005-es8311-start-boundary-diagnostics.patch
 该补丁记录 I2C 写返回值、codec 控制寄存器完成、worker 消息队列创建、
 worker 创建，以及 `audio_smoke` 的 `AUDIOIOC_START` 和两个初始缓冲提交边界。
 
+后续真机日志确认 `AUDIOIOC_START` 已返回，但在第一个应用缓冲提交前卡住。
+因此增加 `0006-es8311-worker-boundary-diagnostics.patch`：记录 worker 是否进入、
+首次 `es8311_processbegin()` 的返回值、首次消息队列等待，以及首个连续消息队列
+接收错误。该错误日志限速为每轮连续错误的第一条，避免高优先级 worker 诊断时刷屏。
+
 ## 真机结果
 
 修复后启动日志显示：
