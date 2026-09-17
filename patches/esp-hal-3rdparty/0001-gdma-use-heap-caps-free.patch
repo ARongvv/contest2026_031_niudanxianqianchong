@@ -1,0 +1,71 @@
+diff --git a/components/upper_hal_dma/src/gdma.c b/components/upper_hal_dma/src/gdma.c
+index 12468e2dde2..ef2cca043b5 100644
+--- a/components/upper_hal_dma/src/gdma.c
++++ b/components/upper_hal_dma/src/gdma.c
+@@ -223,10 +223,10 @@ err:
+     }
+     // Free the channel structures after clearing the pair pointers
+     if (alloc_tx_channel) {
+-        free(alloc_tx_channel);
++        heap_caps_free(alloc_tx_channel);
+     }
+     if (alloc_rx_channel) {
+-        free(alloc_rx_channel);
++        heap_caps_free(alloc_rx_channel);
+     }
+ 
+ #if CONFIG_PM_POWER_DOWN_PERIPHERAL_IN_LIGHT_SLEEP && SOC_GDMA_SUPPORT_SLEEP_RETENTION
+@@ -717,7 +717,7 @@ static void gdma_try_free_group_handle(gdma_group_t *group)
+     esp_os_exit_critical(&s_platform.spinlock);
+ 
+     if (do_deinitialize) {
+-        free(group);
++        heap_caps_free(group);
+         ESP_LOGV(TAG, "del group %d", group_id);
+     }
+ }
+@@ -759,7 +759,7 @@ static gdma_group_t *gdma_try_alloc_group_handle(int group_id, void (*hal_init)(
+     if (new_group) {
+         ESP_LOGV(TAG, "new group (%d) at %p", group_id, group);
+     } else {
+-        free(pre_alloc_group);
++        heap_caps_free(pre_alloc_group);
+     }
+ out:
+     return group;
+@@ -794,7 +794,7 @@ static void gdma_try_free_pair_handle(gdma_pair_t *pair)
+     }
+ 
+     if (do_deinitialize) {
+-        free(pair);
++        heap_caps_free(pair);
+         ESP_LOGV(TAG, "del pair (%d,%d)", group->group_id, pair_id);
+         gdma_try_free_group_handle(group);
+     }
+@@ -828,7 +828,7 @@ static gdma_pair_t *gdma_try_alloc_pair_handle(gdma_group_t *group, int pair_id)
+     if (new_pair) {
+         ESP_LOGV(TAG, "new pair (%d,%d) at %p", group->group_id, pair_id, pair);
+     } else {
+-        free(pre_alloc_pair);
++        heap_caps_free(pre_alloc_pair);
+     }
+ 
+ out:
+@@ -858,7 +858,7 @@ static esp_err_t gdma_del_tx_channel(gdma_channel_t *dma_channel)
+         ESP_LOGV(TAG, "uninstall interrupt service for tx channel (%d,%d)", group_id, pair_id);
+     }
+ 
+-    free(tx_chan);
++    heap_caps_free(tx_chan);
+     ESP_LOGV(TAG, "del tx channel (%d,%d)", group_id, pair_id);
+ 
+ #if CONFIG_PM_POWER_DOWN_PERIPHERAL_IN_LIGHT_SLEEP && SOC_GDMA_SUPPORT_SLEEP_RETENTION
+@@ -893,7 +893,7 @@ static esp_err_t gdma_del_rx_channel(gdma_channel_t *dma_channel)
+         ESP_LOGV(TAG, "uninstall interrupt service for rx channel (%d,%d)", group_id, pair_id);
+     }
+ 
+-    free(rx_chan);
++    heap_caps_free(rx_chan);
+     ESP_LOGV(TAG, "del rx channel (%d,%d)", group_id, pair_id);
+ 
+ #if CONFIG_PM_POWER_DOWN_PERIPHERAL_IN_LIGHT_SLEEP && SOC_GDMA_SUPPORT_SLEEP_RETENTION

@@ -3381,7 +3381,7 @@ static int i2s_dma_setup(struct esp_i2s_s *priv)
       if (err != ESP_OK)
         {
           i2serr("Failed to register rx dma channel: %d\n", err);
-          syslog(LOG_ERR, "ERROR: I2S%d GDMA RX allocation failed: %d\n",
+          syslog(LOG_ERR, "ERROR: I2S%d GDMA RX create failed: %d\n",
                  priv->config->port, err);
           ret = err == ESP_ERR_NO_MEM ? -ENOMEM : -EIO;
           goto errout;
