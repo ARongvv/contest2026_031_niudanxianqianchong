@@ -68,7 +68,7 @@ Goldfish `smart_home_quickapp` 从项目已有的 `board/goldfish-arm64/configs/
 
 ```text
 CONFIG_SMART_HOME_DEMO=y
-CONFIG_SMART_HOME_DEMO_UI_QUICKAPP=y       # 计划新增到 UI backend choice
+CONFIG_SMART_HOME_DEMO_UI_QUICKAPP=y
 # CONFIG_SMART_HOME_DEMO_UI_LVGL is not set
 
 CONFIG_GRAPHICS_LVGL=y                      # QuickApp 的底层渲染依赖，不能关闭
@@ -76,6 +76,7 @@ CONFIG_UIKIT=y
 CONFIG_FEATURE_FRAMEWORK=y
 CONFIG_QUICKAPP=y
 CONFIG_QUICKAPP_VAPP=y                      # 以 RPK 作为应用入口时启用
+CONFIG_FEATURE_SYSTEM_SMARTHOME=y
 ```
 
 `SMART_HOME_DEMO_UI_QUICKAPP` 与 `SMART_HOME_DEMO_UI_LVGL` 必须位于同一个 choice，保证
@@ -137,10 +138,12 @@ applySnapshot(result.snapshot)
 
 ### M0：配置与启动
 
-1. 在 `SMART_HOME_DEMO_UI_BACKEND` choice 增加 `SMART_HOME_DEMO_UI_QUICKAPP`。
+1. 在 `SMART_HOME_DEMO_UI_BACKEND` choice 增加 `SMART_HOME_DEMO_UI_QUICKAPP`；它依赖
+   `QUICKAPP`、`QUICKAPP_VAPP` 和 `FEATURE_FRAMEWORK`，并选择 `FEATURE_SYSTEM_SMARTHOME`。
 2. 新增 Goldfish `smart_home_quickapp` defconfig；保持 `smart_home` Console 配置不变。
 3. 同步更新 `demos/smart_home/Makefile` 与 `CMakeLists.txt`：QuickApp 模式不包含原生
-   LVGL 产品 UI 源文件，但包含 SmartHome 服务和 Feature 适配代码。
+   LVGL 产品 UI 源文件，但包含 SmartHome 服务和 IPC 服务端。`smart_home` 在此模式只作为
+   原生服务常驻，RPK 由独立 `vapp` 进程启动。
 4. 构建并启动模拟器，确认 RPK 可从 VAPP 启动，且不出现第二个 `lv_init()`/原生 UI 主循环。
 
 构建命令：
