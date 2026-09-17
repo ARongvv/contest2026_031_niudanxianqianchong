@@ -769,7 +769,7 @@ static void create_tool_directory_card(lv_obj_t *content,
 
     smart_home_lvgl_icon_create(header, ICON_TOOL, 18, 18);
     label = smart_home_lvgl_label_create(header,
-                                         "Tool Directory",
+                                         "工具与权限",
                                          SMART_HOME_UI_COLOR_TEXT_PRIMARY,
                                          14);
     lv_obj_set_flex_grow(label, 1);
@@ -1264,7 +1264,7 @@ static void create_system_status_card(lv_obj_t *content,
 
     smart_home_lvgl_icon_create(header, ICON_STATUS_OK, 18, 18);
     label = smart_home_lvgl_label_create(header,
-                                         "System Status",
+                                         "系统健康",
                                          SMART_HOME_UI_COLOR_TEXT_PRIMARY,
                                          14);
     lv_obj_set_flex_grow(label, 1);
@@ -1287,7 +1287,7 @@ static void create_system_status_card(lv_obj_t *content,
     ui->settings_system_status_body = body;
 
     create_status_row(body,
-                      "Network",
+                      "家庭网络",
                       network_status_text(status ? &status->network_status :
                                                    NULL,
                                           buffer,
@@ -1296,7 +1296,7 @@ static void create_system_status_card(lv_obj_t *content,
                                                     NULL));
 
     create_status_row(body,
-                      "Platform",
+                      "运行平台",
                       status ?
                           smart_home_network_platform_name(
                               status->network_status.platform) :
@@ -1318,7 +1318,7 @@ static void create_system_status_card(lv_obj_t *content,
                                                  SMART_HOME_STATUS_UNKNOWN));
 
     create_status_row(body,
-                      "Tools",
+                      "工具服务",
                       simple_agent_status_text(status ? status->tools_status :
                                                    SMART_HOME_STATUS_UNKNOWN,
                                                "Ready",
@@ -1328,25 +1328,25 @@ static void create_system_status_card(lv_obj_t *content,
                                                  SMART_HOME_STATUS_UNKNOWN));
 
     create_status_row(body,
-                      "Model API",
+                      "模型服务",
                       model_status_text(app, buffer, sizeof(buffer)),
                       subsystem_status_color(status ? status->model_status :
                                                  SMART_HOME_STATUS_UNKNOWN));
 
     create_status_row(body,
-                      "Agent",
+                      "智能管家",
                       agent_status_text(app, buffer, sizeof(buffer)),
                       agent_status_color(app));
 
     create_status_row(body,
-                      "Node Gateway",
+                      "设备网关",
                       node_gateway_status_text(app, buffer, sizeof(buffer)),
                       node_gateway_status_color(app));
 
 #ifdef CONFIG_SMART_HOME_MCP_BRIDGE
     s_mcp_status_label =
         create_status_row(body,
-                          "MCP Bridge",
+                          "MCP 服务",
                           mcp_bridge_status_text(app, buffer, sizeof(buffer)),
                           mcp_bridge_status_color(app));
     s_mcp_app = app;
@@ -1369,27 +1369,27 @@ static void create_system_status_card(lv_obj_t *content,
                         LV_EVENT_CLICKED,
                         ui);
     label = smart_home_lvgl_label_create(s_mcp_discover_button,
-                                         "Discover MCP",
+                                         "发现 MCP",
                                          lv_color_white(),
                                          12);
     lv_obj_center(label);
     ui->settings_mcp_discover_btn = s_mcp_discover_button;
 #else
     create_status_row(body,
-                      "MCP Bridge",
+                      "MCP 服务",
                       mcp_bridge_status_text(app, buffer, sizeof(buffer)),
                       mcp_bridge_status_color(app));
 #endif
 
     snprintf(value, sizeof(value), "%d devices", device_count);
     create_status_row(body,
-                      "Devices",
+                      "本地设备",
                       value,
                       SMART_HOME_UI_COLOR_TEXT_SECONDARY);
 
     if (status && status->last_error[0]) {
         create_status_row(body,
-                          "Last",
+                          "最近错误",
                           status->last_error,
                           SMART_HOME_UI_COLOR_WARNING);
     }
@@ -1461,7 +1461,7 @@ void smart_home_lvgl_build_settings_screen(smart_home_lvgl_t *ui)
 
         smart_home_lvgl_icon_create(header, ICON_SETTING_AI, 18, 18);
         label = smart_home_lvgl_label_create(header,
-                                             "Model API",
+                                             "模型服务",
                                              SMART_HOME_UI_COLOR_TEXT_PRIMARY,
                                              14);
         lv_obj_set_flex_grow(label, 1);
@@ -1514,7 +1514,7 @@ void smart_home_lvgl_build_settings_screen(smart_home_lvgl_t *ui)
 
         field_label = smart_home_lvgl_label_create(
             wrap,
-            "Backend",
+                              "AI 后端",
             SMART_HOME_UI_COLOR_TEXT_SECONDARY,
             12);
         lv_obj_set_width(field_label, lv_pct(100));
@@ -1537,49 +1537,49 @@ void smart_home_lvgl_build_settings_screen(smart_home_lvgl_t *ui)
     ui->settings_host_input =
         create_settings_input(model_body,
                               ui,
-                              "Host",
+                              "服务地址",
                               config ? config->host : "",
                               sizeof(((smart_home_model_config_t *)0)->host) - 1u,
                               0);
     ui->settings_path_input =
         create_settings_input(model_body,
                               ui,
-                              "Path",
+                              "请求路径",
                               config ? config->path : "",
                               sizeof(((smart_home_model_config_t *)0)->path) - 1u,
                               0);
     ui->settings_port_input =
         create_settings_input(model_body,
                               ui,
-                              "Port",
+                              "端口",
                               config ? config->port : "443",
                               sizeof(((smart_home_model_config_t *)0)->port) - 1u,
                               0);
     ui->settings_model_input =
         create_settings_input(model_body,
                               ui,
-                              "Model",
+                              "模型",
                               config ? config->model : "",
                               sizeof(((smart_home_model_config_t *)0)->model) - 1u,
                               0);
     ui->settings_api_key_input =
         create_settings_input(model_body,
                               ui,
-                              "API Key (Custom only)",
-                              "Managed by secrets.json",
+                              "API 密钥（仅自定义后端）",
+                              "由 secrets.json 安全管理",
                               sizeof(((smart_home_model_config_t *)0)->api_key) - 1u,
                               1);
     ui->settings_timeout_input =
         create_settings_input(model_body,
                               ui,
-                              "Timeout ms",
+                              "请求超时（毫秒）",
                               timeout_text,
                               8,
                               0);
     ui->settings_max_tokens_input =
         create_settings_input(model_body,
                               ui,
-                              "Max output tokens",
+                              "最大输出 Token",
                               max_tokens_text,
                               8,
                               0);
@@ -1590,12 +1590,12 @@ void smart_home_lvgl_build_settings_screen(smart_home_lvgl_t *ui)
     lv_obj_set_style_radius(button, 8, 0);
     smart_home_lvgl_set_bg(button, SMART_HOME_UI_COLOR_PRIMARY);
     lv_obj_add_event_cb(button, apply_settings_event, LV_EVENT_CLICKED, ui);
-    label = smart_home_lvgl_label_create(button, "Apply", lv_color_white(), 12);
+    label = smart_home_lvgl_label_create(button, "应用", lv_color_white(), 12);
     lv_obj_center(label);
 
     ui->settings_status_label =
         smart_home_lvgl_label_create(model_body,
-                                     "Edits apply to this running session.",
+                                     "修改仅在当前运行会话内生效。",
                                      SMART_HOME_UI_COLOR_TEXT_MUTED,
                                      12);
     lv_label_set_long_mode(ui->settings_status_label, LV_LABEL_LONG_WRAP);
@@ -1625,7 +1625,7 @@ void smart_home_lvgl_build_settings_screen(smart_home_lvgl_t *ui)
     smart_home_lvgl_card_style(card);
     label = smart_home_lvgl_label_create(
         card,
-        "Device Panel\nPanel controls local device state. Chat shows Agent tool traces.",
+        "本地设备服务\n设备控制保留在原生服务，智能管家页展示工具调用轨迹。",
         SMART_HOME_UI_COLOR_TEXT_SECONDARY,
         12);
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
