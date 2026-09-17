@@ -1,10 +1,20 @@
 config SMART_HOME_DEMO
     bool "Smart home demo"
-    select CAGENT if !SMART_HOME_DEMO_STATIC_LVGL_HOME
-    select CAGENT_PROFILE_REACT_DEFAULTS if !SMART_HOME_DEMO_STATIC_LVGL_HOME
-    select CAGENT_MODEL_OPENAI if !SMART_HOME_DEMO_STATIC_LVGL_HOME
-    select CAGENT_RUNTIME_OPENVELA_DEFAULTS if !SMART_HOME_DEMO_STATIC_LVGL_HOME
-    select CAGENT_RUNTIME_OPENVELA_TLS if !SMART_HOME_DEMO_STATIC_LVGL_HOME && !SMART_HOME_DEMO_OFFLINE_UI
+    # Do not make these selects conditional on SMART_HOME_DEMO_STATIC_LVGL_HOME.
+    # That symbol is a child of SMART_HOME_DEMO_UI_BACKEND; QuickApp depends on
+    # CAGENT through its Feature/QuickApp dependency chain, so referring back
+    # to the choice child here creates a Kconfig dependency loop.
+    select CAGENT
+    select CAGENT_PROFILE_REACT_DEFAULTS
+    select CAGENT_MODEL_OPENAI
+    select CAGENT_RUNTIME_OPENVELA_DEFAULTS
+    # Do not derive a cAGENT runtime dependency from an LVGL-only profile.
+    # SMART_HOME_DEMO_OFFLINE_UI itself depends on the UI-backend choice; a
+    # reverse reference here makes Kconfig traverse QuickApp -> libcurl ->
+    # mbedTLS -> cAGENT back into that same choice.  All SmartHome variants
+    # can safely include the runtime TLS adapter; offline UI simply does not
+    # use it at runtime.
+    select CAGENT_RUNTIME_OPENVELA_TLS
     default n
     help
       Smart home cAGENT demo skeleton with separated agent, tool, skill,

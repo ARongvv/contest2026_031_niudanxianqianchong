@@ -196,6 +196,44 @@ M0~M3 全部通过后，才允许把同一 JIDL、QuickApp 页面和 Feature 实
 `smart_home_quickapp`。P4X 阶段必须重新验证显示、GT911、PSRAM/Flash、真实设备、C6 网络
 和 30 FPS；模拟器通过不能豁免任何真机验收。
 
+### H0：P4X 显示、触摸与 IPC 冒烟
+
+项目提供 `board/esp32p4/esp32p4-function-ev-board/configs/smart_home_quickapp/`，它继承
+现有 `smart_home` 的显示、PSRAM、LittleFS 和 ESP-Hosted 板级参数，但仅切换产品 UI
+后端。该配置有以下刻意取舍：
+
+- 启用 QuickApp VAPP、QuickJS、UIKit、Feature Framework 和 `system.smarthome`；
+- 启用 QuickApp 所需的 `UTILS_CURL` 依赖闭包：`LIB_ZLIB` 与 `CRYPTO_MBEDTLS`；
+- 启用板级 GT911，关闭独立 `gt911_probe`，避免两个应用同时访问触摸设备；
+- 关闭 `smart_home_lvgl`、LVGL demo、audio smoke 和 I2S0；QuickApp 运行时仍使用底层 LVGL，
+  但不启动第二个原生产品 UI；
+- 以 `TLS_TASK_NELEM=4` 启用 libc++ 与 libuv 所需的任务本地存储；否则 Kconfig 会将
+  `LIBCXX` 回退为 `LIBCXXNONE`，导致 Yoga 缺少 C++ 标准库头文件；
+- 保留 C6/ESP-Hosted 配置但维持 `SMART_HOME_DEMO_OFFLINE_UI`。首轮不以联网、音频或
+  摄像头为通过条件。
+
+编译前，必须将 `system.smarthome` Feature 的 JIDL、IPC 协议和实现合入构建树实际使用的
+`frameworks/runtimes/feature` 仓库；仅合入比赛项目不足以构建 QuickApp 模式。然后在
+openvela 根目录执行：
+
+```bash
+source myenv/bin/activate
+./build.sh \
+  contest2026_031_niudanxianqianchong/board/esp32p4/esp32p4-function-ev-board/configs/smart_home_quickapp \
+  --cmake -j8
+```
+
+构建后必须检查最终 `.config`，确认以下模式互斥和依赖成立：
+
+```bash
+rg '^(CONFIG_SMART_HOME_DEMO_UI_QUICKAPP|CONFIG_FEATURE_SYSTEM_SMARTHOME|CONFIG_QUICKAPP_VAPP|CONFIG_ESP32P4_FUNCTION_EV_BOARD_GT911)=' nuttx/.config
+rg '^CONFIG_SMART_HOME_DEMO_UI_LVGL=' nuttx/.config && false || true
+```
+
+H0 仅验收“smart_home 服务常驻、VAPP 启动 RPK、屏幕可见、GT911 可点按、客厅模拟灯可读写并
+回显 revision”。烧录地址、Flash 参数和串口必须以本次构建生成的产物与 `.config` 为准，不得
+复用其他 P4X 镜像的命令。
+
 ## 7. 并行开发与止损
 
 Wi-Fi 开发可继续在 P4X Make 构建通道进行；模拟器 QuickApp 不直接访问 C6、`wlan0`、
@@ -211,3 +249,4 @@ socket 或 MQTT，因此两者不共享运行时故障面。双方仅共享 `sys
 | 日期 | 内容 |
 | --- | --- |
 | 2026-09-14 | 建立 Goldfish QuickApp 最小真实业务闭环方案：定义独立 defconfig、原生 Feature、模拟设备、M0~M3 实施步骤与迁移门。 |
+| 2026-09-17 | 新增 P4X `smart_home_quickapp` H0 配置；将 Host IPC 契约设为强制依赖，明确 Feature 仓库与比赛项目须同步集成。 |

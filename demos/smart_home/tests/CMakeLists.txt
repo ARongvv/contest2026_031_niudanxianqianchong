@@ -37,10 +37,18 @@ set(CJSON_SRC ${OPENVELA_ROOT}/apps/netutils/cjson/cJSON/cJSON.c)
 set(CJSON_INC ${OPENVELA_ROOT}/apps/netutils/cjson/cJSON)
 set(CAGENT_INC ${OPENVELA_ROOT}/packages/cAGENT/include)
 set(SMART_HOME_FEATURE_MODULES_DIR "" CACHE PATH
-    "Optional system.smarthome Feature modules directory")
+    "system.smarthome Feature modules directory")
 if(NOT SMART_HOME_FEATURE_MODULES_DIR)
   set(SMART_HOME_FEATURE_MODULES_DIR
       ${OPENVELA_ROOT}/frameworks/runtimes/feature/modules)
+endif()
+
+if(NOT EXISTS ${SMART_HOME_FEATURE_MODULES_DIR}/smart_home_quickapp_ipc.h)
+  message(FATAL_ERROR
+      "system.smarthome IPC contract is required: expected "
+      "${SMART_HOME_FEATURE_MODULES_DIR}/smart_home_quickapp_ipc.h. "
+      "Integrate frameworks/runtimes/feature SmartHome Feature commits "
+      "or pass -DSMART_HOME_FEATURE_MODULES_DIR=<modules-dir>.")
 endif()
 
 set(TEST_DIR /tmp/smh_cfg_test_path)
@@ -142,74 +150,38 @@ target_include_directories(test_quickapp_provider PRIVATE
 
 target_link_libraries(test_quickapp_provider PRIVATE m Threads::Threads)
 
-if(EXISTS ${SMART_HOME_FEATURE_MODULES_DIR}/smart_home_quickapp_bridge.h)
-  add_executable(test_quickapp_feature_bridge
-      test_quickapp_feature_bridge.c
-      ${SMART_HOME_SRC_DIR}/quickapp/smart_home_quickapp_feature_bridge.c
-      ${SMART_HOME_SRC_DIR}/quickapp/smart_home_quickapp_provider.c
-      ${SMART_HOME_SRC_DIR}/device/smart_home_device.c
-      ${SMART_HOME_SRC_DIR}/device/smart_home_device_service.c
-      ${SMART_HOME_SRC_DIR}/skills/smart_home_scene_catalog.c
-      ${CJSON_SRC}
-  )
+add_executable(test_quickapp_ipc_server
+    test_quickapp_ipc_server.c
+    ${SMART_HOME_SRC_DIR}/quickapp/smart_home_quickapp_ipc_server.c
+    ${SMART_HOME_SRC_DIR}/quickapp/smart_home_quickapp_provider.c
+    ${SMART_HOME_SRC_DIR}/device/smart_home_device.c
+    ${SMART_HOME_SRC_DIR}/device/smart_home_device_service.c
+    ${SMART_HOME_SRC_DIR}/skills/smart_home_scene_catalog.c
+    ${CJSON_SRC}
+)
 
-  target_compile_definitions(test_quickapp_feature_bridge PRIVATE
-      FAR=
-      _POSIX_C_SOURCE=200809L
-  )
+target_compile_definitions(test_quickapp_ipc_server PRIVATE
+    FAR=
+    _POSIX_C_SOURCE=200809L
+)
 
-  target_include_directories(test_quickapp_feature_bridge PRIVATE
-      ${SMART_HOME_SRC_DIR}/quickapp
-      ${SMART_HOME_SRC_DIR}/config
-      ${SMART_HOME_SRC_DIR}/device
-      ${SMART_HOME_SRC_DIR}/skills
-      ${SMART_HOME_FEATURE_MODULES_DIR}
-      ${CJSON_INC}
-      ${CAGENT_INC}
-  )
+target_include_directories(test_quickapp_ipc_server PRIVATE
+    ${SMART_HOME_SRC_DIR}/quickapp
+    ${SMART_HOME_SRC_DIR}/config
+    ${SMART_HOME_SRC_DIR}/device
+    ${SMART_HOME_SRC_DIR}/skills
+    ${SMART_HOME_FEATURE_MODULES_DIR}
+    ${CJSON_INC}
+    ${CAGENT_INC}
+)
 
-  target_link_libraries(test_quickapp_feature_bridge PRIVATE m Threads::Threads)
-endif()
-
-if(EXISTS ${SMART_HOME_FEATURE_MODULES_DIR}/smart_home_quickapp_ipc.h)
-  add_executable(test_quickapp_ipc_server
-      test_quickapp_ipc_server.c
-      ${SMART_HOME_SRC_DIR}/quickapp/smart_home_quickapp_ipc_server.c
-      ${SMART_HOME_SRC_DIR}/quickapp/smart_home_quickapp_provider.c
-      ${SMART_HOME_SRC_DIR}/device/smart_home_device.c
-      ${SMART_HOME_SRC_DIR}/device/smart_home_device_service.c
-      ${SMART_HOME_SRC_DIR}/skills/smart_home_scene_catalog.c
-      ${CJSON_SRC}
-  )
-
-  target_compile_definitions(test_quickapp_ipc_server PRIVATE
-      FAR=
-      _POSIX_C_SOURCE=200809L
-  )
-
-  target_include_directories(test_quickapp_ipc_server PRIVATE
-      ${SMART_HOME_SRC_DIR}/quickapp
-      ${SMART_HOME_SRC_DIR}/config
-      ${SMART_HOME_SRC_DIR}/device
-      ${SMART_HOME_SRC_DIR}/skills
-      ${SMART_HOME_FEATURE_MODULES_DIR}
-      ${CJSON_INC}
-      ${CAGENT_INC}
-  )
-
-  target_link_libraries(test_quickapp_ipc_server PRIVATE m Threads::Threads rt)
-endif()
+target_link_libraries(test_quickapp_ipc_server PRIVATE m Threads::Threads rt)
 
 include(CTest)
 if(BUILD_TESTING)
     add_test(NAME config_store COMMAND test_config_store)
-    add_test(NAME secrets COMMAND test_secrets)
+  add_test(NAME secrets COMMAND test_secrets)
   add_test(NAME device_service COMMAND test_device_service)
   add_test(NAME quickapp_provider COMMAND test_quickapp_provider)
-  if(TARGET test_quickapp_feature_bridge)
-    add_test(NAME quickapp_feature_bridge COMMAND test_quickapp_feature_bridge)
-  endif()
-  if(TARGET test_quickapp_ipc_server)
-    add_test(NAME quickapp_ipc_server COMMAND test_quickapp_ipc_server)
-  endif()
+  add_test(NAME quickapp_ipc_server COMMAND test_quickapp_ipc_server)
 endif()

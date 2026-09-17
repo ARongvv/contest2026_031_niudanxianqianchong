@@ -1,0 +1,87 @@
+# P4X H0 QuickApp validation image. Keep smart_home unchanged as the
+# native-LVGL fallback configuration.
+#include "../smart_home/defconfig"
+
+# The P4 is RV32IMAC.  Its custom-chip Kconfig normally selects these
+# internal symbols, but include-based defconfigs may be reused by build.sh
+# without an olddefconfig pass.  Keep the toolchain contract explicit so an
+# incremental configuration cannot degenerate into '-march=i -mabi='.
+CONFIG_ARCH_RV32=y
+CONFIG_ARCH_RV_ISA_M=y
+CONFIG_ARCH_RV_ISA_A=y
+CONFIG_ARCH_RV_ISA_C=y
+
+# QuickApp VAPP owns the product UI; do not also start native LVGL demos or
+# the standalone GT911 probe. Use the board GT911 registration instead.
+# CONFIG_EXAMPLES_LVGLDEMO is not set
+# CONFIG_LV_USE_DEMO_WIDGETS is not set
+# CONFIG_LVX_USE_DEMO_CONTEST2026_031_GT911_PROBE is not set
+# CONFIG_SMART_HOME_DEMO_UI_LVGL is not set
+CONFIG_ESP32P4_FUNCTION_EV_BOARD_GT911=y
+
+# H0 validates display, touch and IPC. Audio smoke remains isolated in the
+# native smart_home fallback image.
+# CONFIG_ESP32P4_FUNCTION_EV_BOARD_AUDIO_ES8311 is not set
+# CONFIG_AUDIO_ES8311 is not set
+# CONFIG_SMART_HOME_AUDIO_SMOKE is not set
+# CONFIG_ESPRESSIF_I2S0 is not set
+
+# QuickApp VAPP and Feature Framework dependency closure.
+CONFIG_HAVE_CXX=y
+CONFIG_LIBCXX=y
+# RISC-V provides arch/risc-v/include/setjmp.h.  Export it into the public
+# include path so the FreeType dependency selected by QuickApp VAPP is usable.
+CONFIG_ARCH_SETJMP_H=y
+# LLVM libc++ requires CONFIG_TLS_NELEM > 0.  Yoga uses standard C++ headers
+# such as <limits> and <type_traits> through the QuickApp runtime.
+CONFIG_TLS_NELEM=4
+CONFIG_TLS_TASK_NELEM=4
+# Yoga and Feature Framework include <iostream>.  Mini localization retains
+# iostream support without enabling the full NuttX locale catalog.
+CONFIG_CXX_MINI_LOCALIZATION=y
+CONFIG_INTERPRETERS_QUICKJS=y
+CONFIG_LIBASH=y
+CONFIG_LIBUV=y
+CONFIG_LIBUV_EXTENSION=y
+CONFIG_LIB_FREETYPE=y
+CONFIG_LIB_PNG=y
+CONFIG_LIB_ZLIB=y
+CONFIG_LIB_YOGA=y
+CONFIG_LV_USE_FREETYPE=y
+CONFIG_LV_USE_LIBPNG=y
+CONFIG_LV_USE_NUTTX_LIBUV=y
+CONFIG_PROTOBUF_C=y
+CONFIG_UIKIT=y
+CONFIG_LIB_CURL=y
+# CONFIG_UTILS_CURL is not set
+CONFIG_CRYPTO_MBEDTLS=y
+CONFIG_FEATURE_FRAMEWORK=y
+CONFIG_QUICKAPP=y
+CONFIG_QUICKAPP_VAPP=y
+
+# H0 exposes exactly one product Feature.  The Feature Framework defaults many
+# phone-oriented modules to y; those either add unused firmware surface or
+# expect services (such as system/state) that this P4 SmartHome image does not
+# build.  Later product APIs can opt in individually with their dependencies.
+# CONFIG_FEATURE_SYSTEM_FILE is not set
+# CONFIG_FEATURE_SYSTEM_MEDIA is not set
+# CONFIG_FEATURE_SYSTEM_REQUEST is not set
+# CONFIG_FEATURE_SYSTEM_ZIP is not set
+# CONFIG_FEATURE_SYSTEM_CRYPTO is not set
+# CONFIG_FEATURE_SYSTEM_CIPHER is not set
+# CONFIG_FEATURE_SYSTEM_INTERNAL_POWER is not set
+# CONFIG_FEATURE_SYSTEM_FETCH is not set
+# CONFIG_FEATURE_SYSTEM_PROMPT is not set
+# CONFIG_FEATURE_SYSTEM_CONFIGURATION is not set
+# CONFIG_FEATURE_SYSTEM_DEVICE is not set
+# CONFIG_FEATURE_SYSTEM_BRIGHTNESS is not set
+# CONFIG_FEATURE_LOCALE is not set
+# CONFIG_FEATURE_ERROR is not set
+# CONFIG_FEATURE_SYSTEM_BATTERY is not set
+# CONFIG_FEATURE_SYSTEM_GEOLOCATION is not set
+# CONFIG_FEATURE_SYSTEM_ZLIB is not set
+# CONFIG_FEATURE_SYSTEM_MQTTMESSAGE is not set
+
+# The native smart_home process serves this Feature through POSIX mqueue.
+CONFIG_FEATURE_SYSTEM_SMARTHOME=y
+CONFIG_SMART_HOME_DEMO_UI_QUICKAPP=y
