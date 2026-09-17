@@ -13,3 +13,6 @@ diff --git a/drivers/audio/es8311.c b/drivers/audio/es8311.c
 @@ -369 +369 @@ static int es8311_writereg(FAR struct es8311_dev_s *priv,
 -          syslog(LOG_INFO,
 +          syslog(LOG_DEBUG,
+@@ -370 +370 @@ static int es8311_writereg(FAR struct es8311_dev_s *priv,
+-                 "INFO: ES8311 I2C write done: reg=0x%02x ret=%d\n",
++                 "DEBUG: ES8311 I2C write done: reg=0x%02x ret=%d\n",
