@@ -16,7 +16,7 @@
 #include <string.h>
 
 #define SMART_HOME_CHAT_INPUT_H 34
-#define SMART_HOME_CHAT_HEADER_H 40
+#define SMART_HOME_CHAT_HEADER_H (SMART_HOME_TOPBAR_H + 12)
 
 static int chat_list_height(int keyboard_visible)
 {
@@ -48,7 +48,10 @@ static void layout_chat_controls(smart_home_lvgl_t *ui, int keyboard_visible)
         lv_obj_set_size(ui->chat_list,
                         content_w,
                         chat_list_height(keyboard_visible));
-        lv_obj_align(ui->chat_list, LV_ALIGN_TOP_MID, 0, 44);
+        lv_obj_align(ui->chat_list,
+                     LV_ALIGN_TOP_MID,
+                     0,
+                     SMART_HOME_TOPBAR_H + 12);
     }
 
     if (ui->chat_keyboard) {
@@ -715,7 +718,7 @@ void smart_home_lvgl_chat_send_text(smart_home_lvgl_t *ui, const char *text)
     /* Update status hint */
     if (ui->chat_status) {
         lv_label_set_text(ui->chat_status,
-                          "Asking cAGENT...  (NSH: smart_home \"...\")");
+                          "正在请求智能管家…");
         lv_obj_clear_flag(ui->chat_status, LV_OBJ_FLAG_HIDDEN);
     }
 }
@@ -728,22 +731,13 @@ void smart_home_lvgl_build_chat_screen(smart_home_lvgl_t *ui)
     lv_obj_t *input_bar;
     lv_obj_t *label;
     int content_w = smart_home_lvgl_content_w();
-    int pad_x = smart_home_lvgl_pad_x();
 
     screen = lv_obj_create(NULL);
     lv_obj_remove_style_all(screen);
     smart_home_lvgl_set_bg(screen, SMART_HOME_UI_COLOR_BG);
     ui->screen_chat = screen;
 
-    /* Header */
-    smart_home_lvgl_label_create(screen,
-                                 "Conversation",
-                                 SMART_HOME_UI_COLOR_TEXT_PRIMARY,
-                                 16);
-    lv_obj_align(lv_obj_get_child(screen, 0),
-                 LV_ALIGN_TOP_LEFT,
-                 pad_x,
-                 12);
+    smart_home_lvgl_build_top_bar(screen, "智能管家");
 
     /* Chat message list — scrollable, fills most of the screen */
     ui->chat_list = lv_obj_create(screen);
@@ -751,7 +745,10 @@ void smart_home_lvgl_build_chat_screen(smart_home_lvgl_t *ui)
     lv_obj_set_size(ui->chat_list,
                     content_w,
                     chat_list_height(0));
-    lv_obj_align(ui->chat_list, LV_ALIGN_TOP_MID, 0, 44);
+    lv_obj_align(ui->chat_list,
+                 LV_ALIGN_TOP_MID,
+                 0,
+                 SMART_HOME_TOPBAR_H + 12);
     lv_obj_set_flex_flow(ui->chat_list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(ui->chat_list, 4, 0);
     lv_obj_set_style_pad_row(ui->chat_list, 8, 0);
@@ -773,7 +770,7 @@ void smart_home_lvgl_build_chat_screen(smart_home_lvgl_t *ui)
     ui->chat_input = lv_textarea_create(input_bar);
     lv_obj_set_size(ui->chat_input, content_w - 70, SMART_HOME_CHAT_INPUT_H);
     lv_textarea_set_one_line(ui->chat_input, true);
-    lv_textarea_set_placeholder_text(ui->chat_input, "Ask smart home agent");
+    lv_textarea_set_placeholder_text(ui->chat_input, "问问小乔…");
     lv_obj_set_style_text_font(ui->chat_input, smart_home_lvgl_font(12), 0);
     lv_obj_set_style_radius(ui->chat_input, 8, 0);
     lv_obj_set_style_border_color(ui->chat_input, SMART_HOME_UI_COLOR_BORDER, 0);
@@ -792,7 +789,7 @@ void smart_home_lvgl_build_chat_screen(smart_home_lvgl_t *ui)
                         LV_EVENT_CLICKED,
                         ui);
     label = smart_home_lvgl_label_create(ui->chat_send_btn,
-                                         "Send",
+                                         "发送",
                                          lv_color_white(),
                                          12);
     lv_obj_center(label);

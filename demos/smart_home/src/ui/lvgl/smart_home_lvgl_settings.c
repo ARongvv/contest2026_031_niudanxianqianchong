@@ -1399,7 +1399,6 @@ void smart_home_lvgl_build_settings_screen(smart_home_lvgl_t *ui)
 {
     lv_obj_t *screen;
     lv_obj_t *content;
-    lv_obj_t *title;
     lv_obj_t *card;
     lv_obj_t *model_body;
     lv_obj_t *button;
@@ -1410,21 +1409,15 @@ void smart_home_lvgl_build_settings_screen(smart_home_lvgl_t *ui)
     const smart_home_model_config_t *config;
     int selected_backend;
     int content_w = smart_home_lvgl_content_w();
+    int content_y = SMART_HOME_TOPBAR_H + (smart_home_lvgl_compact() ? 8 : 12);
     int content_h = smart_home_lvgl_disp_h() - SMART_HOME_NAV_H -
-                    SMART_HOME_NAV_BOTTOM_PAD -
-                    (smart_home_lvgl_compact() ? 44 : 50);
-    int pad_x = smart_home_lvgl_pad_x();
+                    SMART_HOME_NAV_BOTTOM_PAD - content_y - 8;
 
     screen = lv_obj_create(NULL);
     lv_obj_remove_style_all(screen);
     smart_home_lvgl_set_bg(screen, SMART_HOME_UI_COLOR_BG);
     ui->screen_settings = screen;
-
-    title = smart_home_lvgl_label_create(screen,
-                                         "Settings",
-                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY,
-                                         16);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, pad_x, 12);
+    smart_home_lvgl_build_top_bar(screen, "系统设置");
 
     content = lv_obj_create(screen);
     lv_obj_remove_style_all(content);
@@ -1432,7 +1425,7 @@ void smart_home_lvgl_build_settings_screen(smart_home_lvgl_t *ui)
     lv_obj_align(content,
                  LV_ALIGN_TOP_MID,
                  0,
-                 smart_home_lvgl_compact() ? 40 : 44);
+                 content_y);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(content, 8, 0);
     lv_obj_set_scroll_dir(content, LV_DIR_VER);

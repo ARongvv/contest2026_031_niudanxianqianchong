@@ -91,6 +91,17 @@ static const char *device_icon(const smart_home_device_t *device)
         ICON_DEVICE_AC : ICON_DEVICE_LIGHT;
 }
 
+static const char *device_room_name(const char *room)
+{
+    if (room && strcmp(room, "living_room") == 0) {
+        return "客厅";
+    }
+    if (room && strcmp(room, "bedroom") == 0) {
+        return "卧室";
+    }
+    return "家庭";
+}
+
 static int device_matches_filter(smart_home_lvgl_t *ui,
                                  const smart_home_device_t *device)
 {
@@ -122,25 +133,25 @@ static void format_device_card_text(const smart_home_device_t *device,
         if (device->on) {
             snprintf(buffer,
                      buffer_size,
-                     "%s\n%s | %d C | %s",
+                     "%s\n%s · %d°C · %s",
                      device->name,
                      smart_home_ac_mode_name(device->ac_mode),
                      device->temperature,
                      smart_home_ac_fan_speed_name(device->ac_fan_speed));
         } else {
-            snprintf(buffer, buffer_size, "%s\n%s | OFF", device->name,
-                     device->room);
+            snprintf(buffer, buffer_size, "%s\n%s · 已关闭", device->name,
+                     device_room_name(device->room));
         }
     } else if (device->on) {
         snprintf(buffer,
                  buffer_size,
-                 "%s\n%s | %d%%",
+                 "%s\n%s · %d%%",
                  device->name,
-                 device->room,
+                 device_room_name(device->room),
                  device->brightness);
     } else {
-        snprintf(buffer, buffer_size, "%s\n%s | OFF", device->name,
-                 device->room);
+        snprintf(buffer, buffer_size, "%s\n%s · 已关闭", device->name,
+                 device_room_name(device->room));
     }
 }
 
@@ -505,15 +516,15 @@ static void refresh_sensor_bar(smart_home_lvgl_t *ui)
     }
 
     if (ui->env_temp_label) {
-        snprintf(text, sizeof(text), "Temp %dC", state->env_temperature);
+        snprintf(text, sizeof(text), "温度 %d°C", state->env_temperature);
         lv_label_set_text(ui->env_temp_label, text);
     }
     if (ui->env_hum_label) {
-        snprintf(text, sizeof(text), "Hum %d%%", state->env_humidity);
+        snprintf(text, sizeof(text), "湿度 %d%%", state->env_humidity);
         lv_label_set_text(ui->env_hum_label, text);
     }
     if (ui->env_light_label) {
-        snprintf(text, sizeof(text), "Light %dlx", state->env_light);
+        snprintf(text, sizeof(text), "光照 %d lx", state->env_light);
         lv_label_set_text(ui->env_light_label, text);
     }
     if (ui->env_ac_label) {
@@ -523,11 +534,11 @@ static void refresh_sensor_bar(smart_home_lvgl_t *ui)
         if (ac) {
             snprintf(text,
                      sizeof(text),
-                     "AC %s %dC",
-                     ac->on ? smart_home_ac_mode_name(ac->ac_mode) : "off",
+                     "空调 %s %d°C",
+                     ac->on ? smart_home_ac_mode_name(ac->ac_mode) : "已关闭",
                      ac->temperature);
         } else {
-            snprintf(text, sizeof(text), "AC none");
+            snprintf(text, sizeof(text), "暂无空调");
         }
         lv_label_set_text(ui->env_ac_label, text);
     }
@@ -981,7 +992,7 @@ static lv_obj_t *create_add_card(lv_obj_t *grid, smart_home_lvgl_t *ui)
     lv_obj_set_size(card, card_w, card_h);
     smart_home_lvgl_card_style(card);
     lv_obj_add_event_cb(card, add_device_cb, LV_EVENT_CLICKED, ui);
-    set_card_content(card, ICON_ADD, "Add Device", 0);
+    set_card_content(card, ICON_ADD, "添加设备", 0);
     smart_home_lvgl_set_bg(card, SMART_HOME_UI_COLOR_SURFACE_SOFT);
     return card;
 }
@@ -1259,7 +1270,7 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
                  SMART_HOME_TOPBAR_H + (compact ? 8 : 12));
 
     ui->panel_room_dd = lv_dropdown_create(screen);
-    lv_dropdown_set_options(ui->panel_room_dd, "All\nLiving\nBedroom");
+    lv_dropdown_set_options(ui->panel_room_dd, "全部\n客厅\n卧室");
     lv_obj_set_size(ui->panel_room_dd, compact ? 88 : 100, compact ? 28 : 32);
     lv_obj_align(ui->panel_room_dd,
                  LV_ALIGN_TOP_RIGHT,
