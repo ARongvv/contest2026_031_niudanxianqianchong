@@ -49,8 +49,10 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
     CSRCS   += src/ui/lvgl/smart_home_lvgl.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_agent.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_chat.c
+    CSRCS   += src/ui/lvgl/smart_home_lvgl_home.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_nav.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_panel.c
+    CSRCS   += src/ui/lvgl/smart_home_lvgl_pages.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_settings.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_style.c
     CSRCS   += src/ui/lvgl/icons/ac_20.c

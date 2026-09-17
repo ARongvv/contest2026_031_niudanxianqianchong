@@ -541,6 +541,7 @@ void smart_home_lvgl_refresh_cards(smart_home_lvgl_t *ui)
 
     rebuild_device_cards(ui);
     refresh_sensor_bar(ui);
+    smart_home_lvgl_refresh_home(ui);
 }
 
 static void ensure_control_popup(smart_home_lvgl_t *ui)
@@ -1227,7 +1228,7 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
     int content_w = smart_home_lvgl_content_w();
     int pad_x = smart_home_lvgl_pad_x();
     int compact = smart_home_lvgl_compact();
-    int grid_y = compact ? 42 : 54;
+    int grid_y = SMART_HOME_TOPBAR_H + (compact ? 40 : 52);
     int sensor_h = compact ? 26 : 30;
     int sensor_bottom =
         SMART_HOME_NAV_H + SMART_HOME_NAV_BOTTOM_PAD + (compact ? 8 : 16);
@@ -1246,14 +1247,16 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
     smart_home_lvgl_set_bg(screen, SMART_HOME_UI_COLOR_BG);
     ui->screen_panel = screen;
 
+    smart_home_lvgl_build_top_bar(screen, "设备");
+
     ui->panel_title = smart_home_lvgl_label_create(screen,
-                                                   "Smart Home",
+                                                   "设备",
                                                    SMART_HOME_UI_COLOR_TEXT_PRIMARY,
                                                    16);
     lv_obj_align(ui->panel_title,
                  LV_ALIGN_TOP_LEFT,
                  pad_x,
-                 compact ? 8 : 12);
+                 SMART_HOME_TOPBAR_H + (compact ? 8 : 12));
 
     ui->panel_room_dd = lv_dropdown_create(screen);
     lv_dropdown_set_options(ui->panel_room_dd, "All\nLiving\nBedroom");
@@ -1261,7 +1264,7 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
     lv_obj_align(ui->panel_room_dd,
                  LV_ALIGN_TOP_RIGHT,
                  -pad_x,
-                 compact ? 6 : 8);
+                 SMART_HOME_TOPBAR_H + (compact ? 6 : 8));
     lv_obj_set_style_text_font(ui->panel_room_dd, smart_home_lvgl_font(12), 0);
     lv_obj_add_event_cb(ui->panel_room_dd,
                         panel_room_cb,

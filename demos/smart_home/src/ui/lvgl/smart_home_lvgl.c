@@ -43,14 +43,18 @@ smart_home_lvgl_t *smart_home_lvgl_init(smart_home_agent_app_t *app)
 
     ui->app = app;
     ui->device_state = app ? &app->device_state : NULL;
-    ui->active_tab = SMART_HOME_TAB_PANEL;
+    ui->active_tab = SMART_HOME_TAB_HOME;
 
     if (pthread_mutex_init(&ui->pending_mutex, NULL) != 0) {
         free(ui);
         return NULL;
     }
 
+    smart_home_lvgl_build_home_screen(ui);
     smart_home_lvgl_build_panel_screen(ui);
+    smart_home_lvgl_build_scene_screen(ui);
+    smart_home_lvgl_build_security_screen(ui);
+    smart_home_lvgl_build_more_screen(ui);
     smart_home_lvgl_build_chat_screen(ui);
     smart_home_lvgl_build_settings_screen(ui);
     return ui;
@@ -69,11 +73,11 @@ void smart_home_lvgl_set_app(smart_home_lvgl_t *ui,
 
 void smart_home_lvgl_show(smart_home_lvgl_t *ui)
 {
-    if (!ui || !ui->screen_panel) {
+    if (!ui || !ui->screen_home) {
         return;
     }
 
-    lv_scr_load(ui->screen_panel);
+    lv_scr_load(ui->screen_home);
 }
 
 void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
@@ -92,8 +96,20 @@ void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
         lv_timer_delete(ui->remote_node_timer);
         ui->remote_node_timer = NULL;
     }
+    if (ui->screen_home) {
+        lv_obj_del(ui->screen_home);
+    }
     if (ui->screen_panel) {
         lv_obj_del(ui->screen_panel);
+    }
+    if (ui->screen_scenes) {
+        lv_obj_del(ui->screen_scenes);
+    }
+    if (ui->screen_security) {
+        lv_obj_del(ui->screen_security);
+    }
+    if (ui->screen_more) {
+        lv_obj_del(ui->screen_more);
     }
     if (ui->screen_chat) {
         lv_obj_del(ui->screen_chat);
