@@ -3,6 +3,9 @@
 #include "../device/smart_home_device_service.h"
 #include "../net/smart_home_network.h"
 #include "../skills/smart_home_skill_loader.h"
+#ifdef CONFIG_FEATURE_SYSTEM_SMARTHOME
+#include "../quickapp/smart_home_quickapp_provider.h"
+#endif
 
 #include <stddef.h>
 #include <stdint.h>
@@ -65,6 +68,9 @@ typedef struct smart_home_agent_app {
     agent_t *agent;
     smart_home_state_t device_state;
     smart_home_device_service_t device_service;
+#ifdef CONFIG_FEATURE_SYSTEM_SMARTHOME
+    smart_home_quickapp_provider_t quickapp_provider;
+#endif
     smart_home_skill_store_t skill_store;
     smart_home_model_config_t model_config;
     smart_home_system_status_t system_status;

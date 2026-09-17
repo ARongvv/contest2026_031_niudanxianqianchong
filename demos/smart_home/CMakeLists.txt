@@ -29,6 +29,16 @@ if(CONFIG_SMART_HOME_DEMO)
   )
   set(SMART_HOME_DEPS cagent)
 
+  if(CONFIG_FEATURE_SYSTEM_SMARTHOME)
+    include_directories(
+      ${NUTTX_APPS_DIR}/frameworks/runtimes/feature/modules
+    )
+    list(APPEND SMART_HOME_SRCS
+      src/quickapp/smart_home_quickapp_provider.c
+      src/quickapp/smart_home_quickapp_feature_bridge.c
+    )
+  endif()
+
   if(CONFIG_SMART_HOME_DEMO_OFFLINE_UI)
     list(APPEND SMART_HOME_SRCS src/net/smart_home_network_offline.c)
   else()

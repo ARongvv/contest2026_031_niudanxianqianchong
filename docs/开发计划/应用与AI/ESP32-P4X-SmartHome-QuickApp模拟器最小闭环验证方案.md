@@ -17,15 +17,15 @@
 ## 1. 验证结论与边界
 
 本阶段要验证的“最小真实闭环”是：QuickApp 页面不是在 JS 内自行伪造设备状态，而是通过
-`system.smarthome` Feature 调用原生 SmartHome 服务；原生服务拥有状态、处理命令并将最终
-状态事件回写给页面。
+`system.smarthome` Feature 调用原生 SmartHome 服务；原生服务拥有状态、处理命令并在控制
+Promise 中返回最终确认的状态。
 
 ```text
 QuickApp Home 页面
   → system.smarthome Feature
   → Native SmartHome Service / Simulator Device Provider
   → State Store（revision 唯一递增）
-  → state.changed
+  → controlDevice() 的确认结果 / getSnapshot()
   → QuickApp Store 与卡片刷新
 ```
 
@@ -93,26 +93,30 @@ QuickApp 首页只显示设备名、在线状态、开关、命令中状态和�
 import smartHome from '@system.smarthome'
 
 const caps = await smartHome.getCapabilities()
-const snapshot = await smartHome.getSnapshot()
-const stop = smartHome.subscribeState((event) => applyEvent(event))
+const snapshot = await smartHome.getSnapshot({
+  deviceId: 'sim-living-room-light'
+})
 
-await smartHome.controlDevice({
+const result = await smartHome.controlDevice({
   requestId: 'uuid',
   deviceId: 'sim-living-room-light',
   command: 'setPower',
   value: true,
   expectedRevision: snapshot.revision
 })
+
+applySnapshot(result.snapshot)
 ```
 
 约束如下：
 
-- `getSnapshot()` 返回原生 State Store 中的全量快照；JS Store 仅是渲染缓存。
-- `controlDevice()` 只表示请求已受理或被拒绝；页面以随后的 `state.changed` 为最终结果。
+- `getSnapshot()` 返回指定设备的原生 State Store 快照；JS Store 仅是渲染缓存。
+- `controlDevice()` 成功时返回已由原生服务确认的 `snapshot`；页面不得先乐观修改状态。
 - 同一 `requestId` 的重复请求不得重复改变状态。
-- 事件必须带 `revision`；发现跳变或订阅断开时，QuickApp 必须重新获取 snapshot。
-- Native Feature 只做参数校验和投递；模拟设备命令在原生 worker/服务层执行，再异步回调
-  Feature。不得阻塞 QuickApp JS 事件循环。
+- 旧 `expectedRevision` 必须以 `1002`（stale revision）拒绝；页面随后重新获取 snapshot。
+- P0.0 不暴露 `subscribeState()`，也不以定时轮询替代。原生事件扇出完成后，P1 的订阅事件
+  必须携带 `revision`；发现跳变或订阅断开时，QuickApp 重新获取 snapshot。
+- Native Feature 只做参数校验与桥接；不得阻塞 QuickApp JS 事件循环。
 
 首期不提供 `askAgent()`，也不仿造 `@system.velaclaw`。cAGENT 接入应在该四个接口稳定后，
 作为下一阶段独立验证。
@@ -143,20 +147,20 @@ await smartHome.controlDevice({
 
 1. 建立 `system.smarthome@1.0` JIDL 和 Goldfish 原生实现。
 2. 建立仅包含 `sim-living-room-light` 的 State Store/Simulator Device Provider。
-3. 完成 `getCapabilities()`、`getSnapshot()`、`subscribeState()`，先不提供控制。
-4. 在 QuickApp 启动时按“能力协商 → snapshot → 订阅”顺序渲染卡片。
+3. 完成 `getCapabilities()`、`getSnapshot()`，先不提供订阅。
+4. 在 QuickApp 启动时按“能力协商 → snapshot”顺序渲染卡片。
 
 ### M2：控制与状态回写
 
 1. 增加 `controlDevice(setPower)`，由 Native Service 验证设备、revision、值和 requestId。
-2. 原生侧确认状态变化后递增 revision，再推送 `state.changed`。
-3. QuickApp 仅显示短暂乐观状态；收到最终事件、拒绝或超时后收敛/回滚。
+2. 原生侧确认状态变化后递增 revision，并在 `controlDevice()` 结果中返回快照。
+3. QuickApp 不使用乐观状态；仅以控制结果、拒绝或随后主动刷新来收敛。
 4. 注入重复 requestId、旧 revision、离线设备和服务重启，确认错误路径不造成假成功。
 
 ### M3：生命周期与交付记录
 
 1. 退出并重新启动 RPK，验证原生服务仍可提供最新 snapshot。
-2. 重启原生服务或中断订阅，验证 QuickApp 自动重新获取 snapshot。
+2. 重启原生服务后重新启动 RPK，验证 QuickApp 自动重新获取 snapshot；订阅中断恢复列为 P1 验收。
 3. 记录最终 defconfig、CMake 构建日志、RPK SHA-256、启动日志、页面截图和验收结果。
 
 ## 6. 验收矩阵
@@ -166,7 +170,7 @@ await smartHome.controlDevice({
 | 构建 | Goldfish CMake 构建 | CMake 配置与编译成功；最终 `.config` 仅选中 QuickApp UI backend。 |
 | 启动 | 启动模拟器并运行 RPK | 页面可见，未启动原生 LVGL 产品 UI。 |
 | 初始状态 | 打开首页 | 卡片来自 `getSnapshot()`，显示 `revision` 与原生初始值一致。 |
-| 实时状态 | 原生 Provider 改变电源状态 | QuickApp 经 `state.changed` 刷新，无轮询伪造。 |
+| 实时状态（P1） | 原生 Provider 改变电源状态 | QuickApp 经 `state.changed` 刷新，无轮询伪造。 |
 | 控制 | 连续切换开关、重复同一 requestId | 最终状态正确；重复请求不重复执行。 |
 | 异常 | 旧 revision、离线和服务重启 | 有明确失败/过期状态；页面不冻结、不假报成功。 |
 | 重启恢复 | 停止再启动 RPK | 重新获得 snapshot，状态与原生 State Store 收敛。 |
@@ -181,7 +185,7 @@ Wi-Fi 开发可继续在 P4X Make 构建通道进行；模拟器 QuickApp 不直
 socket 或 MQTT，因此两者不共享运行时故障面。双方仅共享 `system.smarthome` 的 API 文档、
 状态模型和错误码语义。
 
-若 M0 无法稳定启动 RPK、M1 的 Feature 无法订阅，或 M2 出现 UI/原生状态分叉，则暂停
+若 M0 无法稳定启动 RPK、M1 的 Feature 无法返回真实状态，或 M2 出现 UI/原生状态分叉，则暂停
 页面扩展和 cAGENT 接入，先修复该最小链路。不得以 JS Mock 绕过 Native Feature 后宣布
 验证通过。
 
