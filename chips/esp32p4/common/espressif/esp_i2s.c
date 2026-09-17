@@ -32,6 +32,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <math.h>
+#include <syslog.h>
 
 #include <nuttx/nuttx.h>
 #include <nuttx/irq.h>
@@ -3277,6 +3278,10 @@ static int i2s_dma_setup(struct esp_i2s_s *priv)
 {
   int ret = OK;
   esp_err_t err;
+  bool tx_allocated = false;
+  bool rx_allocated = false;
+  bool tx_connected = false;
+  bool rx_connected = false;
   gdma_trigger_t trig =
     {
       0
@@ -3310,6 +3315,8 @@ static int i2s_dma_setup(struct esp_i2s_s *priv)
    */
 
   priv->cpu = this_cpu();
+  priv->dma_channel_tx = NULL;
+  priv->dma_channel_rx = NULL;
 
   if (priv->config->tx_en)
     {
@@ -3322,16 +3329,24 @@ static int i2s_dma_setup(struct esp_i2s_s *priv)
       if (err != ESP_OK)
         {
           i2serr("Failed to register tx dma channel: %d\n", err);
-          return -EINVAL;
+          syslog(LOG_ERR, "ERROR: I2S%d GDMA TX allocation failed: %d\n",
+                 priv->config->port, err);
+          return err == ESP_ERR_NO_MEM ? -ENOMEM : -EIO;
         }
+
+      tx_allocated = true;
 
       err = gdma_connect(priv->dma_channel_tx, trig);
       if (err != ESP_OK)
         {
           i2serr("Failed to connect tx dma channel: %d\n", err);
-          ret = -EINVAL;
-          goto err1;
+          syslog(LOG_ERR, "ERROR: I2S%d GDMA TX connect failed: %d\n",
+                 priv->config->port, err);
+          ret = err == ESP_ERR_NO_MEM ? -ENOMEM : -EIO;
+          goto errout;
         }
+
+      tx_connected = true;
 
       gdma_tx_event_callbacks_t cb_tx =
         {
@@ -3348,8 +3363,10 @@ static int i2s_dma_setup(struct esp_i2s_s *priv)
       if (err != ESP_OK)
         {
           i2serr("Failed to register tx callback: %d\n", err);
-          ret = -EINVAL;
-          goto err2;
+          syslog(LOG_ERR, "ERROR: I2S%d GDMA TX callback failed: %d\n",
+                 priv->config->port, err);
+          ret = err == ESP_ERR_NO_MEM ? -ENOMEM : -EIO;
+          goto errout;
         }
     }
 
@@ -3364,16 +3381,25 @@ static int i2s_dma_setup(struct esp_i2s_s *priv)
       if (err != ESP_OK)
         {
           i2serr("Failed to register rx dma channel: %d\n", err);
-          return -EINVAL;
+          syslog(LOG_ERR, "ERROR: I2S%d GDMA RX allocation failed: %d\n",
+                 priv->config->port, err);
+          ret = err == ESP_ERR_NO_MEM ? -ENOMEM : -EIO;
+          goto errout;
         }
+
+      rx_allocated = true;
 
       err = gdma_connect(priv->dma_channel_rx, trig);
       if (err != ESP_OK)
         {
           i2serr("Failed to connect rx dma channel: %d\n", err);
-          ret = -EINVAL;
-          goto err1;
+          syslog(LOG_ERR, "ERROR: I2S%d GDMA RX connect failed: %d\n",
+                 priv->config->port, err);
+          ret = err == ESP_ERR_NO_MEM ? -ENOMEM : -EIO;
+          goto errout;
         }
+
+      rx_connected = true;
 
       gdma_rx_event_callbacks_t cb_rx =
         {
@@ -3390,33 +3416,36 @@ static int i2s_dma_setup(struct esp_i2s_s *priv)
       if (err != ESP_OK)
         {
           i2serr("Failed to register rx callback: %d\n", err);
-          ret = -EINVAL;
-          goto err2;
+          syslog(LOG_ERR, "ERROR: I2S%d GDMA RX callback failed: %d\n",
+                 priv->config->port, err);
+          ret = err == ESP_ERR_NO_MEM ? -ENOMEM : -EIO;
+          goto errout;
         }
     }
 
   return OK;
 
-err2:
-  if (priv->config->tx_en)
+errout:
+  if (tx_connected)
     {
       gdma_disconnect(priv->dma_channel_tx);
     }
 
-  if (priv->config->rx_en)
+  if (rx_connected)
     {
       gdma_disconnect(priv->dma_channel_rx);
     }
 
-err1:
-  if (priv->config->tx_en)
+  if (tx_allocated)
     {
       gdma_del_channel(priv->dma_channel_tx);
+      priv->dma_channel_tx = NULL;
     }
 
-  if (priv->config->rx_en)
+  if (rx_allocated)
     {
       gdma_del_channel(priv->dma_channel_rx);
+      priv->dma_channel_rx = NULL;
     }
 
   return ret;
@@ -3440,7 +3469,6 @@ struct i2s_dev_s *esp_i2sbus_initialize(int port)
 {
   int ret;
   struct esp_i2s_s *priv = NULL;
-  irqstate_t flags;
 #ifdef CONFIG_PM
   esp_pm_lock_type_t pm_type = ESP_PM_APB_FREQ_MAX;
 #endif
@@ -3465,10 +3493,16 @@ struct i2s_dev_s *esp_i2sbus_initialize(int port)
   ret = i2s_buf_initialize(priv);
   if (ret < 0)
     {
+      i2serr("Failed to initialize I2S%d buffers: %d\n", port, ret);
+      syslog(LOG_ERR, "ERROR: I2S%d buffer initialization failed: %d\n",
+             port, ret);
       return NULL;
     }
 
-  flags = spin_lock_irqsave(&priv->slock);
+  /* The device is not published until this function succeeds.  Do not hold
+   * priv->slock across hardware and DMA setup: the GDMA allocator may
+   * allocate memory and must run with interrupts enabled.
+   */
 
 #ifdef CONFIG_PM
 #  if SOC_I2S_SUPPORTS_APLL && SOC_I2S_HW_VERSION_2
@@ -3489,7 +3523,7 @@ struct i2s_dev_s *esp_i2sbus_initialize(int port)
       if (ret != OK)
         {
           i2serr("Failed to create I2S PM lock\n");
-          goto err;
+          return NULL;
         }
     }
 #endif
@@ -3497,13 +3531,18 @@ struct i2s_dev_s *esp_i2sbus_initialize(int port)
   ret = i2s_configure(priv);
   if (ret < 0)
     {
-      goto err;
+      i2serr("Failed to configure I2S%d: %d\n", port, ret);
+      syslog(LOG_ERR, "ERROR: I2S%d hardware configuration failed: %d\n",
+             port, ret);
+      return NULL;
     }
 
   ret = i2s_dma_setup(priv);
   if (ret < 0)
     {
-      goto err;
+      i2serr("Failed to set up I2S%d DMA: %d\n", port, ret);
+      syslog(LOG_ERR, "ERROR: I2S%d DMA setup failed: %d\n", port, ret);
+      return NULL;
     }
 
   /* Start TX channel */
@@ -3520,17 +3559,9 @@ struct i2s_dev_s *esp_i2sbus_initialize(int port)
       priv->rx_started = false;
     }
 
-  spin_unlock_irqrestore(&priv->slock, flags);
-
   /* Success exit */
 
   i2sinfo("I2S%ld was successfully initialized\n", priv->config->port);
 
   return &priv->dev;
-
-  /* Failure exit */
-
-err:
-  spin_unlock_irqrestore(&priv->slock, flags);
-  return NULL;
 }

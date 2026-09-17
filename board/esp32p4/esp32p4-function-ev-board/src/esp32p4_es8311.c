@@ -16,6 +16,7 @@
 #ifdef CONFIG_ESP32P4_FUNCTION_EV_BOARD_AUDIO_ES8311
 
 #include <errno.h>
+#include <malloc.h>
 #include <stdbool.h>
 #include <syslog.h>
 
@@ -24,6 +25,7 @@
 #include <nuttx/audio/i2s.h>
 #include <nuttx/audio/pcm.h>
 #include <nuttx/i2c/i2c_master.h>
+#include <nuttx/kmalloc.h>
 
 #include "espressif/esp_gpio.h"
 #include "espressif/esp_i2c.h"
@@ -37,6 +39,19 @@
 
 static struct es8311_lower_s g_es8311_lower[2];
 static bool g_es8311_initialized;
+
+/****************************************************************************
+ * Name: board_es8311_log_kheap
+ ****************************************************************************/
+
+static void board_es8311_log_kheap(FAR const char *stage)
+{
+  struct mallinfo info = kmm_mallinfo();
+
+  syslog(LOG_INFO, "INFO: ES8311 kheap: stage=%s total=%d used=%d"
+         " free=%d largest=%d\n",
+         stage, info.arena, info.uordblks, info.fordblks, info.mxordblk);
+}
 
 /****************************************************************************
  * Public Functions
@@ -76,7 +91,9 @@ int board_es8311_initialize(void)
 
   esp_gpiowrite(BOARD_AUDIO_PA_ENABLE_GPIO, false);
 
+  board_es8311_log_kheap("i2s-before");
   i2s = esp_i2sbus_initialize(BOARD_ES8311_I2S_PORT);
+  board_es8311_log_kheap("i2s-after");
   if (i2s == NULL)
     {
       syslog(LOG_ERR, "ERROR: Failed to initialize I2S%d for ES8311\n",
