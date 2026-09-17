@@ -20,22 +20,32 @@ MKLITTLEFS="${MKLITTLEFS:-${OPENVELA_ROOT}/vendor/artinchip/tools/scripts/mklitt
 # Keep these values synchronized with the P4X LittleFS storage configuration:
 # the SPI Flash MTD reports a 64-byte program block and LittleFS uses the
 # configured PROGRAM_SIZE_FACTOR (4), therefore prog/page size is 256 bytes.
-DATA_SIZE="${DATA_SIZE:-0x100000}"
+# The full MiSans runtime font is about 7.9 MiB.  The P4X Smart Home image
+# reserves the upper 8 MiB of its verified 16 MiB flash for LittleFS.
+DATA_SIZE="${DATA_SIZE:-0x800000}"
 BLOCK_SIZE="${BLOCK_SIZE:-4096}"
 PAGE_SIZE="${PAGE_SIZE:-256}"
 FLASH_OFFSET="${FLASH_OFFSET:-0x800000}"
+FLASH_SIZE_BYTES="${FLASH_SIZE_BYTES:-0x1000000}"
 
 CONFIG_DIR="${CONFIG_DIR:-${SMART_HOME_DIR}/res/config}"
 SECRETS_FILE="${SECRETS_FILE:-${CONFIG_DIR}/secrets.json}"
 WITH_SECRETS="${WITH_SECRETS:-0}"
 # Keep the P4X runtime resource layout aligned with the Smart Home UI paths:
 # /data/res/fonts/MiSans-Normal.ttf and /data/res/icons/*.png.
-# Use the pre-generated subset font so the LittleFS image remains small.
+# Ship the full font so static product strings and arbitrary Chinese Agent
+# replies use the same glyph coverage.  A subset can still be selected by an
+# explicit FONT_SOURCE override for a constrained development image.
 # Embedded LVGL icon fonts are C sources and are compiled into the firmware;
 # they intentionally do not belong in this data image.
 WITH_ICONS="${WITH_ICONS:-1}"
 WITH_FONTS="${WITH_FONTS:-1}"
-FONT_SOURCE="${FONT_SOURCE:-${SMART_HOME_DIR}/res/fonts/MiSans-Normal-subset.ttf}"
+FONT_SOURCE="${FONT_SOURCE:-${SMART_HOME_DIR}/res/fonts/MiSans-Normal.ttf}"
+
+if (( DATA_SIZE > FLASH_SIZE_BYTES - FLASH_OFFSET )); then
+  echo "LittleFS range exceeds flash: offset=${FLASH_OFFSET}, size=${DATA_SIZE}, flash=${FLASH_SIZE_BYTES}" >&2
+  exit 1
+fi
 
 if [[ ! -x "${MKLITTLEFS}" ]]; then
   echo "mklittlefs not found or not executable: ${MKLITTLEFS}" >&2
@@ -97,8 +107,8 @@ fi
 
 if [[ "${WITH_FONTS}" == "1" ]]; then
   if [[ ! -f "${FONT_SOURCE}" ]]; then
-    echo "MiSans subset font not found: ${FONT_SOURCE}" >&2
-    echo "Set FONT_SOURCE=/path/to/MiSans-Normal-subset.ttf and retry." >&2
+    echo "MiSans font not found: ${FONT_SOURCE}" >&2
+    echo "Set FONT_SOURCE=/path/to/MiSans-Normal.ttf and retry." >&2
     exit 1
   fi
 
