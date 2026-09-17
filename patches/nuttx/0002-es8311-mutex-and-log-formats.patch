@@ -1,0 +1,44 @@
+Subject: [PATCH 2/2] audio: include ES8311 mutex API and fix uint32 formats
+
+Include the inline nxmutex API to avoid implicit external calls and undefined
+references in builds without mutex debugging. Use PRIu32 for sample rate and
+MCLK diagnostics on targets where uint32_t is unsigned long.
+
+Apply after 0001-es8311-single-byte-register-read.patch.
+
+diff --git a/drivers/audio/es8311.c b/drivers/audio/es8311.c
+--- a/drivers/audio/es8311.c
++++ b/drivers/audio/es8311.c
+@@ -51,6 +51,7 @@
+ #include <nuttx/i2c/i2c_master.h>
+ #include <nuttx/kmalloc.h>
+ #include <nuttx/mqueue.h>
++#include <nuttx/mutex.h>
+ #include <nuttx/queue.h>
+ #include <nuttx/wqueue.h>
+ #include <nuttx/spinlock.h>
+@@ -499,12 +500,13 @@ static int es8311_getcoeff(FAR struct es8311_dev_s *priv,
+       if (priv->mclk == es8311_coeff_div[i].mclk &&
+           samplerate == es8311_coeff_div[i].rate)
+         {
+-          audinfo("MCLK: %d, samplerate: %d\n", priv->mclk, samplerate);
++          audinfo("MCLK: %" PRIu32 ", samplerate: %" PRIu32 "\n",
++                  priv->mclk, samplerate);
+           return i;
+         }
+     }
+
+-  auderr("MCLK = %d and samplerate = %d not supported.\n",
++  auderr("MCLK = %" PRIu32 " and samplerate = %" PRIu32 " not supported.\n",
+          priv->mclk, samplerate);
+
+   return -EINVAL;
+@@ -776,7 +778,7 @@ static int es8311_setsamplerate(FAR struct es8311_dev_s *priv)
+     }
+   else
+     {
+-      audinfo("Sample rate set to: %d.\n", priv->samprate);
++      audinfo("Sample rate set to: %" PRIu32 ".\n", priv->samprate);
+       return OK;
+     }
+ }

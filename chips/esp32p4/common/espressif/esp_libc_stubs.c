@@ -354,6 +354,12 @@ void noreturn_function __assert_func(const char *file, int line,
                                      const char *func, const char *expr)
 {
   __assert(file, line, expr);
+
+  /* The ROM assertion ABI must not return, even if the NuttX assertion
+   * handler is configured to continue execution.
+   */
+
+  abort();
 }
 
 void _cleanup_r(struct _reent *r)

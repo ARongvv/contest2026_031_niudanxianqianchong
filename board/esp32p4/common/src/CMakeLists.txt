@@ -52,7 +52,7 @@ if(CONFIG_ARCH_BOARD_COMMON)
     list(APPEND SRCS esp_board_i2c.c)
   endif()
 
-  if(CONFIG_ESPRESSIF_I2S)
+  if(CONFIG_ESPRESSIF_I2S AND NOT CONFIG_ESP32P4_FUNCTION_EV_BOARD_AUDIO_ES8311)
     list(APPEND SRCS esp_board_i2s.c)
   endif()
 

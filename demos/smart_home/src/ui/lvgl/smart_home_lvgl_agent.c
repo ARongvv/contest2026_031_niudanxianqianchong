@@ -16,6 +16,7 @@
 #include <nuttx/sched.h>
 #include <sched.h>
 #include <pthread.h>
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -388,7 +389,7 @@ void smart_home_lvgl_event_cb(const agent_event_t *event, void *user_data)
     }
 
 #ifdef CONFIG_SMART_HOME_DEMO_DEBUG_LOG
-    printf("[agent_event] type=%d iter=%u err=%d tool=%s msg=%s\n",
+    printf("[agent_event] type=%d iter=%" PRIu32 " err=%d tool=%s msg=%s\n",
            (int)event->type,
            event->iteration,
            event->error_code,

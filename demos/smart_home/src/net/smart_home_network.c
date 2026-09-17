@@ -18,8 +18,7 @@
 #include "netutils/netlib.h"
 
 #include "smart_home_network.h"
-#if !defined(CONFIG_ARCH_CHIP_ESP32P4) || \
-    !defined(CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED)
+#ifndef CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED
 #include "smart_home_wifi.h"
 #endif
 
@@ -40,16 +39,6 @@ static bool smart_home_network_is_wifi_platform(void)
 #if defined(CONFIG_ARCH_CHIP_ESP32S3) || defined(CONFIG_ESP32S3_WIFI) || \
     (defined(CONFIG_ARCH_CHIP_ESP32P4) && \
      defined(CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED))
-  return true;
-#else
-  return false;
-#endif
-}
-
-static bool smart_home_network_is_hosted_wifi_platform(void)
-{
-#if defined(CONFIG_ARCH_CHIP_ESP32P4) && \
-    defined(CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED)
   return true;
 #else
   return false;
@@ -190,7 +179,7 @@ static int smart_home_network_init_wifi(FAR smart_home_network_status_t *status)
    * acquired an address.
    */
 
-  if (smart_home_network_is_hosted_wifi_platform())
+#ifdef CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED
     {
       ret = netlib_ifup(status->ifname);
       status->init_status = ret < 0 ? SMART_HOME_NETWORK_ERR_IFUP :
@@ -219,7 +208,7 @@ static int smart_home_network_init_wifi(FAR smart_home_network_status_t *status)
 
       return smart_home_network_probe(status);
     }
-
+#else
   /*
    * A smart_home restart must not disrupt an already usable Wi-Fi session.
    * In particular, reassociating and restarting DHCP can briefly invalidate
@@ -256,6 +245,7 @@ static int smart_home_network_init_wifi(FAR smart_home_network_status_t *status)
     }
 
   return smart_home_network_probe(status);
+#endif
 }
 
 /****************************************************************************

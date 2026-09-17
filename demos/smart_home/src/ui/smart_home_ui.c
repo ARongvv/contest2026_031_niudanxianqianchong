@@ -6,6 +6,7 @@
 #endif
 
 #include <stdio.h>
+#include <inttypes.h>
 #include <string.h>
 
 static const char *event_type_name(agent_event_type_t type)
@@ -248,7 +249,7 @@ void smart_home_ui_event_cb(const agent_event_t *event, void *user_data)
     switch (event->type) {
     case AGENT_EVENT_RUN_START:
         fprintf(stderr,
-                "\n%10s | %-11s | iter=%-2u | %s\n",
+                "\n%10s | %-11s | iter=%-2" PRIu32 " | %s\n",
                 "+0ms",
                 event_type_name(event->type),
                 event->iteration,
@@ -260,7 +261,7 @@ void smart_home_ui_event_cb(const agent_event_t *event, void *user_data)
     case AGENT_EVENT_MODEL_RESPONSE:
     case AGENT_EVENT_RUN_DONE:
         fprintf(stderr,
-                "%8llums | %-11s | iter=%-2u | err=%d | %s\n",
+                "%8llums | %-11s | iter=%-2" PRIu32 " | err=%d | %s\n",
                 (unsigned long long)elapsed,
                 event_type_name(event->type),
                 event->iteration,
@@ -270,7 +271,7 @@ void smart_home_ui_event_cb(const agent_event_t *event, void *user_data)
 
     case AGENT_EVENT_TOOL_CALL:
         fprintf(stderr,
-                "%8llums | %-11s | iter=%-2u | tool=%-16s | id=%s\n",
+                "%8llums | %-11s | iter=%-2" PRIu32 " | tool=%-16s | id=%s\n",
                 (unsigned long long)elapsed,
                 event_type_name(event->type),
                 event->iteration,
@@ -280,7 +281,8 @@ void smart_home_ui_event_cb(const agent_event_t *event, void *user_data)
 
     case AGENT_EVENT_TOOL_RESULT:
         fprintf(stderr,
-                "%8llums | %-11s | iter=%-2u | tool=%-16s | id=%s | err=%d\n",
+                "%8llums | %-11s | iter=%-2" PRIu32
+                " | tool=%-16s | id=%s | err=%d\n",
                 (unsigned long long)elapsed,
                 event_type_name(event->type),
                 event->iteration,
