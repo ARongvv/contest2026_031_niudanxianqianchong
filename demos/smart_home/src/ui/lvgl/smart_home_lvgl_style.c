@@ -58,6 +58,7 @@ int smart_home_lvgl_style_init(void)
     g_style.font_14 = load_font(14);
     g_style.font_16 = load_font(16);
     g_style.font_20 = load_font(20);
+    g_style.font_32 = load_font(32);
     printf("[smart_home_lvgl] font path=%s font12=%p font14=%p font16=%p font20=%p\n",
            SMART_HOME_FONT_NORMAL,
            g_style.font_12,
@@ -82,6 +83,9 @@ void smart_home_lvgl_style_deinit(void)
     if (g_style.font_20) {
         lv_freetype_font_delete(g_style.font_20);
     }
+    if (g_style.font_32) {
+        lv_freetype_font_delete(g_style.font_32);
+    }
 #elif defined(CONFIG_LV_USE_TINY_TTF)
     if (g_style.font_12) {
         lv_tiny_ttf_destroy(g_style.font_12);
@@ -95,11 +99,15 @@ void smart_home_lvgl_style_deinit(void)
     if (g_style.font_20) {
         lv_tiny_ttf_destroy(g_style.font_20);
     }
+    if (g_style.font_32) {
+        lv_tiny_ttf_destroy(g_style.font_32);
+    }
 #endif
     g_style.font_12 = NULL;
     g_style.font_14 = NULL;
     g_style.font_16 = NULL;
     g_style.font_20 = NULL;
+    g_style.font_32 = NULL;
 }
 
 const lv_font_t *smart_home_lvgl_font(int size)
@@ -113,8 +121,11 @@ const lv_font_t *smart_home_lvgl_font(int size)
     if (size <= 16 && g_style.font_16) {
         return g_style.font_16;
     }
-    if (g_style.font_20) {
+    if (size <= 20 && g_style.font_20) {
         return g_style.font_20;
+    }
+    if (g_style.font_32) {
+        return g_style.font_32;
     }
 
     /* Fallback to built-in Montserrat when the external font is unavailable. */
@@ -154,16 +165,16 @@ void smart_home_lvgl_set_bg(lv_obj_t *obj, lv_color_t color)
 void smart_home_lvgl_card_style(lv_obj_t *obj)
 {
     smart_home_lvgl_set_bg(obj, SMART_HOME_UI_COLOR_SURFACE);
-    lv_obj_set_style_radius(obj, 12, 0);
+    lv_obj_set_style_radius(obj, 17, 0);
     lv_obj_set_style_border_width(obj, 1, 0);
     lv_obj_set_style_border_color(obj, SMART_HOME_UI_COLOR_BORDER, 0);
-    lv_obj_set_style_pad_all(obj, 12, 0);
+    lv_obj_set_style_pad_all(obj, 15, 0);
 }
 
 void smart_home_lvgl_soft_card_style(lv_obj_t *obj)
 {
     smart_home_lvgl_set_bg(obj, SMART_HOME_UI_COLOR_SURFACE_SOFT);
-    lv_obj_set_style_radius(obj, 6, 0);
+    lv_obj_set_style_radius(obj, 11, 0);
     lv_obj_set_style_border_width(obj, 0, 0);
     lv_obj_set_style_pad_all(obj, 12, 0);
 }

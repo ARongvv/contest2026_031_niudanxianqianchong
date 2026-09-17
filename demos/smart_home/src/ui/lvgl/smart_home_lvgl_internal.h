@@ -13,9 +13,10 @@
 extern "C" {
 #endif
 
-#define SMART_HOME_SCR_W 320
-#define SMART_HOME_SCR_H 240
-#define SMART_HOME_NAV_H 52
+#define SMART_HOME_SCR_W 1024
+#define SMART_HOME_SCR_H 600
+#define SMART_HOME_TOPBAR_H 64
+#define SMART_HOME_NAV_H 64
 #define SMART_HOME_NAV_BOTTOM_PAD 4
 #define SMART_HOME_PAD_X 8
 #define SMART_HOME_PAD_Y 6
@@ -48,7 +49,7 @@ static inline int smart_home_lvgl_square_size(void)
 
 static inline int smart_home_lvgl_compact(void)
 {
-    return smart_home_lvgl_disp_w() <= 340 || smart_home_lvgl_disp_h() <= 260;
+    return smart_home_lvgl_disp_w() < 720 || smart_home_lvgl_disp_h() < 480;
 }
 
 static inline int smart_home_lvgl_content_w(void)
@@ -78,13 +79,29 @@ static inline int smart_home_lvgl_pad_x(void)
 }
 
 enum {
-    SMART_HOME_TAB_PANEL = 0,
-    SMART_HOME_TAB_CHAT,
-    SMART_HOME_TAB_SETTINGS,
+    SMART_HOME_TAB_HOME = 0,
+    SMART_HOME_TAB_DEVICES,
+    SMART_HOME_TAB_SCENES,
+    SMART_HOME_TAB_SECURITY,
+    SMART_HOME_TAB_MORE,
+    SMART_HOME_TAB_COUNT,
 };
+
+/* Legacy names keep the existing device, chat and settings modules buildable
+ * while their product entry points are migrated to the five-page shell. */
+#define SMART_HOME_TAB_PANEL    SMART_HOME_TAB_DEVICES
+#define SMART_HOME_TAB_CHAT     SMART_HOME_TAB_HOME
+#define SMART_HOME_TAB_SETTINGS SMART_HOME_TAB_MORE
 
 lv_obj_t *smart_home_lvgl_build_nav_bar(lv_obj_t *screen,
                                         smart_home_lvgl_t *ui);
+
+void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui);
+void smart_home_lvgl_build_scene_screen(smart_home_lvgl_t *ui);
+void smart_home_lvgl_build_security_screen(smart_home_lvgl_t *ui);
+void smart_home_lvgl_build_more_screen(smart_home_lvgl_t *ui);
+void smart_home_lvgl_refresh_home(smart_home_lvgl_t *ui);
+void smart_home_lvgl_load_tab(smart_home_lvgl_t *ui, int tab);
 
 void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_chat_screen(smart_home_lvgl_t *ui);

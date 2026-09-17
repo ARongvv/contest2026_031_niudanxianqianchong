@@ -5,7 +5,8 @@
  * LVGL is owned exclusively by the UI thread. Agent workers enqueue plain C
  * payloads; the UI loop drains them before updating LVGL widgets.
  *
- * Screens: Panel (device management) / Chat (bubbles + tool cards) / Settings
+ * Product screens: Home / Devices / Scenes / Security / More.  Chat and
+ * Settings remain secondary native surfaces opened from Home or More.
  *
  * Usage:
  *   smart_home_lvgl_t *ui = smart_home_lvgl_init(&app);
@@ -43,12 +44,16 @@ typedef struct {
 
 typedef struct {
     /* Screens */
-    lv_obj_t *screen_panel;
+    lv_obj_t *screen_home;
+    lv_obj_t *screen_panel;    /* Devices page, legacy member name */
+    lv_obj_t *screen_scenes;
+    lv_obj_t *screen_security;
+    lv_obj_t *screen_more;
     lv_obj_t *screen_chat;
     lv_obj_t *screen_settings;
 
-    /* Shared nav bar (recreated per screen) */
-    int      active_tab;         /* 0=panel, 1=chat, 2=settings */
+    /* Shared five-item nav bar (recreated per product screen). */
+    int      active_tab;
 
     /* Panel: device cards */
     lv_obj_t *panel_grid;
@@ -65,6 +70,11 @@ typedef struct {
     lv_obj_t *env_hum_label;
     lv_obj_t *env_light_label;
     lv_obj_t *env_ac_label;
+
+    /* Home summary cards.  Values are updated in place from device state. */
+    lv_obj_t *home_env_label;
+    lv_obj_t *home_ac_label;
+    lv_obj_t *home_status_label;
 
     /* Device control popup (overlay on panel) */
     lv_obj_t *ctrl_popup;

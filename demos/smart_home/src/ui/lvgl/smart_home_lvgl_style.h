@@ -13,8 +13,8 @@ extern "C" {
 /* ── Light Premium Color Tokens ──────────────────────────── */
 
 /* Primary / Brand */
-#define SMART_HOME_UI_COLOR_PRIMARY        lv_color_hex(0x4A90D9)
-#define SMART_HOME_UI_COLOR_PRIMARY_DARK   lv_color_hex(0x3A7BD5)
+#define SMART_HOME_UI_COLOR_PRIMARY        lv_color_hex(0x57916E)
+#define SMART_HOME_UI_COLOR_PRIMARY_DARK   lv_color_hex(0x286A4B)
 
 /* Semantic */
 #define SMART_HOME_UI_COLOR_SUCCESS        lv_color_hex(0x4CD964)
@@ -22,18 +22,18 @@ extern "C" {
 #define SMART_HOME_UI_COLOR_DANGER         lv_color_hex(0xD64545)
 
 /* Backgrounds */
-#define SMART_HOME_UI_COLOR_BG             lv_color_hex(0xF6F8FB)
-#define SMART_HOME_UI_COLOR_SURFACE        lv_color_hex(0xFFFFFF)
-#define SMART_HOME_UI_COLOR_SURFACE_SOFT   lv_color_hex(0xEEF3F8)
-#define SMART_HOME_UI_COLOR_SURFACE_ON     lv_color_hex(0xE7F4F1)
+#define SMART_HOME_UI_COLOR_BG             lv_color_hex(0xF4F2EE)
+#define SMART_HOME_UI_COLOR_SURFACE        lv_color_hex(0xFBFAF8)
+#define SMART_HOME_UI_COLOR_SURFACE_SOFT   lv_color_hex(0xF0EFEB)
+#define SMART_HOME_UI_COLOR_SURFACE_ON     lv_color_hex(0xE6F0EA)
 
 /* Text */
-#define SMART_HOME_UI_COLOR_TEXT_PRIMARY   lv_color_hex(0x172033)
-#define SMART_HOME_UI_COLOR_TEXT_SECONDARY lv_color_hex(0x526070)
-#define SMART_HOME_UI_COLOR_TEXT_MUTED     lv_color_hex(0x8A96A8)
+#define SMART_HOME_UI_COLOR_TEXT_PRIMARY   lv_color_hex(0x26312E)
+#define SMART_HOME_UI_COLOR_TEXT_SECONDARY lv_color_hex(0x5C6762)
+#define SMART_HOME_UI_COLOR_TEXT_MUTED     lv_color_hex(0x74807B)
 
 /* Border */
-#define SMART_HOME_UI_COLOR_BORDER         lv_color_hex(0xDCE3EC)
+#define SMART_HOME_UI_COLOR_BORDER         lv_color_hex(0xE5E1DA)
 
 /* ── Light Premium extended tokens ──────────────────────── */
 #define SMART_HOME_UI_COLOR_DEVICE_ON_BORDER lv_color_hex(0xB8DED5)
@@ -52,6 +52,7 @@ typedef struct {
     lv_font_t *font_14;
     lv_font_t *font_16;
     lv_font_t *font_20;
+    lv_font_t *font_32;
 } smart_home_lvgl_style_t;
 
 int smart_home_lvgl_style_init(void);
