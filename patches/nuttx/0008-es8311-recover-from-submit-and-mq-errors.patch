@@ -1,0 +1,69 @@
+Subject: [PATCH 8/8] audio: recover ES8311 submit and queue errors
+
+The ES8311 worker compared file_mq_receive()'s signed return value directly
+with sizeof(), whose unsigned type allowed negative errors to be interpreted
+as complete messages.  Check negative and short messages independently.
+
+Also reclaim a pending audio buffer when I2S_SEND/I2S_RECEIVE rejects it.
+The old path left the buffer off pendq and retained the pre-submit in-flight
+count, so a subsequent stop or drain could wait forever for a callback that
+will never occur.  Report the I/O error and return the buffer to the upper
+half after releasing the pending-queue lock.
+
+Apply after 0007-es8311-reduce-i2c-success-log.patch.
+
+diff --git a/drivers/audio/es8311.c b/drivers/audio/es8311.c
+--- a/drivers/audio/es8311.c
++++ b/drivers/audio/es8311.c
+@@ -1432,7 +1432,34 @@ static int es8311_processbegin(FAR struct es8311_dev_s *priv)
+       if (ret < 0)
+         {
+           auderr("I2S transfer failed: %d\n", ret);
+-          break;
++
++          /* I2S_SEND/I2S_RECEIVE did not take ownership of apb when it
++           * returned an error.  Undo the pre-submit in-flight increment,
++           * release the lower-half reference and return the buffer to the
++           * upper half.  Leaving the buffer removed from pendq with a
++           * non-zero in-flight count would make stop/drain wait forever for
++           * a completion callback that can never arrive.
++           */
++
++          flags = enter_critical_section();
++          DEBUGASSERT(priv->inflight > 0);
++          priv->inflight--;
++          leave_critical_section(flags);
++
++          nxmutex_unlock(&priv->pendlock);
++          apb_free(apb);
++
++#ifdef CONFIG_AUDIO_MULTI_SESSION
++          priv->dev.upper(priv->dev.priv, AUDIO_CALLBACK_IOERR, apb,
++                          (uint16_t)-ret, NULL);
++          priv->dev.upper(priv->dev.priv, AUDIO_CALLBACK_DEQUEUE, apb, OK,
++                          NULL);
++#else /* !CONFIG_AUDIO_MULTI_SESSION */
++          priv->dev.upper(priv->dev.priv, AUDIO_CALLBACK_IOERR, apb,
++                          (uint16_t)-ret);
++          priv->dev.upper(priv->dev.priv, AUDIO_CALLBACK_DEQUEUE, apb, OK);
++#endif /* !CONFIG_AUDIO_MULTI_SESSION */
++          return ret;
+         }
+     }
+
+@@ -2120,9 +2147,13 @@ static void *es8311_workerthread(pthread_addr_t pvarg)
+       msglen = file_mq_receive(&priv->mq, (FAR char *)&msg,
+                                sizeof(msg), &prio);
+
+-      /* Handle the case when we return with no message */
++      /* file_mq_receive() returns a negative errno on failure.  Compare
++       * that case before comparing to sizeof(), whose unsigned type would
++       * otherwise convert a negative result to a large positive value and
++       * let us consume an uninitialized message.
++       */
+
+-      if (msglen < sizeof(struct audio_msg_s))
++      if (msglen < 0 || (size_t)msglen != sizeof(struct audio_msg_s))
+         {
+           if (mq_errors == 0)
+             {

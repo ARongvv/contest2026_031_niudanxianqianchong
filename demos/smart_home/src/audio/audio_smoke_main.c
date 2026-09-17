@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <syslog.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -67,10 +68,10 @@ struct audio_smoke_state_s
 
 static void audio_smoke_usage(FAR const char *progname)
 {
-  printf("Usage:\\n"
-         "  %s play [seconds]\\n"
-         "  %s record [seconds] [pcm_path]\\n"
-         "Defaults: play=%d s, record=%d s, path=%s\\n",
+  printf("Usage:\n"
+         "  %s play [seconds]\n"
+         "  %s record [seconds] [pcm_path]\n"
+         "Defaults: play=%d s, record=%d s, path=%s\n",
          progname, progname, AUDIO_SMOKE_DEFAULT_PLAY_S,
          AUDIO_SMOKE_DEFAULT_REC_S, AUDIO_SMOKE_DEFAULT_PATH);
 }
@@ -112,7 +113,8 @@ static int audio_smoke_configure(int fd, uint8_t type)
   caps.caps.ac_controls.hw[0] = AUDIO_SMOKE_SAMPLE_RATE;
   caps.caps.ac_controls.b[2] = 16;
 
-  printf("[audio_smoke] configure begin: type=%u rate=%u bps=%u\n",
+  syslog(LOG_DEBUG,
+         "DEBUG: audio_smoke configure: type=%u rate=%u bps=%u\n",
          (unsigned int)type, (unsigned int)AUDIO_SMOKE_SAMPLE_RATE,
          (unsigned int)caps.caps.ac_controls.b[2]);
   if (ioctl(fd, AUDIOIOC_CONFIGURE, (unsigned long)(uintptr_t)&caps) < 0)
@@ -120,7 +122,7 @@ static int audio_smoke_configure(int fd, uint8_t type)
       return -errno;
     }
 
-  printf("[audio_smoke] configure OK\n");
+  syslog(LOG_DEBUG, "DEBUG: audio_smoke configure: OK\n");
   return OK;
 }
 
@@ -129,7 +131,7 @@ static int audio_smoke_allocate_buffers(FAR struct audio_smoke_state_s *state)
   struct audio_buf_desc_s desc;
   unsigned int index;
 
-  printf("[audio_smoke] allocate buffers: count=%u size=%u\n",
+  syslog(LOG_DEBUG, "DEBUG: audio_smoke buffers: count=%u size=%u\n",
          (unsigned int)state->buffer_info.nbuffers,
          (unsigned int)state->buffer_info.buffer_size);
   state->buffers = calloc(state->buffer_info.nbuffers,
@@ -150,7 +152,7 @@ static int audio_smoke_allocate_buffers(FAR struct audio_smoke_state_s *state)
           return -errno;
         }
 
-      printf("[audio_smoke] allocate buffer %u OK\n", index);
+      syslog(LOG_DEBUG, "DEBUG: audio_smoke buffer %u: allocated\n", index);
     }
 
   return OK;
@@ -218,21 +220,22 @@ static int audio_smoke_prepare(FAR struct audio_smoke_state_s *state,
   struct mq_attr attr;
   int ret;
 
-  printf("[audio_smoke] prepare: open %s\n", device);
+  syslog(LOG_DEBUG, "DEBUG: audio_smoke prepare: open %s\n", device);
   state->audio_fd = open(device, O_RDWR | O_CLOEXEC);
   if (state->audio_fd < 0)
     {
       return -errno;
     }
 
-  printf("[audio_smoke] prepare: open OK fd=%d\n", state->audio_fd);
-  printf("[audio_smoke] reserve begin\n");
+  syslog(LOG_DEBUG, "DEBUG: audio_smoke prepare: open fd=%d\n",
+         state->audio_fd);
+  syslog(LOG_DEBUG, "DEBUG: audio_smoke reserve: begin\n");
   if (ioctl(state->audio_fd, AUDIOIOC_RESERVE, 0) < 0)
     {
       return -errno;
     }
 
-  printf("[audio_smoke] reserve OK\n");
+  syslog(LOG_DEBUG, "DEBUG: audio_smoke reserve: OK\n");
   ret = audio_smoke_configure(state->audio_fd, type);
   if (ret < 0)
     {
@@ -249,13 +252,14 @@ static int audio_smoke_prepare(FAR struct audio_smoke_state_s *state,
 
       state->buffer_info.buffer_size = CONFIG_AUDIO_BUFFER_NUMBYTES;
       state->buffer_info.nbuffers = CONFIG_AUDIO_NUM_BUFFERS;
-      printf("[audio_smoke] buffer info fallback: count=%u size=%u\n",
+      syslog(LOG_DEBUG,
+             "DEBUG: audio_smoke buffers: fallback count=%u size=%u\n",
              (unsigned int)state->buffer_info.nbuffers,
              (unsigned int)state->buffer_info.buffer_size);
     }
   else
     {
-      printf("[audio_smoke] buffer info: count=%u size=%u\n",
+      syslog(LOG_DEBUG, "DEBUG: audio_smoke buffers: count=%u size=%u\n",
              (unsigned int)state->buffer_info.nbuffers,
              (unsigned int)state->buffer_info.buffer_size);
     }
@@ -270,22 +274,22 @@ static int audio_smoke_prepare(FAR struct audio_smoke_state_s *state,
   attr.mq_msgsize = sizeof(struct audio_msg_s);
   snprintf(state->mq_name, sizeof(state->mq_name), "/audio_smoke_%ld",
            (long)getpid());
-  printf("[audio_smoke] mq open: %s\n", state->mq_name);
+  syslog(LOG_DEBUG, "DEBUG: audio_smoke mq: open %s\n", state->mq_name);
   state->mq = mq_open(state->mq_name, O_RDWR | O_CREAT, 0644, &attr);
   if (state->mq < 0)
     {
       return -errno;
     }
 
-  printf("[audio_smoke] mq open OK\n");
-  printf("[audio_smoke] register mq begin\n");
+  syslog(LOG_DEBUG, "DEBUG: audio_smoke mq: open OK\n");
+  syslog(LOG_DEBUG, "DEBUG: audio_smoke mq: register begin\n");
   if (ioctl(state->audio_fd, AUDIOIOC_REGISTERMQ,
             (unsigned long)(uintptr_t)state->mq) < 0)
     {
       return -errno;
     }
 
-  printf("[audio_smoke] register mq OK\n");
+  syslog(LOG_DEBUG, "DEBUG: audio_smoke mq: register OK\n");
   return audio_smoke_allocate_buffers(state);
 }
 
@@ -404,13 +408,13 @@ static int audio_smoke_run(FAR struct audio_smoke_state_s *state,
   FAR struct ap_buffer_s *apb;
   int ret = OK;
 
-  printf("[audio_smoke] start begin\n");
+  syslog(LOG_DEBUG, "DEBUG: audio_smoke start: begin\n");
   if (ioctl(state->audio_fd, AUDIOIOC_START, 0) < 0)
     {
       return -errno;
     }
 
-  printf("[audio_smoke] start OK\n");
+  syslog(LOG_DEBUG, "DEBUG: audio_smoke start: OK\n");
   state->started = true;
 
   /* Start the codec worker before it owns any application buffer.  This
@@ -420,14 +424,14 @@ static int audio_smoke_run(FAR struct audio_smoke_state_s *state,
   for (index = 0; index < state->buffer_info.nbuffers &&
                   (playback ? state->remaining > 0 : true); index++)
     {
-      printf("[audio_smoke] enqueue initial buffer %u begin\n", index);
+      syslog(LOG_DEBUG, "DEBUG: audio_smoke enqueue %u: begin\n", index);
       ret = audio_smoke_enqueue(state, state->buffers[index], playback);
       if (ret < 0)
         {
           return ret;
         }
 
-      printf("[audio_smoke] enqueue initial buffer %u OK\n", index);
+      syslog(LOG_DEBUG, "DEBUG: audio_smoke enqueue %u: OK\n", index);
     }
 
   if (state->outstanding == 0)
@@ -553,19 +557,19 @@ static int audio_smoke_start(bool playback, unsigned int seconds,
         }
     }
 
-  printf("audio_smoke: %s %u s, 16 kHz mono PCM16\\n",
+  printf("audio_smoke: %s %u s, 16 kHz mono PCM16\n",
          playback ? "play" : "record", seconds);
   ret = audio_smoke_run(&state, playback);
   if (ret == OK)
     {
-      printf("audio_smoke: %s complete, bytes=%" PRIu32 "\\n",
+      printf("audio_smoke: %s complete, bytes=%" PRIu32 "\n",
              playback ? "play" : "record", total_bytes);
     }
 
 out:
   if (ret < 0)
     {
-      fprintf(stderr, "audio_smoke: %s failed: %d (%s)\\n",
+      fprintf(stderr, "audio_smoke: %s failed: %d (%s)\n",
               playback ? "play" : "record", ret, strerror(-ret));
     }
 

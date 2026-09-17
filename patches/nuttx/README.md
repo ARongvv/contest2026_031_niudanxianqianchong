@@ -9,6 +9,8 @@
 5. `0005-es8311-start-boundary-diagnostics.patch`：增加 codec 启动、worker 创建和首个音频缓冲提交边界日志，用于定位复位位置。
 6. `0006-es8311-worker-boundary-diagnostics.patch`：增加 worker 首次处理和消息队列等待边界日志，用于定位启动后的卡死。
 7. `0007-es8311-reduce-i2c-success-log.patch`：将逐笔 I2C 写成功日志降为 `DEBUG`，降低串口压力。
+8. `0008-es8311-recover-from-submit-and-mq-errors.patch`：修复 worker 将负的消息队列错误误判为完整消息，并在 I2S 提交失败时回收 in-flight 计数和应用 buffer，避免停止或 drain 永久等待。
+9. `0009-es8311-demote-bringup-diagnostics.patch`：将 ES8311 成功路径的 bring-up 诊断降为 `DEBUG`，避免无 syslog 缓冲时串口输出阻塞应用首包提交。
 
 在尚未应用补丁的 NuttX 仓库中执行（本机工作区已经应用，不要重复执行）：
 
@@ -27,8 +29,12 @@ git apply --unidiff-zero --check ../contest2026_031_niudanxianqianchong/patches/
 git apply --unidiff-zero ../contest2026_031_niudanxianqianchong/patches/nuttx/0006-es8311-worker-boundary-diagnostics.patch
 git apply --unidiff-zero --check ../contest2026_031_niudanxianqianchong/patches/nuttx/0007-es8311-reduce-i2c-success-log.patch
 git apply --unidiff-zero ../contest2026_031_niudanxianqianchong/patches/nuttx/0007-es8311-reduce-i2c-success-log.patch
+git apply --check ../contest2026_031_niudanxianqianchong/patches/nuttx/0008-es8311-recover-from-submit-and-mq-errors.patch
+git apply ../contest2026_031_niudanxianqianchong/patches/nuttx/0008-es8311-recover-from-submit-and-mq-errors.patch
+git apply --unidiff-zero --check ../contest2026_031_niudanxianqianchong/patches/nuttx/0009-es8311-demote-bringup-diagnostics.patch
+git apply --unidiff-zero ../contest2026_031_niudanxianqianchong/patches/nuttx/0009-es8311-demote-bringup-diagnostics.patch
 ```
 
 当前配置未启用 `CONFIG_LIBC_SEM_MUTEX_NOINLINE`，`nxmutex_init/lock/unlock` 是头文件中的内联实现。缺少该头文件时，编译器按隐式外部函数处理，随后链接失败；不需要新增互斥锁库或更改同步实现。
 
-本机 NuttX 工作区已经按上述顺序应用七个补丁，不要重复执行。固件编译及板端录放音仍需验证。
+本机 NuttX 工作区已经按上述顺序应用九个补丁，不要重复执行。固件编译及板端录放音仍需验证。

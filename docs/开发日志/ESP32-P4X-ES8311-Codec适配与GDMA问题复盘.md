@@ -201,6 +201,115 @@ worker 创建，以及 `audio_smoke` 的 `AUDIOIOC_START` 和两个初始缓冲�
 `CONFIG_ES8311_WORKER_STACKSIZE` 从默认 2048 提升到临时诊断值 4096；
 `smart_home_local` 通过 include 继承此项，不单独写入其含凭据的 defconfig。
 
+### 8. 启动后首个裸 PCM buffer 尚未进入 I2S，且 worker 错误路径不完整
+
+启动边界日志已证明：ES8311 的控制寄存器初始化完成，worker 已创建、首次
+`es8311_processbegin()` 在没有待处理 buffer 时返回 `OK`，随后正常阻塞在其
+消息队列上。也就是说，问题不在 codec 启动、GDMA 初始化或 worker 创建；首个
+应用 buffer 还未被确认提交到 I2S。
+
+代码复核发现两个独立缺陷：
+
+1. `pcm0` 注册为 NuttX 的 PCM decoder，但 `audio_smoke` 写入的是无 WAV
+   header 的裸 PCM16。默认 decoder 会把第一个音频 buffer 当 WAV header
+   解析，并拒绝它；共享 defconfig 现启用 `CONFIG_AUDIO_FORMAT_RAW=y`，使
+   `pcm_decode` 直接把 smoke 的裸 PCM 交给 ES8311 lower-half。
+2. `file_mq_receive()` 失败时返回负 errno；旧代码将 `int msglen` 与
+   `sizeof(...)`（无符号）直接比较，负值会被转换为很大的无符号数，进而读取
+   未初始化的 `msg.msg_id`。`0008` 先判断负值，再严格检查消息长度。
+
+同一补丁还修复了 I2S 提交失败的所有权路径：驱动在提交前为避免 ISR race
+先增加 `inflight`，但若 `I2S_SEND` / `I2S_RECEIVE` 立即失败，旧代码只跳出
+循环，导致 buffer 已离开 `pendq`、`inflight` 未回退。后续 `STOP` 或 drain
+会等待一个永远不会发生的 DMA completion。新路径会回退计数、释放
+lower-half 引用、以 `AUDIO_CALLBACK_IOERR` 报告真实 errno，并以
+`AUDIO_CALLBACK_DEQUEUE` 将 buffer 交还应用。
+
+该修复保存为：
+
+```text
+patches/nuttx/0008-es8311-recover-from-submit-and-mq-errors.patch
+```
+
+另外修复 `audio_smoke` 中误写为 `\\n` 的用户提示，使其真正换行，避免串口
+日志拼接干扰判断。
+
+本轮真机日志进一步确认 `AUDIOIOC_START` 已成功返回；最后可见的是应用的
+`[audio_smoke] start OK` 被截断为 `[audio_`，而 `enqueue initial buffer` 尚未
+出现。因此首包没有进入 PCM decoder/I2S，不能把这次现象归因于 DMA 或 codec。
+系统的 `CONFIG_SYSLOG_BUFFER` 未启用，ES8311 仍有大量同步 `INFO` bring-up
+日志；`0009-es8311-demote-bringup-diagnostics.patch` 将所有成功路径边界日志
+降为 `DEBUG`，保留错误日志及应用层阶段日志，避免串口写路径遮蔽首包提交。
+
+再次测试后，ES8311 success-path 日志已经不再输出，但应用仍在同一位置截断。
+这说明此前不能直接把问题归结为 USB Serial-JTAG 驱动；`audio_smoke` 自身的
+准备、缓冲分配和启动边界 `printf` 仍在首包提交前输出十余行。它们只服务于
+bring-up 诊断，却会改变串口发送队列和调度时序。现已将所有带
+`[audio_smoke]` 前缀的阶段日志改为默认屏蔽的 `LOG_DEBUG`，只保留命令开始、
+完成和错误结果。这样 `AUDIOIOC_START` 返回后会直接执行
+`AUDIOIOC_ENQUEUEBUFFER`，下一轮结果才能有效判断 PCM decoder 与 I2S DMA。
+
+### 9. `audio_smoke play 1` 仅打印开始提示后不返回
+
+最新真机复现命令与现象：
+
+```text
+nsh> audio_smoke play 1
+audio_smoke: play 1 s, 16 kHz mono PCM16
+```
+
+此后没有 `play complete`、错误码或 NSH 提示符。重启日志同时确认以下模块
+在同一轮启动中正常工作：
+
+- ES8311 已注册 `/dev/audio/pcm0`、`/dev/audio/pcm_in0`；
+- I2S0 GDMA 初始化完成，且没有再次出现 `257` / `-ENOMEM`；
+- WLAN、MIPI-DSI、GT911、LittleFS 均完成初始化。
+
+因此当前问题的范围已经从“板级资源或 codec 初始化失败”收敛为播放命令的
+运行期路径：`AUDIOIOC_START`、`AUDIOIOC_ENQUEUEBUFFER`、PCM decoder、
+ES8311 worker、`I2S_SEND` 以及 DMA 完成回调中的某一环。仅凭“开始提示后无
+输出”无法区分这些环节，也不能据此认定为 DMA 死锁。
+
+已按顺序尝试的方案如下：
+
+| 尝试 | 目的 | 结果与结论 |
+| --- | --- | --- |
+| 提升 `CONFIG_ES8311_WORKER_STACKSIZE` 至 4096 | 排除 worker 栈过小 | worker 可创建并进入首次消息队列等待；未消除播放卡住。 |
+| 增加 codec、worker、应用层启动边界日志 | 区分配置、启动、首包提交 | 曾证明 codec 控制寄存器初始化与 worker 创建可以完成，但串口输出会与命令交错。 |
+| 将逐笔 I2C 写成功日志降为 `DEBUG` | 降低 UART 压力 | 保留必要错误信息，但不足以消除卡住。 |
+| 将全部 ES8311 成功路径诊断降为 `DEBUG` | 排除 codec bring-up 日志扰动 | 配置阶段已静默；命令仍只输出开始提示。 |
+| 将 `audio_smoke` 阶段 `printf` 降为 `LOG_DEBUG` | 避免诊断输出改变串口队列和调度时序 | 已完成源码修改；下一轮真机验证将首次不依赖阶段串口日志。 |
+| 启用 `CONFIG_AUDIO_FORMAT_RAW=y` | 使 `pcm0` 接受无 WAV header 的 PCM16 正弦样本 | 配置已写入共享 defconfig，待本轮运行期阻塞定位后验证首包能够直达 lower-half。 |
+| 修复 ES8311 worker 的负消息长度判断与 I2S 立即失败回收 | 防止错误消息被当作有效消息，以及 buffer/in-flight 泄漏导致 drain 永久等待 | 修复已保存在 `0008`；它保障失败可见且可恢复，但尚不能证明本次正常播放路径是否走到 DMA。 |
+
+当前不再继续增加普通串口日志。原因是 USB Serial-JTAG 控制台和 syslog 没有
+启用 `CONFIG_SYSLOG_BUFFER`，且历史日志已经发生过与 NSH 输入交错；额外输出
+会干扰待测的实时路径，降低结论可信度。
+
+下一步采用非侵入式任务栈取证：将命令放到后台，使 NSH 保持可用，再采集
+`audio_smoke` 与 ES8311 worker 的栈。
+
+```sh
+audio_smoke play 1 &
+ps
+# 记录 audio_smoke 与 es8311 的 PID，等待约 2 秒后：
+dumpstack <audio_smoke_pid>
+dumpstack <es8311_pid>
+```
+
+本配置已启用 `CONFIG_NSH_DISABLEBG=n`、`CONFIG_SCHED_BACKTRACE=y` 和
+`CONFIG_SYSTEM_DUMPSTACK=y`，上述命令无需额外改配置。根据栈位置再实施最小
+修复：
+
+- 应用栈停在 `audio_start`：检查 ES8311 启动或 worker 创建；
+- 停在 `audio_enqueuebuffer` / `pcm_enqueuebuffer`：检查裸 PCM decoder 与
+  lower-half 消息投递；
+- worker 停在 `i2s_send` / `i2s_txdma_setup`：检查 P4 I2S 提交与 GDMA；
+- worker 停在 `file_mq_receive` 而应用停在 enqueue：检查消息队列、锁顺序或
+  调度；
+- 应用停在 `mq_receive` 而 worker 进入 I2S：检查 DMA completion、中断和
+  HPWORK 回调。
+
 ## 真机结果
 
 修复后启动日志显示：

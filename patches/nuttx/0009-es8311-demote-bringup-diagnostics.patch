@@ -1,0 +1,108 @@
+Subject: [PATCH 9/9] audio: demote ES8311 bring-up diagnostics
+
+The diagnostic traces added during codec bring-up are useful only when
+explicitly debugging. On this board syslog has no buffering enabled, and
+dozens of synchronous INFO writes can stall the serial console before the
+first application buffer is queued. Keep error reporting at its existing
+level but make success-path ES8311 trace points DEBUG-only.
+
+Apply after 0008-es8311-recover-from-submit-and-mq-errors.patch.
+
+diff --git a/drivers/audio/es8311.c b/drivers/audio/es8311.c
+--- a/drivers/audio/es8311.c
++++ b/drivers/audio/es8311.c
+@@ -259 +259 @@ uint8_t es8311_readreg(FAR struct es8311_dev_s *priv, uint8_t regaddr)
+-      syslog(LOG_INFO, "INFO: ES8311 I2C read begin: reg=0x%02x try=%d\n",
++      syslog(LOG_DEBUG, "DEBUG: ES8311 I2C read begin: reg=0x%02x try=%d\n",
+@@ -342 +342 @@ static int es8311_writereg(FAR struct es8311_dev_s *priv,
+-      syslog(LOG_INFO,
++      syslog(LOG_DEBUG,
+@@ -343 +343 @@ static int es8311_writereg(FAR struct es8311_dev_s *priv,
+-             "INFO: ES8311 I2C write begin: reg=0x%02x val=0x%02x try=%d\n",
++             "DEBUG: ES8311 I2C write begin: reg=0x%02x val=0x%02x try=%d\n",
+@@ -610 +610 @@ static int es8311_setbitspersample(FAR struct es8311_dev_s *priv)
+-  syslog(LOG_INFO, "INFO: ES8311 width: begin bps=%d mode=%d\n",
++  syslog(LOG_DEBUG, "DEBUG: ES8311 width: begin bps=%d mode=%d\n",
+@@ -639 +639 @@ static int es8311_setbitspersample(FAR struct es8311_dev_s *priv)
+-  syslog(LOG_INFO, "INFO: ES8311 width: I2S RX configured\n");
++  syslog(LOG_DEBUG, "DEBUG: ES8311 width: I2S RX configured\n");
+@@ -647 +647 @@ static int es8311_setbitspersample(FAR struct es8311_dev_s *priv)
+-  syslog(LOG_INFO, "INFO: ES8311 width: I2S TX configured\n");
++  syslog(LOG_DEBUG, "DEBUG: ES8311 width: I2S TX configured\n");
+@@ -702 +702 @@ static int es8311_setsamplerate(FAR struct es8311_dev_s *priv)
+-  syslog(LOG_INFO,
++  syslog(LOG_DEBUG,
+@@ -703 +703 @@ static int es8311_setsamplerate(FAR struct es8311_dev_s *priv)
+-         "INFO: ES8311 samplerate: begin rate=%" PRIu32
++         "DEBUG: ES8311 samplerate: begin rate=%" PRIu32
+@@ -720 +720 @@ static int es8311_setsamplerate(FAR struct es8311_dev_s *priv)
+-  syslog(LOG_INFO, "INFO: ES8311 samplerate: I2S RX configured\n");
++  syslog(LOG_DEBUG, "DEBUG: ES8311 samplerate: I2S RX configured\n");
+@@ -728,2 +728,2 @@ static int es8311_setsamplerate(FAR struct es8311_dev_s *priv)
+-  syslog(LOG_INFO, "INFO: ES8311 samplerate: I2S TX configured\n");
+-  syslog(LOG_INFO, "INFO: ES8311 samplerate: codec clocks begin\n");
++  syslog(LOG_DEBUG, "DEBUG: ES8311 samplerate: I2S TX configured\n");
++  syslog(LOG_DEBUG, "DEBUG: ES8311 samplerate: codec clocks begin\n");
+@@ -795 +795 @@ static int es8311_setsamplerate(FAR struct es8311_dev_s *priv)
+-  syslog(LOG_INFO, "INFO: ES8311 samplerate: codec clocks complete\n");
++  syslog(LOG_DEBUG, "DEBUG: ES8311 samplerate: codec clocks complete\n");
+@@ -1062 +1062 @@ static int es8311_configure(FAR struct audio_lowerhalf_s *dev,
+-        syslog(LOG_INFO,
++        syslog(LOG_DEBUG,
+@@ -1063 +1063 @@ static int es8311_configure(FAR struct audio_lowerhalf_s *dev,
+-               "INFO: ES8311 configure output: mode/reset begin"
++               "DEBUG: ES8311 configure output: mode/reset begin"
+@@ -1069 +1069 @@ static int es8311_configure(FAR struct audio_lowerhalf_s *dev,
+-        syslog(LOG_INFO, "INFO: ES8311 configure output: mode/reset done\n");
++        syslog(LOG_DEBUG, "DEBUG: ES8311 configure output: mode/reset done\n");
+@@ -1076 +1076 @@ static int es8311_configure(FAR struct audio_lowerhalf_s *dev,
+-        syslog(LOG_INFO,
++        syslog(LOG_DEBUG,
+@@ -1077 +1077 @@ static int es8311_configure(FAR struct audio_lowerhalf_s *dev,
+-               "INFO: ES8311 configure output: samplerate begin\n");
++               "DEBUG: ES8311 configure output: samplerate begin\n");
+@@ -1089 +1089 @@ static int es8311_configure(FAR struct audio_lowerhalf_s *dev,
+-        syslog(LOG_INFO, "INFO: ES8311 configure output: width begin\n");
++        syslog(LOG_DEBUG, "DEBUG: ES8311 configure output: width begin\n");
+@@ -1096 +1096 @@ static int es8311_configure(FAR struct audio_lowerhalf_s *dev,
+-        syslog(LOG_INFO, "INFO: ES8311 configure output: complete ret=%d\n",
++        syslog(LOG_DEBUG, "DEBUG: ES8311 configure output: complete ret=%d\n",
+@@ -1500 +1500 @@ static int es8311_start(FAR struct audio_lowerhalf_s *dev)
+-  syslog(LOG_INFO, "INFO: ES8311 start: begin mode=%d\n",
++  syslog(LOG_DEBUG, "DEBUG: ES8311 start: begin mode=%d\n",
+@@ -1536 +1536 @@ static int es8311_start(FAR struct audio_lowerhalf_s *dev)
+-  syslog(LOG_INFO, "INFO: ES8311 start: control registers complete ret=%d\n",
++  syslog(LOG_DEBUG, "DEBUG: ES8311 start: control registers complete ret=%d\n",
+@@ -1559 +1559 @@ static int es8311_start(FAR struct audio_lowerhalf_s *dev)
+-  syslog(LOG_INFO, "INFO: ES8311 start: worker mq create begin\n");
++  syslog(LOG_DEBUG, "DEBUG: ES8311 start: worker mq create begin\n");
+@@ -1572 +1572 @@ static int es8311_start(FAR struct audio_lowerhalf_s *dev)
+-  syslog(LOG_INFO, "INFO: ES8311 start: worker mq create OK\n");
++  syslog(LOG_DEBUG, "DEBUG: ES8311 start: worker mq create OK\n");
+@@ -1587 +1587 @@ static int es8311_start(FAR struct audio_lowerhalf_s *dev)
+-  syslog(LOG_INFO, "INFO: ES8311 start: worker create begin\n");
++  syslog(LOG_DEBUG, "DEBUG: ES8311 start: worker create begin\n");
+@@ -1598 +1598 @@ static int es8311_start(FAR struct audio_lowerhalf_s *dev)
+-      syslog(LOG_INFO, "INFO: ES8311 start: worker create OK\n");
++      syslog(LOG_DEBUG, "DEBUG: ES8311 start: worker create OK\n");
+@@ -2090 +2090 @@ static void *es8311_workerthread(pthread_addr_t pvarg)
+-  syslog(LOG_INFO, "INFO: ES8311 worker: entered\n");
++  syslog(LOG_DEBUG, "DEBUG: ES8311 worker: entered\n");
+@@ -2121 +2121 @@ static void *es8311_workerthread(pthread_addr_t pvarg)
+-              syslog(LOG_INFO,
++              syslog(LOG_DEBUG,
+@@ -2122 +2122 @@ static void *es8311_workerthread(pthread_addr_t pvarg)
+-                     "INFO: ES8311 worker: process begin inflight=%d\n",
++                     "DEBUG: ES8311 worker: process begin inflight=%d\n",
+@@ -2129 +2129 @@ static void *es8311_workerthread(pthread_addr_t pvarg)
+-              syslog(LOG_INFO,
++              syslog(LOG_DEBUG,
+@@ -2130 +2130 @@ static void *es8311_workerthread(pthread_addr_t pvarg)
+-                     "INFO: ES8311 worker: process end ret=%d inflight=%d\n",
++                     "DEBUG: ES8311 worker: process end ret=%d inflight=%d\n",
+@@ -2139 +2139 @@ static void *es8311_workerthread(pthread_addr_t pvarg)
+-          syslog(LOG_INFO, "INFO: ES8311 worker: mq wait\n");
++          syslog(LOG_DEBUG, "DEBUG: ES8311 worker: mq wait\n");
+@@ -2167 +2167 @@ static void *es8311_workerthread(pthread_addr_t pvarg)
+-      syslog(LOG_INFO, "INFO: ES8311 worker: mq received len=%d id=%d\n",
++      syslog(LOG_DEBUG, "DEBUG: ES8311 worker: mq received len=%d id=%d\n",
