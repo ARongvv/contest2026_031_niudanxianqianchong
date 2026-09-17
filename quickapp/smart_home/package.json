@@ -1,0 +1,22 @@
+{
+  "name": "openvela-smarthome-panel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ESP32-P4X SmartHome QuickApp P0.0 native-feature validation client",
+  "engines": {
+    "node": ">=8.10"
+  },
+  "scripts": {
+    "start": "aiot server --watch",
+    "build": "aiot build",
+    "release": "aiot release",
+    "lint": "eslint --format codeframe --ext .ux,.js src/"
+  },
+  "devDependencies": {
+    "aiot-toolkit": "^2.0.5",
+    "babel-eslint": "^10.0.1",
+    "eslint": "^6.8.0",
+    "eslint-plugin-ux": "^0.0.4",
+    "ux-types": "^0.1.1"
+  }
+}

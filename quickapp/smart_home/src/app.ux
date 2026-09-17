@@ -1,0 +1,10 @@
+<script>
+export default {
+  onCreate() {
+    console.log('SmartHome QuickApp created')
+  },
+  onDestroy() {
+    console.log('SmartHome QuickApp destroyed')
+  }
+}
+</script>
