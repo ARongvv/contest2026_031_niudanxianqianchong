@@ -5,6 +5,7 @@
 #include "../skills/smart_home_skill_loader.h"
 #ifdef CONFIG_FEATURE_SYSTEM_SMARTHOME
 #include "../quickapp/smart_home_quickapp_provider.h"
+#include "../quickapp/smart_home_quickapp_ipc_server.h"
 #endif
 
 #include <stddef.h>
@@ -70,6 +71,7 @@ typedef struct smart_home_agent_app {
     smart_home_device_service_t device_service;
 #ifdef CONFIG_FEATURE_SYSTEM_SMARTHOME
     smart_home_quickapp_provider_t quickapp_provider;
+    smart_home_quickapp_ipc_server_t quickapp_ipc_server;
 #endif
     smart_home_skill_store_t skill_store;
     smart_home_model_config_t model_config;

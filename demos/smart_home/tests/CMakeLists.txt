@@ -171,6 +171,35 @@ if(EXISTS ${SMART_HOME_FEATURE_MODULES_DIR}/smart_home_quickapp_bridge.h)
   target_link_libraries(test_quickapp_feature_bridge PRIVATE m Threads::Threads)
 endif()
 
+if(EXISTS ${SMART_HOME_FEATURE_MODULES_DIR}/smart_home_quickapp_ipc.h)
+  add_executable(test_quickapp_ipc_server
+      test_quickapp_ipc_server.c
+      ${SMART_HOME_SRC_DIR}/quickapp/smart_home_quickapp_ipc_server.c
+      ${SMART_HOME_SRC_DIR}/quickapp/smart_home_quickapp_provider.c
+      ${SMART_HOME_SRC_DIR}/device/smart_home_device.c
+      ${SMART_HOME_SRC_DIR}/device/smart_home_device_service.c
+      ${SMART_HOME_SRC_DIR}/skills/smart_home_scene_catalog.c
+      ${CJSON_SRC}
+  )
+
+  target_compile_definitions(test_quickapp_ipc_server PRIVATE
+      FAR=
+      _POSIX_C_SOURCE=200809L
+  )
+
+  target_include_directories(test_quickapp_ipc_server PRIVATE
+      ${SMART_HOME_SRC_DIR}/quickapp
+      ${SMART_HOME_SRC_DIR}/config
+      ${SMART_HOME_SRC_DIR}/device
+      ${SMART_HOME_SRC_DIR}/skills
+      ${SMART_HOME_FEATURE_MODULES_DIR}
+      ${CJSON_INC}
+      ${CAGENT_INC}
+  )
+
+  target_link_libraries(test_quickapp_ipc_server PRIVATE m Threads::Threads rt)
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
     add_test(NAME config_store COMMAND test_config_store)
@@ -179,5 +208,8 @@ if(BUILD_TESTING)
   add_test(NAME quickapp_provider COMMAND test_quickapp_provider)
   if(TARGET test_quickapp_feature_bridge)
     add_test(NAME quickapp_feature_bridge COMMAND test_quickapp_feature_bridge)
+  endif()
+  if(TARGET test_quickapp_ipc_server)
+    add_test(NAME quickapp_ipc_server COMMAND test_quickapp_ipc_server)
   endif()
 endif()

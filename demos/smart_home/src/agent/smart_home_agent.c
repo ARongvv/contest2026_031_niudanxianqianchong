@@ -1,8 +1,5 @@
 #include "smart_home_agent.h"
 
-#ifdef CONFIG_FEATURE_SYSTEM_SMARTHOME
-#include "../quickapp/smart_home_quickapp_feature_bridge.h"
-#endif
 #ifdef CONFIG_SMART_HOME_APP_BRIDGE
 #include "smart_home_agent_run_service.h"
 #endif
@@ -390,7 +387,14 @@ int smart_home_agent_app_init(smart_home_agent_app_t *app)
         smart_home_agent_app_deinit(app);
         return ret;
     }
-    smart_home_quickapp_feature_bridge_register(&app->quickapp_provider);
+    ret = smart_home_quickapp_ipc_server_init(&app->quickapp_ipc_server,
+                                              &app->quickapp_provider);
+    if (ret != AGENT_OK) {
+        app->system_status.agent_status = ret;
+        smart_home_status_error(app, "QuickApp IPC", ret);
+        smart_home_agent_app_deinit(app);
+        return ret;
+    }
 #endif
 
     smart_home_skill_store_init(&app->skill_store);
@@ -615,7 +619,7 @@ void smart_home_agent_app_deinit(smart_home_agent_app_t *app)
     }
     smart_home_skill_store_deinit(&app->skill_store);
 #ifdef CONFIG_FEATURE_SYSTEM_SMARTHOME
-    smart_home_quickapp_feature_bridge_unregister(&app->quickapp_provider);
+    smart_home_quickapp_ipc_server_deinit(&app->quickapp_ipc_server);
     smart_home_quickapp_provider_deinit(&app->quickapp_provider);
 #endif
     smart_home_device_service_deinit(&app->device_service);

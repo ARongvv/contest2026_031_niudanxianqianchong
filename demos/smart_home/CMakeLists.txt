@@ -35,7 +35,7 @@ if(CONFIG_SMART_HOME_DEMO)
     )
     list(APPEND SMART_HOME_SRCS
       src/quickapp/smart_home_quickapp_provider.c
-      src/quickapp/smart_home_quickapp_feature_bridge.c
+      src/quickapp/smart_home_quickapp_ipc_server.c
     )
   endif()
 
