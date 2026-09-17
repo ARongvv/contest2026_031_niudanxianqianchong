@@ -11,6 +11,9 @@
 #define SMART_HOME_DEVICE_EVENT_ID_SIZE 24
 #define SMART_HOME_DEVICE_EVENT_DATA_SIZE 384
 
+/* A mutation was rejected because its caller used an obsolete revision. */
+#define SMART_HOME_DEVICE_SERVICE_ERROR_STALE_REVISION (-1001)
+
 typedef struct {
     uint32_t revision;
     uint64_t occurred_at_ms;
@@ -53,6 +56,10 @@ int smart_home_device_service_set_scene_catalog(
 uint32_t smart_home_device_service_revision(smart_home_device_service_t *service);
 int smart_home_device_service_copy_state(smart_home_device_service_t *service,
                                          smart_home_state_t *out_state);
+int smart_home_device_service_copy_state_with_revision(
+    smart_home_device_service_t *service,
+    smart_home_state_t *out_state,
+    uint32_t *out_revision);
 int smart_home_device_service_find_first(smart_home_device_service_t *service,
                                          const char *room,
                                          smart_home_device_type_t type,
@@ -81,6 +88,12 @@ int smart_home_device_service_set_light(smart_home_device_service_t *service,
                                         const char *room,
                                         int on,
                                         int brightness);
+int smart_home_device_service_set_light_if_revision(
+    smart_home_device_service_t *service,
+    const char *room,
+    uint32_t expected_revision,
+    int on,
+    int brightness);
 int smart_home_device_service_set_ac(smart_home_device_service_t *service,
                                      const char *room,
                                      int on,

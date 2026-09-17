@@ -1,0 +1,24 @@
+{
+  "package": "com.openvela.contest2026.team031.smarthome",
+  "name": "openvela-smarthome-panel",
+  "versionName": "0.1.0",
+  "versionCode": 1,
+  "minPlatformVersion": 1,
+  "features": [
+    {
+      "name": "system.smarthome"
+    }
+  ],
+  "config": {
+    "logLevel": "log",
+    "designWidth": 1024
+  },
+  "router": {
+    "entry": "pages/home",
+    "pages": {
+      "pages/home": {
+        "component": "index"
+      }
+    }
+  }
+}

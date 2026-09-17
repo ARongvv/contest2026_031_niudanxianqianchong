@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <syslog.h>
+#include <unistd.h>
 
 int main(int argc, char *argv[])
 {
@@ -28,8 +29,10 @@ int main(int argc, char *argv[])
     if (argc > 1) {
         printf("input: %s\n\n", argv[1]);
     } else {
-#ifdef CONFIG_SMART_HOME_DEMO_UI_LVGL
+#if defined(CONFIG_SMART_HOME_DEMO_UI_LVGL)
         printf("starting LVGL UI\n\n");
+#elif defined(CONFIG_SMART_HOME_DEMO_UI_QUICKAPP)
+        printf("starting QuickApp native service\n\n");
 #else
         printf("type 'quit' to exit\n\n");
 #endif
@@ -75,7 +78,15 @@ int main(int argc, char *argv[])
     }
 #endif
 
-#ifdef CONFIG_SMART_HOME_DEMO_UI_LVGL
+#if defined(CONFIG_SMART_HOME_DEMO_UI_QUICKAPP)
+    if (argc > 1) {
+        fprintf(stderr, "QuickApp mode ignores console input\n");
+    }
+    printf("SmartHome IPC service is ready; start the RPK with vapp separately.\n");
+    for (;;) {
+        pause();
+    }
+#elif defined(CONFIG_SMART_HOME_DEMO_UI_LVGL)
     smart_home_cpu_debug_log("main-before-ui");
     if (argc > 1) {
         ret = smart_home_ui_run_once(&app, argv[1]);

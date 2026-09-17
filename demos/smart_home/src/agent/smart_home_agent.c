@@ -1,4 +1,5 @@
 #include "smart_home_agent.h"
+
 #ifdef CONFIG_SMART_HOME_APP_BRIDGE
 #include "smart_home_agent_run_service.h"
 #endif
@@ -377,6 +378,25 @@ int smart_home_agent_app_init(smart_home_agent_app_t *app)
         return ret;
     }
 
+#ifdef CONFIG_FEATURE_SYSTEM_SMARTHOME
+    ret = smart_home_quickapp_provider_init(&app->quickapp_provider,
+                                            &app->device_service);
+    if (ret != AGENT_OK) {
+        app->system_status.agent_status = ret;
+        smart_home_status_error(app, "QuickApp provider", ret);
+        smart_home_agent_app_deinit(app);
+        return ret;
+    }
+    ret = smart_home_quickapp_ipc_server_init(&app->quickapp_ipc_server,
+                                              &app->quickapp_provider);
+    if (ret != AGENT_OK) {
+        app->system_status.agent_status = ret;
+        smart_home_status_error(app, "QuickApp IPC", ret);
+        smart_home_agent_app_deinit(app);
+        return ret;
+    }
+#endif
+
     smart_home_skill_store_init(&app->skill_store);
     smart_home_init_trace("skill-store-ready", AGENT_OK);
 
@@ -598,6 +618,10 @@ void smart_home_agent_app_deinit(smart_home_agent_app_t *app)
         agent_destroy(app->agent);
     }
     smart_home_skill_store_deinit(&app->skill_store);
+#ifdef CONFIG_FEATURE_SYSTEM_SMARTHOME
+    smart_home_quickapp_ipc_server_deinit(&app->quickapp_ipc_server);
+    smart_home_quickapp_provider_deinit(&app->quickapp_provider);
+#endif
     smart_home_device_service_deinit(&app->device_service);
 #ifdef SMART_HOME_HAS_REMOTE_TOOLS
     if (app->agent_mutex_initialized) {

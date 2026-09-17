@@ -300,6 +300,17 @@ config SMART_HOME_DEMO_UI_LVGL
       are unavailable. Chat requests are sent to cAGENT from a worker thread
       and results are posted back to the LVGL thread with lv_async_call().
 
+config SMART_HOME_DEMO_UI_QUICKAPP
+    bool "QuickApp UI"
+    depends on QUICKAPP && QUICKAPP_VAPP && FEATURE_FRAMEWORK
+    select FEATURE_SYSTEM_SMARTHOME
+    help
+      Build SmartHome as the native state and IPC service for a separately
+      launched QuickApp RPK. This mode does not compile or start the native
+      LVGL product UI; LVGL remains enabled as a QuickApp runtime dependency.
+      The smart_home process remains running to serve system.smarthome IPC
+      requests from the VAPP process.
+
 endchoice
 
 if SMART_HOME_DEMO_UI_LVGL

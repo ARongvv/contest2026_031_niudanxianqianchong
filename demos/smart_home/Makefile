@@ -11,6 +11,11 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
   CSRCS     += src/smart_home_cpu_debug.c
   CSRCS     += src/smart_home_memory.c
   CSRCS     += src/agent/smart_home_agent.c
+  ifneq ($(CONFIG_FEATURE_SYSTEM_SMARTHOME),)
+    CSRCS   += src/quickapp/smart_home_quickapp_provider.c
+    CSRCS   += src/quickapp/smart_home_quickapp_ipc_server.c
+    CFLAGS  += ${INCDIR_PREFIX}$(APPDIR)/frameworks/runtimes/feature/modules
+  endif
   ifneq ($(CONFIG_SMART_HOME_NODE_GATEWAY),)
     CSRCS   += src/addons/smart_home_node_gateway.c
   endif

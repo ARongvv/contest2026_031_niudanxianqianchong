@@ -1,0 +1,161 @@
+<template>
+  <div class="app">
+    <div class="screensaver" if="{{ locked }}" onclick="unlock">
+      <text class="lock-time">09:30</text>
+      <text class="lock-date">9月24日 星期三</text>
+      <div class="lock-weather">
+        <text class="weather-symbol">☁</text>
+        <text class="lock-temperature">26°</text>
+        <text class="lock-copy">多云 · 湿度 62%</text>
+      </div>
+      <text class="swipe-hint">↑ 上滑进入我的家</text>
+    </div>
+
+    <div class="panel" if="{{ !locked }}">
+      <div class="topbar">
+        <div class="brand-row" onclick="showHome">
+          <div class="brand-mark"><text>⌂</text></div>
+          <text class="brand">OpenVela HOME</text>
+        </div>
+        <div class="top-status">
+          <text>◉</text><text>▣</text><text>☾</text><text>⌁</text>
+          <text class="time">09:30</text>
+        </div>
+      </div>
+
+      <div class="content" if="{{ screen === 'home' }}">
+        <div class="home-grid">
+          <div class="weather-card card tall-card" onclick="showDevices">
+            <text class="overline">深圳市南山区</text>
+            <text class="weather-glyph">☁</text>
+            <text class="temperature">26°</text>
+            <text class="weather-name">多云</text>
+            <div class="weather-bottom"><text>湿度 62%</text><text>空气优</text></div>
+          </div>
+
+          <div class="scene-card card" onclick="showScenes">
+            <text class="card-label">快捷场景</text>
+            <text class="card-title">回家</text>
+            <text class="card-copy">客厅灯与空调已准备</text>
+            <div class="pill active-pill"><text>执行</text></div>
+          </div>
+
+          <div class="comfort-card card" onclick="showDetail">
+            <div class="card-title-row"><text class="icon">☀</text><text class="card-title">客厅主灯</text></div>
+            <text class="room">客厅 · 真实服务</text>
+            <text class="metric">{{ power ? '已开启' : '已关闭' }}</text>
+            <div class="mini-control"><text>{{ brightness }}%</text><div class="tiny-switch" onclick="togglePower"><div class="tiny-knob" style="left: {{ power ? 28 : 3 }}px"></div></div></div>
+          </div>
+
+          <div class="camera-card card" onclick="showSecurity">
+            <div class="camera-placeholder"><text>摄像头</text><text class="camera-play">▷</text></div>
+            <text class="card-title">门厅摄像头</text>
+            <text class="room">待接入 · 仅缩略图</text>
+          </div>
+
+          <div class="agent-card card" onclick="showMore">
+            <text class="card-label">智能助手</text>
+            <text class="card-title">早上好</text>
+            <text class="card-copy">今天室内舒适，暂无需要处理的提醒。</text>
+            <text class="card-action">查看摘要 ›</text>
+          </div>
+
+          <div class="music-card card" onclick="showMore">
+            <div class="album"><text>♫</text></div>
+            <div><text class="card-title">家庭音乐</text><text class="room">待接入媒体服务</text></div>
+            <text class="music-controls">‹  ▷  ›</text>
+          </div>
+
+          <div class="status-card card" onclick="showSecurity">
+            <text class="card-label">家庭状态</text>
+            <text class="card-title">一切正常</text>
+            <text class="card-copy">门窗已关闭 · 无安全告警</text>
+          </div>
+        </div>
+      </div>
+
+      <div class="content" if="{{ screen === 'devices' }}">
+        <text class="page-title">设备</text>
+        <div class="room-tabs"><text class="room-tab {{ room === 'all' ? 'selected' : '' }}" onclick="selectAll">全部</text><text class="room-tab {{ room === 'living' ? 'selected' : '' }}" onclick="selectLiving">客厅</text><text class="room-tab {{ room === 'bedroom' ? 'selected' : '' }}" onclick="selectBedroom">卧室</text><text class="room-tab {{ room === 'kitchen' ? 'selected' : '' }}" onclick="selectKitchen">厨房</text><text class="room-tab {{ room === 'bathroom' ? 'selected' : '' }}" onclick="selectBathroom">卫生间</text></div>
+        <div class="section-row"><text class="section-title">{{ roomTitle }}</text><text class="section-copy">按空间管理</text></div>
+        <div class="device-grid">
+          <div class="device-card card live-card" onclick="showDetail"><text class="device-icon">☀</text><text class="device-name">客厅主灯</text><text class="device-meta">{{ power ? '已开启' : '已关闭' }} · {{ brightness }}%</text><div class="device-footer"><text class="live">真实服务</text><div class="small-switch" onclick="togglePower"><div class="small-knob" style="left: {{ power ? 23 : 3 }}px"></div></div></div></div>
+          <div class="device-card card" onclick="showDetail"><text class="device-icon">❄</text><text class="device-name">客厅空调</text><text class="device-meta">待接入 · 26°C</text><div class="device-footer"><text class="muted-tag">计划接入</text><text>›</text></div></div>
+          <div class="device-card card" onclick="showDetail"><text class="device-icon">◐</text><text class="device-name">客厅窗帘</text><text class="device-meta">待接入 · 已打开</text><div class="device-footer"><text class="muted-tag">计划接入</text><text>›</text></div></div>
+          <div class="device-card card" onclick="showDetail"><text class="device-icon">◉</text><text class="device-name">门厅摄像头</text><text class="device-meta">待接入 · 在线</text><div class="device-footer"><text class="muted-tag">原生预览</text><text>›</text></div></div>
+          <div class="device-card card" if="{{ room !== 'living' }}"><text class="device-icon">☀</text><text class="device-name">卧室灯</text><text class="device-meta">待接入</text><div class="device-footer"><text class="muted-tag">计划接入</text><text>›</text></div></div>
+          <div class="device-card card" if="{{ room === 'all' || room === 'kitchen' }}"><text class="device-icon">♨</text><text class="device-name">厨房排风</text><text class="device-meta">待接入</text><div class="device-footer"><text class="muted-tag">计划接入</text><text>›</text></div></div>
+        </div>
+      </div>
+
+      <div class="content" if="{{ screen === 'scenes' }}">
+        <text class="page-title">场景</text>
+        <div class="scene-list">
+          <div class="scene-wide card"><div><text class="scene-icon">⌂</text><text class="card-title">回家</text><text class="card-copy">客厅灯开启，环境调至舒适</text></div><div class="pill active-pill" onclick="runScene"><text>执行</text></div></div>
+          <div class="scene-wide card"><div><text class="scene-icon">◒</text><text class="card-title">观影</text><text class="card-copy">灯光、窗帘、影音协同</text></div><div class="pill"><text>待接入</text></div></div>
+          <div class="scene-wide card"><div><text class="scene-icon">☾</text><text class="card-title">晚安</text><text class="card-copy">关闭照明，开启夜间守护</text></div><div class="pill"><text>待接入</text></div></div>
+        </div>
+        <text class="hint">场景执行结果以原生服务回执为准。</text>
+      </div>
+
+      <div class="content" if="{{ screen === 'security' }}">
+        <text class="page-title">安防</text>
+        <div class="security-grid">
+          <div class="security-hero card"><div class="camera-large"><text>摄像头实时预览</text><text class="camera-note">待原生视频平面接入</text></div><div class="security-row"><div><text class="card-title">门厅摄像头</text><text class="room">在线状态待接入</text></div><div class="pill"><text>查看回放</text></div></div></div>
+          <div class="security-side"><div class="card safe-card"><text class="card-label">布防状态</text><text class="big-status">已撤防</text><text class="card-copy">高风险操作需要二次确认</text></div><div class="card"><text class="card-label">传感器</text><text class="card-title">门窗全部关闭</text><text class="card-copy">待接入真实门磁与人体传感器</text></div></div>
+        </div>
+      </div>
+
+      <div class="content" if="{{ screen === 'more' }}">
+        <text class="page-title">更多</text>
+        <div class="more-grid"><div class="more-card card"><text class="more-icon">♫</text><text class="card-title">家庭媒体</text><text class="card-copy">音乐、影音与房间播放</text></div><div class="more-card card"><text class="more-icon">◇</text><text class="card-title">智能助手</text><text class="card-copy">对话、建议与家庭摘要</text></div><div class="more-card card" onclick="showSettings"><text class="more-icon">⚙</text><text class="card-title">系统设置</text><text class="card-copy">网络、模型、工具与系统健康</text></div></div>
+      </div>
+
+      <div class="content settings-content" if="{{ screen === 'settings' }}">
+        <div class="title-row"><text class="page-title">系统设置</text><text class="back" onclick="showMore">‹ 返回</text></div>
+        <div class="summary-row"><div class="summary-card card"><text class="card-label">家庭网络</text><text class="card-title">已连接</text></div><div class="summary-card card"><text class="card-label">AI 服务</text><text class="card-title">待配置</text></div><div class="summary-card card"><text class="card-label">系统健康</text><text class="card-title">运行正常</text></div></div>
+        <div class="settings-grid"><div class="settings-card card"><text class="settings-title">智能服务</text><div class="setting-line"><text>模型服务</text><text class="setting-value">待配置 ›</text></div><div class="setting-line"><text>API 密钥</text><text class="setting-value">未配置</text></div><div class="setting-line"><text>请求超时</text><text class="setting-value">30 秒</text></div><div class="outline-button"><text>测试 AI 连接</text></div></div><div class="settings-card card"><text class="settings-title">工具与权限</text><div class="setting-line"><text>get_home_status</text><text class="ok">可用</text></div><div class="setting-line"><text>set_light</text><text class="ok">可用</text></div><div class="setting-line"><text>run_scene</text><text class="muted-tag">待接入</text></div><div class="setting-line"><text>安防操作</text><text class="warn">受保护</text></div></div><div class="settings-card card"><text class="settings-title">Skills 与自动化</text><div class="setting-line"><text>smart_home_safety</text><text class="muted-tag">待加载</text></div><div class="setting-line"><text>家庭场景</text><text class="muted-tag">待接入</text></div></div><div class="settings-card card"><text class="settings-title">系统健康</text><div class="setting-line"><text>SmartHome IPC</text><text class="ok">{{ serviceLabel }}</text></div><div class="setting-line"><text>状态版本</text><text class="setting-value">{{ revisionLabel }}</text></div></div></div>
+      </div>
+
+      <div class="detail-sheet" if="{{ detailOpen }}"><div class="detail card"><div class="title-row"><div><text class="card-label">客厅</text><text class="detail-title">客厅主灯</text></div><text class="close" onclick="hideDetail">×</text></div><div class="detail-state"><text>{{ power ? '已开启' : '已关闭' }}</text><text>{{ brightness }}%</text></div><div class="slider-track"><div class="slider-fill" style="width: {{ brightness }}%"></div></div><div class="detail-actions"><div class="outline-button"><text>−</text></div><div class="power-button" onclick="togglePower"><text>{{ power ? '关闭' : '开启' }}</text></div><div class="outline-button"><text>+</text></div></div><text class="detail-note">亮度精调将在原生 setBrightness 能力接入后启用。{{ commandLabel }}</text></div></div>
+
+      <div class="bottom-nav"><div class="nav-item {{ screen === 'home' ? 'nav-selected' : '' }}" onclick="showHome"><text>⌂</text><text>首页</text></div><div class="nav-item {{ screen === 'devices' ? 'nav-selected' : '' }}" onclick="showDevices"><text>▣</text><text>设备</text></div><div class="nav-item {{ screen === 'scenes' ? 'nav-selected' : '' }}" onclick="showScenes"><text>☀</text><text>场景</text></div><div class="nav-item {{ screen === 'security' ? 'nav-selected' : '' }}" onclick="showSecurity"><text>♢</text><text>安防</text></div><div class="nav-item {{ screen === 'more' ? 'nav-selected' : '' }}" onclick="showMore"><text>•••</text><text>更多</text></div></div>
+    </div>
+  </div>
+</template>
+
+<script>
+import smartHome from '@system.smarthome'
+
+const DEVICE_ID = 'sim-living-room-light'
+function errorText (error) { return error && error.message ? error.message : 'SmartHome 服务不可用' }
+
+export default {
+  data: { locked: true, screen: 'home', room: 'all', roomTitle: '全屋设备', detailOpen: false, deviceId: DEVICE_ID, serviceLabel: '正在连接', power: false, brightness: '--', revision: 0, revisionLabel: '--', commandLabel: '正在读取原生状态', requestPending: false },
+  onInit () { this.connect() },
+  unlock () { this.locked = false }, showHome () { this.screen = 'home' }, showDevices () { this.screen = 'devices' }, showScenes () { this.screen = 'scenes' }, showSecurity () { this.screen = 'security' }, showMore () { this.screen = 'more' }, showSettings () { this.screen = 'settings' }, showDetail () { this.detailOpen = true }, hideDetail () { this.detailOpen = false },
+  selectAll () { this.room = 'all'; this.roomTitle = '全屋设备' }, selectLiving () { this.room = 'living'; this.roomTitle = '客厅' }, selectBedroom () { this.room = 'bedroom'; this.roomTitle = '卧室' }, selectKitchen () { this.room = 'kitchen'; this.roomTitle = '厨房' }, selectBathroom () { this.room = 'bathroom'; this.roomTitle = '卫生间' },
+  runScene () { this.commandLabel = '场景服务待接入' },
+  async connect () {
+    try { const caps = await smartHome.getCapabilities(); const devices = caps && caps.devices ? caps.devices : []; let supported = false; for (let i = 0; i < devices.length; i += 1) { if (devices[i].deviceId === DEVICE_ID) supported = true } if (!supported) throw new Error('原生服务未声明客厅主灯'); await this.refreshSnapshot(); this.serviceLabel = '已连接' } catch (error) { this.serviceLabel = '不可用'; this.commandLabel = errorText(error) }
+  },
+  async refreshSnapshot () { const snapshot = await smartHome.getSnapshot({ deviceId: DEVICE_ID }); this.applySnapshot(snapshot) },
+  applySnapshot (snapshot) { if (!snapshot || snapshot.deviceId !== DEVICE_ID) { this.commandLabel = '原生状态中未找到客厅主灯'; return } this.power = Boolean(snapshot.power); this.brightness = snapshot.brightness; this.revision = snapshot.revision; this.revisionLabel = `r${snapshot.revision}`; this.commandLabel = '状态来自原生服务' },
+  async togglePower () {
+    if (this.requestPending || this.serviceLabel !== '已连接') return
+    this.requestPending = true; this.commandLabel = '正在请求原生服务'
+    try { const result = await smartHome.controlDevice({ requestId: `ui-${Date.now()}-${this.revision}`, deviceId: DEVICE_ID, command: 'setPower', value: !this.power, expectedRevision: this.revision }); if (!result || !result.applied || !result.snapshot) throw new Error('原生服务未确认控制结果'); this.applySnapshot(result.snapshot); this.commandLabel = '已由原生服务确认' } catch (error) { this.commandLabel = errorText(error); if (error && error.code === 1002) { try { await this.refreshSnapshot() } catch (refreshError) {} } } finally { this.requestPending = false }
+  }
+}
+</script>
+
+<style>
+.app,.panel,.screensaver { width:100%; height:100%; } .app { background-color:#f4f3ef; } .panel { background-color:#f4f3ef; flex-direction:column; } .screensaver { background-color:#20312d; align-items:center; justify-content:center; flex-direction:column; } .lock-time { font-size:92px; color:#fff; font-weight:600; } .lock-date,.lock-copy,.swipe-hint { margin-top:12px; color:#dbe4df; font-size:22px; } .lock-weather { margin-top:54px; align-items:center; } .weather-symbol { font-size:58px; color:#d5b477; } .lock-temperature { margin-left:18px; font-size:52px; color:#fff; } .swipe-hint { margin-top:80px; color:#b5c7bf; }
+.topbar { height:74px; padding-left:42px; padding-right:42px; background-color:#fcfbf8; border-bottom-width:1px; border-color:#e6e3dc; align-items:center; justify-content:space-between; } .brand-row,.top-status,.title-row,.card-title-row,.mini-control,.device-footer,.security-row,.detail-actions,.summary-row,.setting-line { align-items:center; } .brand-mark { width:30px; height:30px; border-radius:9px; background-color:#7fb5a5; align-items:center; justify-content:center; } .brand-mark text { color:#fff; font-size:20px; } .brand { margin-left:12px; font-size:23px; color:#263a34; letter-spacing:1px; } .top-status text { margin-left:16px; font-size:21px; color:#34433e; } .top-status .time { font-size:30px; }
+.content { flex:1; padding:22px 34px 10px; overflow:scroll; } .home-grid { flex-wrap:wrap; justify-content:space-between; } .card { padding:18px; border-radius:18px; background-color:#fff; margin-bottom:12px; } .weather-card { width:220px; height:380px; background-color:#dfe9ed; } .tall-card { margin-right:12px; } .overline,.card-label,.room,.device-meta,.card-copy,.section-copy,.hint,.detail-note { color:#758078; font-size:14px; } .weather-glyph { margin-top:40px; font-size:62px; color:#6795aa; } .temperature { margin-top:12px; color:#263a34; font-size:58px; } .weather-name { font-size:21px; color:#263a34; } .weather-bottom { margin-top:92px; justify-content:space-between; } .weather-bottom text { color:#52635d; font-size:15px; }
+.scene-card { width:190px; height:164px; background-color:#f1dfd4; } .comfort-card { width:254px; height:164px; background-color:#e1ebe4; } .camera-card { width:208px; height:164px; background-color:#e7e5e1; } .agent-card { width:190px; height:174px; background-color:#e7e2ef; } .music-card { width:254px; height:174px; background-color:#f0e5d7; } .status-card { width:208px; height:174px; background-color:#e5eee6; } .card-title { color:#263a34; font-size:21px; font-weight:600; } .card-copy { margin-top:7px; line-height:20px; } .card-action { margin-top:18px; color:#4d8273; font-size:15px; } .metric { margin-top:22px; color:#263a34; font-size:32px; } .icon { margin-right:10px; color:#ce9a4c; font-size:25px; } .mini-control { margin-top:18px; justify-content:space-between; } .tiny-switch,.small-switch { width:58px; height:30px; border-radius:16px; background-color:#7eb19d; } .tiny-knob,.small-knob { position:absolute; top:3px; width:24px; height:24px; border-radius:14px; background-color:#fff; } .camera-placeholder,.camera-large { background-color:#5d6865; border-radius:12px; align-items:center; justify-content:center; flex-direction:column; } .camera-placeholder { height:82px; } .camera-placeholder text,.camera-large text { color:#fff; } .camera-play { margin-top:7px; font-size:20px; } .album { width:48px; height:48px; margin-right:12px; border-radius:10px; background-color:#b97c65; align-items:center; justify-content:center; } .album text { color:#fff; font-size:25px; } .music-controls { margin-left:auto; color:#574e44; font-size:21px; }
+.page-title { color:#263a34; font-size:34px; font-weight:600; } .room-tabs { margin-top:16px; height:38px; } .room-tab { margin-right:12px; padding:8px 15px; border-radius:16px; color:#68736d; font-size:16px; } .selected { background-color:#dcebe3; color:#2d6958; } .section-row { margin-top:20px; justify-content:space-between; align-items:center; } .section-title { color:#34433e; font-size:20px; } .device-grid,.more-grid,.settings-grid,.security-grid { margin-top:12px; flex-wrap:wrap; justify-content:space-between; } .device-card { width:29%; height:130px; } .device-icon,.more-icon,.scene-icon { color:#658d7e; font-size:29px; } .device-name { margin-top:12px; color:#263a34; font-size:19px; } .live { color:#3e806b; font-size:13px; } .muted-tag,.warn,.ok { padding:4px 7px; border-radius:8px; font-size:12px; } .muted-tag { background-color:#edf0ed; color:#77827b; } .ok { background-color:#e0f0e7; color:#418169; } .warn { background-color:#f5e8e0; color:#aa7254; } .scene-list { margin-top:18px; } .scene-wide { height:72px; margin-bottom:12px; align-items:center; justify-content:space-between; } .scene-wide div { align-items:center; } .scene-wide .card-title { margin-left:12px; } .pill { padding:9px 14px; border-radius:18px; background-color:#edf0ed; } .pill text { color:#68736d; font-size:14px; } .active-pill { background-color:#4d8f7a; } .active-pill text { color:#fff; }
+.security-hero { width:61%; } .camera-large { height:230px; } .camera-note { margin-top:8px; color:#d8e1dc !important; font-size:14px; } .security-side { width:35%; } .safe-card { background-color:#e3efe7; } .big-status { margin-top:20px; color:#2c6a57; font-size:32px; } .more-card { width:29%; height:150px; } .more-card .card-title { margin-top:13px; } .settings-content { padding-bottom:20px; } .back { color:#4d8273; font-size:17px; } .summary-card { width:29%; margin-top:14px; } .settings-card { width:46%; min-height:178px; } .settings-title { color:#263a34; font-size:20px; font-weight:600; } .setting-line { margin-top:13px; padding-top:10px; border-top-width:1px; border-color:#ece9e2; justify-content:space-between; } .setting-line text:first-child { color:#52635d; font-size:15px; } .setting-value { color:#68736d; font-size:14px; } .outline-button,.power-button { margin-top:16px; padding:10px 16px; border-radius:12px; align-items:center; justify-content:center; } .outline-button { background-color:#eef1ed; } .outline-button text { color:#4d8273; } .power-button { background-color:#4d8f7a; } .power-button text { color:#fff; }
+.detail-sheet { position:absolute; top:0; left:0; width:100%; height:100%; background-color:rgba(24,35,31,0.22); align-items:flex-end; } .detail { width:100%; margin-bottom:64px; padding:28px 52px; border-radius:24px 24px 0 0; } .detail-title { margin-top:6px; color:#263a34; font-size:29px; } .close { margin-left:auto; color:#68736d; font-size:31px; } .detail-state { margin-top:25px; justify-content:space-between; } .detail-state text { color:#263a34; font-size:25px; } .slider-track { height:8px; margin-top:18px; border-radius:4px; background-color:#e0e5df; } .slider-fill { height:8px; border-radius:4px; background-color:#d6a654; } .detail-actions { margin-top:22px; justify-content:space-between; } .detail-actions .outline-button,.detail-actions .power-button { margin-top:0; width:28%; } .detail-note { margin-top:16px; }
+.bottom-nav { height:64px; padding-left:140px; padding-right:140px; background-color:#fcfbf8; border-top-width:1px; border-color:#e6e3dc; align-items:center; justify-content:space-between; } .nav-item { width:70px; height:54px; align-items:center; justify-content:center; flex-direction:column; border-radius:14px; } .nav-item text:first-child { font-size:20px; color:#65716b; } .nav-item text:last-child { margin-top:3px; font-size:11px; color:#78827d; } .nav-selected { background-color:#e3eee8; } .nav-selected text { color:#336c5c !important; }
+</style>
