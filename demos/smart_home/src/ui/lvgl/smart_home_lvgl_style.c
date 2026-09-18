@@ -156,19 +156,22 @@ int smart_home_lvgl_style_init(void)
     }
 #endif
 
-    g_style.font_12 = load_font(12);
+    /* Sizes 12 and 20 are intentionally not loaded: the upscaled mapping
+     * below renders every request at one bucket larger, so those instances
+     * would never be referenced. */
     g_style.font_14 = load_font(14);
     g_style.font_16 = load_font(16);
-    g_style.font_20 = load_font(20);
+    g_style.font_18 = load_font(18);
+    g_style.font_24 = load_font(24);
     g_style.font_32 = load_font(32);
     printf("[smart_home_lvgl] font instances source=%s size=%zu "
-           "font12=%p font14=%p font16=%p font20=%p font32=%p\n",
+           "font14=%p font16=%p font18=%p font24=%p font32=%p\n",
            g_font_data ? "PSRAM-data" : "builtin-fallback",
            g_font_data_size,
-           g_style.font_12,
            g_style.font_14,
            g_style.font_16,
-           g_style.font_20,
+           g_style.font_18,
+           g_style.font_24,
            g_style.font_32);
     return 0;
 }
@@ -176,42 +179,42 @@ int smart_home_lvgl_style_init(void)
 void smart_home_lvgl_style_deinit(void)
 {
 #ifdef CONFIG_LV_USE_FREETYPE
-    if (g_style.font_12) {
-        lv_freetype_font_delete(g_style.font_12);
-    }
     if (g_style.font_14) {
         lv_freetype_font_delete(g_style.font_14);
     }
     if (g_style.font_16) {
         lv_freetype_font_delete(g_style.font_16);
     }
-    if (g_style.font_20) {
-        lv_freetype_font_delete(g_style.font_20);
+    if (g_style.font_18) {
+        lv_freetype_font_delete(g_style.font_18);
+    }
+    if (g_style.font_24) {
+        lv_freetype_font_delete(g_style.font_24);
     }
     if (g_style.font_32) {
         lv_freetype_font_delete(g_style.font_32);
     }
 #elif defined(CONFIG_LV_USE_TINY_TTF)
-    if (g_style.font_12) {
-        lv_tiny_ttf_destroy(g_style.font_12);
-    }
     if (g_style.font_14) {
         lv_tiny_ttf_destroy(g_style.font_14);
     }
     if (g_style.font_16) {
         lv_tiny_ttf_destroy(g_style.font_16);
     }
-    if (g_style.font_20) {
-        lv_tiny_ttf_destroy(g_style.font_20);
+    if (g_style.font_18) {
+        lv_tiny_ttf_destroy(g_style.font_18);
+    }
+    if (g_style.font_24) {
+        lv_tiny_ttf_destroy(g_style.font_24);
     }
     if (g_style.font_32) {
         lv_tiny_ttf_destroy(g_style.font_32);
     }
 #endif
-    g_style.font_12 = NULL;
     g_style.font_14 = NULL;
     g_style.font_16 = NULL;
-    g_style.font_20 = NULL;
+    g_style.font_18 = NULL;
+    g_style.font_24 = NULL;
     g_style.font_32 = NULL;
 
     if (g_font_data) {
@@ -223,17 +226,19 @@ void smart_home_lvgl_style_deinit(void)
 
 const lv_font_t *smart_home_lvgl_font(int size)
 {
-    if (size <= 12 && g_style.font_12) {
-        return g_style.font_12;
-    }
-    if (size <= 14 && g_style.font_14) {
+    /* Requested sizes map one bucket up so the whole UI renders larger:
+     * 12/13 -> 14, 14 -> 16, 16/18 -> 18, 20/22 -> 24, 28+ -> 32. */
+    if (size <= 13 && g_style.font_14) {
         return g_style.font_14;
     }
-    if (size <= 16 && g_style.font_16) {
+    if (size <= 15 && g_style.font_16) {
         return g_style.font_16;
     }
-    if (size <= 20 && g_style.font_20) {
-        return g_style.font_20;
+    if (size <= 18 && g_style.font_18) {
+        return g_style.font_18;
+    }
+    if (size <= 22 && g_style.font_24) {
+        return g_style.font_24;
     }
     if (g_style.font_32) {
         return g_style.font_32;
@@ -241,13 +246,10 @@ const lv_font_t *smart_home_lvgl_font(int size)
 
     /* Fallback to built-in Montserrat when the external font is unavailable. */
 
-    if (size <= 12) {
-        return &lv_font_montserrat_12;
-    }
-    if (size <= 14) {
+    if (size <= 13) {
         return &lv_font_montserrat_14;
     }
-    if (size <= 16) {
+    if (size <= 15) {
         return &lv_font_montserrat_16;
     }
     return &lv_font_montserrat_20;
@@ -288,6 +290,21 @@ void smart_home_lvgl_soft_card_style(lv_obj_t *obj)
     lv_obj_set_style_radius(obj, 11, 0);
     lv_obj_set_style_border_width(obj, 0, 0);
     lv_obj_set_style_pad_all(obj, 12, 0);
+}
+
+void smart_home_lvgl_style_keyboard(lv_obj_t *keyboard)
+{
+    if (!keyboard) {
+        return;
+    }
+
+    /* Key labels are ASCII plus LVGL's built-in symbol glyphs (backspace,
+     * enter, shift), which the CJK subset font lacks; use the built-in
+     * Montserrat instance when the config provides it. */
+#ifdef CONFIG_LV_FONT_MONTSERRAT_20
+    lv_obj_set_style_text_font(keyboard, &lv_font_montserrat_20, 0);
+#endif
+    lv_obj_set_style_pad_all(keyboard, 2, 0);
 }
 
 lv_obj_t *smart_home_lvgl_label_create(lv_obj_t *parent,
@@ -361,7 +378,20 @@ lv_obj_t *smart_home_lvgl_icon_create(lv_obj_t *parent,
         img = lv_image_create(parent);
         lv_image_set_src(img, asset);
         if (width > 0) {
-            lv_obj_set_size(img, width, height > 0 ? height : width);
+            int draw_w = width;
+            int draw_h = height > 0 ? height : width;
+
+            /* A8 bitmaps draw at their native size without scaling; when
+             * no small variant was generated, clamp the widget to the
+             * native bitmap size so the glyph is shown in full instead
+             * of being clipped to the smaller request. */
+            if (asset->header.w > draw_w) {
+                draw_w = asset->header.w;
+            }
+            if (asset->header.h > draw_h) {
+                draw_h = asset->header.h;
+            }
+            lv_obj_set_size(img, draw_w, draw_h);
         }
         lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CENTER);
         lv_obj_set_style_image_recolor(img, SMART_HOME_UI_COLOR_TEXT_PRIMARY, 0);

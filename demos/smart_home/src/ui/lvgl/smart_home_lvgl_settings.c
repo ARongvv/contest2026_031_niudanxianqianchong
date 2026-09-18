@@ -1613,7 +1613,7 @@ void smart_home_lvgl_build_settings_screen(smart_home_lvgl_t *ui)
     create_system_status_card(content, ui);
 
     ui->settings_keyboard = lv_keyboard_create(screen);
-    lv_obj_set_style_pad_all(ui->settings_keyboard, 2, 0);
+    smart_home_lvgl_style_keyboard(ui->settings_keyboard);
     lv_obj_add_event_cb(ui->settings_keyboard,
                         settings_keyboard_event,
                         LV_EVENT_ALL,

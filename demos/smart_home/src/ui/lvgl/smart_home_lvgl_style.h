@@ -48,10 +48,10 @@ extern "C" {
 #define SMART_HOME_UI_COLOR_BTN_SECONDARY    lv_color_hex(0x8A96A8)
 
 typedef struct {
-    lv_font_t *font_12;
     lv_font_t *font_14;
     lv_font_t *font_16;
-    lv_font_t *font_20;
+    lv_font_t *font_18;
+    lv_font_t *font_24;
     lv_font_t *font_32;
 } smart_home_lvgl_style_t;
 
@@ -63,6 +63,7 @@ const lv_font_t *smart_home_lvgl_font(int size);
 void smart_home_lvgl_set_bg(lv_obj_t *obj, lv_color_t color);
 void smart_home_lvgl_card_style(lv_obj_t *obj);
 void smart_home_lvgl_soft_card_style(lv_obj_t *obj);
+void smart_home_lvgl_style_keyboard(lv_obj_t *keyboard);
 
 lv_obj_t *smart_home_lvgl_label_create(lv_obj_t *parent,
                                        const char *text,

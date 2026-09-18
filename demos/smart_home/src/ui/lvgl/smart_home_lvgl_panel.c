@@ -232,15 +232,18 @@ static void set_card_content(lv_obj_t *card,
     lv_obj_t *sw;
 
     lv_obj_clean(card);
+
+    /* Horizontal layout: large icon badge on the left, name and status in
+     * the middle, state switch on the right. */
     badge = lv_obj_create(card);
     lv_obj_remove_style_all(badge);
-    lv_obj_set_size(badge, 42, 42);
-    lv_obj_align(badge, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_set_style_radius(badge, 12, 0);
+    lv_obj_set_size(badge, 48, 48);
+    lv_obj_align(badge, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_style_radius(badge, 13, 0);
     smart_home_lvgl_set_bg(badge, is_on ? lv_color_hex(0xFFF8EF) :
                            SMART_HOME_UI_COLOR_SURFACE_SOFT);
     lv_obj_clear_flag(badge, LV_OBJ_FLAG_CLICKABLE);
-    glyph = smart_home_lvgl_icon_create(badge, icon_name, 24, 24);
+    glyph = smart_home_lvgl_icon_create(badge, icon_name, 32, 32);
     if (glyph) {
         lv_obj_set_style_text_color(glyph, SMART_HOME_UI_COLOR_TEXT_PRIMARY, 0);
         lv_obj_set_style_image_recolor(glyph, SMART_HOME_UI_COLOR_TEXT_PRIMARY, 0);
@@ -250,7 +253,7 @@ static void set_card_content(lv_obj_t *card,
 
     sw = lv_switch_create(card);
     lv_obj_set_size(sw, 40, 22);
-    lv_obj_align(sw, LV_ALIGN_TOP_RIGHT, 0, 0);
+    lv_obj_align(sw, LV_ALIGN_RIGHT_MID, 0, 0);
     if (is_on) {
         lv_obj_add_state(sw, LV_STATE_CHECKED);
     }
@@ -260,10 +263,10 @@ static void set_card_content(lv_obj_t *card,
 
     label = smart_home_lvgl_label_create(card, title,
                                          SMART_HOME_UI_COLOR_TEXT_PRIMARY, 16);
-    lv_obj_align(label, LV_ALIGN_BOTTOM_LEFT, 0, -23);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, 62, -12);
     label = smart_home_lvgl_label_create(card, detail,
                                          SMART_HOME_UI_COLOR_TEXT_SECONDARY, 12);
-    lv_obj_align(label, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, 62, 14);
 }
 
 static lv_obj_t *create_action_button(lv_obj_t *parent,
@@ -1237,7 +1240,7 @@ static void open_device_editor(smart_home_lvgl_t *ui,
                             ui);
 
         ui->device_keyboard = lv_keyboard_create(ui->screen_panel);
-        lv_obj_set_style_pad_all(ui->device_keyboard, 2, 0);
+        smart_home_lvgl_style_keyboard(ui->device_keyboard);
         lv_obj_add_event_cb(ui->device_keyboard,
                             device_keyboard_cb,
                             LV_EVENT_ALL,

@@ -796,7 +796,7 @@ void smart_home_lvgl_build_chat_screen(smart_home_lvgl_t *ui)
 
     ui->chat_keyboard = lv_keyboard_create(screen);
     lv_keyboard_set_textarea(ui->chat_keyboard, ui->chat_input);
-    lv_obj_set_style_pad_all(ui->chat_keyboard, 2, 0);
+    smart_home_lvgl_style_keyboard(ui->chat_keyboard);
     lv_obj_add_event_cb(ui->chat_keyboard,
                         chat_keyboard_event_cb,
                         LV_EVENT_ALL,
