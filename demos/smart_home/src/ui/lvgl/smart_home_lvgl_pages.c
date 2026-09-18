@@ -284,6 +284,25 @@ static void network_secure_clear(void *memory, size_t size)
     }
 }
 
+static void layout_network_keyboard(smart_home_lvgl_t *ui, int visible)
+{
+    if (!ui || !ui->network_keyboard) {
+        return;
+    }
+    lv_obj_set_size(ui->network_keyboard, smart_home_lvgl_disp_w(),
+                    smart_home_lvgl_keyboard_h());
+    lv_obj_align(ui->network_keyboard, LV_ALIGN_BOTTOM_MID, 0,
+                 -SMART_HOME_NAV_H - SMART_HOME_NAV_BOTTOM_PAD - 8);
+    if (visible) {
+        lv_obj_clear_flag(ui->network_keyboard, LV_OBJ_FLAG_HIDDEN);
+        /* The navigation bar is created after this keyboard.  Raise the
+         * keyboard while focused so it remains usable above that bar. */
+        lv_obj_move_foreground(ui->network_keyboard);
+    } else {
+        lv_obj_add_flag(ui->network_keyboard, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 static void network_keyboard_input_cb(lv_event_t *event)
 {
     smart_home_lvgl_t *ui = lv_event_get_user_data(event);
@@ -295,7 +314,7 @@ static void network_keyboard_input_cb(lv_event_t *event)
     if (code == LV_EVENT_FOCUSED) {
         lv_keyboard_set_textarea(ui->network_keyboard,
                                  lv_event_get_current_target(event));
-        lv_obj_clear_flag(ui->network_keyboard, LV_OBJ_FLAG_HIDDEN);
+        layout_network_keyboard(ui, 1);
     }
 }
 
@@ -404,7 +423,7 @@ static void network_connect_cb(lv_event_t *event)
     ui->network_worker_active = 1;
     ui->network_result_ready = 0;
     pthread_mutex_unlock(&ui->pending_mutex);
-    lv_obj_add_flag(ui->network_keyboard, LV_OBJ_FLAG_HIDDEN);
+    layout_network_keyboard(ui, 0);
     if (!ui->network_worker_stack_alloc) {
         ui->network_worker_stack_alloc = smart_home_bulk_alloc(
             SMART_HOME_NETWORK_WORKER_STACK_SIZE + STACK_ALIGNMENT - 1u);
@@ -495,10 +514,8 @@ void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui)
     lv_obj_add_event_cb(button, network_connect_cb, LV_EVENT_CLICKED, ui);
 
     ui->network_keyboard = lv_keyboard_create(screen);
-    lv_obj_set_size(ui->network_keyboard, lv_pct(100), smart_home_lvgl_keyboard_h());
-    lv_obj_align(ui->network_keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_add_flag(ui->network_keyboard, LV_OBJ_FLAG_HIDDEN);
     ui->network_status_timer = lv_timer_create(network_status_timer_cb, 250, ui);
     smart_home_lvgl_refresh_network_screen(ui);
     smart_home_lvgl_build_nav_bar(screen, ui);
+    layout_network_keyboard(ui, 0);
 }
