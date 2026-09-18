@@ -1417,7 +1417,7 @@ void smart_home_lvgl_build_settings_screen(smart_home_lvgl_t *ui)
     lv_obj_remove_style_all(screen);
     smart_home_lvgl_set_bg(screen, SMART_HOME_UI_COLOR_BG);
     ui->screen_settings = screen;
-    smart_home_lvgl_build_top_bar(screen, "系统设置");
+    smart_home_lvgl_build_top_bar(screen, ui, "系统设置");
 
     content = lv_obj_create(screen);
     lv_obj_remove_style_all(content);

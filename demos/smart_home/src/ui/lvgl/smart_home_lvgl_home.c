@@ -20,7 +20,46 @@ enum home_action_e {
     HOME_ACTION_MIHOME,
 };
 
-void smart_home_lvgl_build_top_bar(lv_obj_t *screen, const char *title)
+static lv_color_t topbar_network_color(const smart_home_lvgl_t *ui)
+{
+    const smart_home_network_status_t *status;
+
+    if (!ui || !ui->app) {
+        return SMART_HOME_UI_COLOR_TEXT_MUTED;
+    }
+    status = &ui->app->system_status.network_status;
+    if (status->online) {
+        return SMART_HOME_UI_COLOR_PRIMARY;
+    }
+    if (status->ip_status == SMART_HOME_NETWORK_OK) {
+        return lv_color_hex(0xC99442);
+    }
+    return SMART_HOME_UI_COLOR_TEXT_MUTED;
+}
+
+void smart_home_lvgl_refresh_network_indicators(smart_home_lvgl_t *ui)
+{
+    lv_color_t color;
+    int i;
+
+    if (!ui) {
+        return;
+    }
+    color = topbar_network_color(ui);
+    for (i = 0; i < ui->topbar_wifi_icon_count; i++) {
+        lv_obj_t *icon = ui->topbar_wifi_icons[i];
+
+        if (!icon) {
+            continue;
+        }
+        lv_obj_set_style_text_color(icon, color, 0);
+        lv_obj_set_style_image_recolor(icon, color, 0);
+        lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
+    }
+}
+
+void smart_home_lvgl_build_top_bar(lv_obj_t *screen, smart_home_lvgl_t *ui,
+                                   const char *title)
 {
     static const char *const status_icons[] = {
         ICON_STATUS_MICROPHONE,
@@ -95,10 +134,18 @@ void smart_home_lvgl_build_top_bar(lv_obj_t *screen, const char *title)
             continue;
         }
 
-        lv_obj_set_style_text_color(icon, SMART_HOME_UI_COLOR_TEXT_PRIMARY, 0);
-        lv_obj_set_style_image_recolor(icon, SMART_HOME_UI_COLOR_TEXT_PRIMARY, 0);
+        lv_color_t color = i == 3 ? topbar_network_color(ui) :
+                                    SMART_HOME_UI_COLOR_TEXT_PRIMARY;
+
+        lv_obj_set_style_text_color(icon, color, 0);
+        lv_obj_set_style_image_recolor(icon, color, 0);
         lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
         lv_obj_set_pos(icon, i * 26, 0);
+        if (i == 3 && ui && ui->topbar_wifi_icon_count <
+                           (int)(sizeof(ui->topbar_wifi_icons) /
+                                 sizeof(ui->topbar_wifi_icons[0]))) {
+            ui->topbar_wifi_icons[ui->topbar_wifi_icon_count++] = icon;
+        }
     }
 }
 
@@ -280,7 +327,7 @@ void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui)
     lv_obj_remove_style_all(screen);
     smart_home_lvgl_set_bg(screen, SMART_HOME_UI_COLOR_BG);
     ui->screen_home = screen;
-    smart_home_lvgl_build_top_bar(screen, "OpenVela HOME");
+    smart_home_lvgl_build_top_bar(screen, ui, "OpenVela HOME");
 
     card = home_card(screen, x, y, weather_w, top_h + bottom_h + gap,
                      SMART_HOME_UI_COLOR_SURFACE_SOFT);

@@ -50,6 +50,7 @@ typedef struct {
     lv_obj_t *screen_scenes;
     lv_obj_t *screen_security;
     lv_obj_t *screen_more;
+    lv_obj_t *screen_network;
     lv_obj_t *screen_chat;
     lv_obj_t *screen_settings;
 
@@ -154,6 +155,21 @@ typedef struct {
     lv_obj_t *settings_max_tokens_input;
     lv_obj_t *settings_status_label;
     lv_obj_t *settings_mcp_discover_btn;
+
+    /* More / network setup: credentials are kept out of settings.json. */
+    lv_obj_t *network_ssid_input;
+    lv_obj_t *network_password_input;
+    lv_obj_t *network_status_label;
+    lv_obj_t *network_keyboard;
+    lv_obj_t *topbar_wifi_icons[10];
+    lv_timer_t *network_status_timer;
+    pthread_t network_worker;
+    void *network_worker_stack_alloc;
+    void *network_worker_stack;
+    int network_worker_active;
+    int network_result_ready;
+    int network_result;
+    int topbar_wifi_icon_count;
     /* Device state (shared, NOT owned) */
     smart_home_state_t *device_state;
 

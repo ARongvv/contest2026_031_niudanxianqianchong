@@ -89,12 +89,42 @@ static void test_limits_and_missing_file(void)
            AGENT_ERROR_NOTFOUND);
 }
 
+static void test_wifi_credentials_round_trip(void)
+{
+    char ssid[33];
+    char password[65];
+    char api_key[32];
+
+    write_text("{\"version\":1,\"model_api_keys\":{\"mimo\":\"mimo-key\"}}");
+    assert(smart_home_secrets_set_wifi_credentials("MyHome", "passphrase") ==
+           AGENT_OK);
+    assert(smart_home_secrets_get_wifi_credentials(ssid, sizeof(ssid), password,
+                                                    sizeof(password)) == AGENT_OK);
+    assert(strcmp(ssid, "MyHome") == 0);
+    assert(strcmp(password, "passphrase") == 0);
+    assert(smart_home_secrets_get_model_api_key("mimo", api_key,
+                                                sizeof(api_key)) == AGENT_OK);
+    assert(strcmp(api_key, "mimo-key") == 0);
+    assert(smart_home_secrets_set_wifi_credentials("bad\nssid", "pass") ==
+           AGENT_ERROR_INVALID);
+
+    assert(unlink(CONFIG_SMART_HOME_MODEL_SECRETS_PATH) == 0);
+    assert(smart_home_secrets_set_wifi_credentials("NewHome", "new-pass") ==
+           AGENT_OK);
+    assert(smart_home_secrets_get_wifi_credentials(ssid, sizeof(ssid), password,
+                                                    sizeof(password)) == AGENT_OK);
+    assert(strcmp(ssid, "NewHome") == 0);
+    assert(smart_home_secrets_model_api_key_status("mimo") ==
+           AGENT_ERROR_NOTFOUND);
+}
+
 int main(void)
 {
     test_valid_lookup_and_isolation();
     test_missing_or_empty_key_fails_closed();
     test_invalid_content_fails_closed();
     test_limits_and_missing_file();
+    test_wifi_credentials_round_trip();
     puts("test_secrets: PASS");
     return 0;
 }

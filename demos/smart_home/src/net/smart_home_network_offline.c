@@ -35,6 +35,11 @@ int smart_home_network_init(FAR smart_home_network_status_t *status)
   return SMART_HOME_NETWORK_STATUS_NA;
 }
 
+int smart_home_network_prepare_setup(FAR smart_home_network_status_t *status)
+{
+  return smart_home_network_init(status);
+}
+
 int smart_home_network_probe(FAR smart_home_network_status_t *status)
 {
   if (status != NULL)
@@ -45,6 +50,16 @@ int smart_home_network_probe(FAR smart_home_network_status_t *status)
       status->online = false;
     }
 
+  return SMART_HOME_NETWORK_STATUS_NA;
+}
+
+int smart_home_network_connect_credentials(
+  FAR smart_home_network_status_t *status, FAR const char *ssid,
+  FAR const char *password)
+{
+  (void)ssid;
+  (void)password;
+  smart_home_network_status_init(status);
   return SMART_HOME_NETWORK_STATUS_NA;
 }
 

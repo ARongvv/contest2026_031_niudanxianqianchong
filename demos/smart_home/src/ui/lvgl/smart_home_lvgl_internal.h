@@ -101,9 +101,13 @@ void smart_home_lvgl_build_screensaver_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_scene_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_security_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_more_screen(smart_home_lvgl_t *ui);
+void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui);
+void smart_home_lvgl_refresh_network_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_refresh_home(smart_home_lvgl_t *ui);
 void smart_home_lvgl_load_tab(smart_home_lvgl_t *ui, int tab);
-void smart_home_lvgl_build_top_bar(lv_obj_t *screen, const char *title);
+void smart_home_lvgl_build_top_bar(lv_obj_t *screen, smart_home_lvgl_t *ui,
+                                   const char *title);
+void smart_home_lvgl_refresh_network_indicators(smart_home_lvgl_t *ui);
 
 void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_chat_screen(smart_home_lvgl_t *ui);

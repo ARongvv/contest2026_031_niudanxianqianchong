@@ -1,5 +1,6 @@
 #include "../agent/smart_home_agent.h"
 #include "../net/smart_home_network.h"
+#include "../config/smart_home_secrets.h"
 #include "../smart_home_cpu_debug.h"
 #include "../ui/smart_home_ui.h"
 #include <cagent/runtime_openvela.h>
@@ -12,6 +13,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <syslog.h>
 #include <unistd.h>
 
@@ -50,7 +52,27 @@ int main(int argc, char *argv[])
     network_status.dns_status = SMART_HOME_NETWORK_STATUS_NA;
     printf("[smart_home_net] offline UI profile: network initialization skipped\n");
 #else
+#ifdef CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED
+    {
+        char ssid[33] = "";
+        char password[65] = "";
+
+        /* Runtime credentials take precedence over optional local board
+         * Kconfig values.  Do not log either string. */
+        if (smart_home_secrets_get_wifi_credentials(ssid, sizeof(ssid),
+                                                    password,
+                                                    sizeof(password)) == AGENT_OK) {
+            network_ret = smart_home_network_connect_credentials(
+                &network_status, ssid, password);
+            memset(ssid, 0, sizeof(ssid));
+            memset(password, 0, sizeof(password));
+        } else {
+            network_ret = smart_home_network_prepare_setup(&network_status);
+        }
+    }
+#else
     network_ret = smart_home_network_init(&network_status);
+#endif
     if (network_ret < 0) {
         syslog(LOG_WARNING, "Network init failed: %d. "
                "Continuing with existing network.\n", network_ret);

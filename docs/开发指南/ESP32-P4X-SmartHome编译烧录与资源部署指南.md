@@ -143,7 +143,8 @@ out/p4x_littlefs_data/data_lfs.bin
 
 ## 7. 部署 secrets.json
 
-`secrets.json` 用于模型 API Key、App Bridge token 和 MCP 敏感 header。它被 `.gitignore` 排除，不能提交到 Git、日志或截图中。
+`secrets.json` 用于模型 API Key、App Bridge token、MCP 敏感 header 和运行时
+Wi-Fi 凭据。它被 `.gitignore` 排除，不能提交到 Git、日志或截图中。
 
 真实文件路径：
 
@@ -158,6 +159,10 @@ contest2026_031_niudanxianqianchong/demos/smart_home/res/config/secrets.json
   "version": 1,
   "model_api_keys": {
     "deepseek": "<YOUR_KEY>"
+  },
+  "wifi": {
+    "ssid": "<YOUR_WIFI_SSID>",
+    "password": "<YOUR_WIFI_PASSWORD>"
   },
   "node_gateway": { "shared_token": "<RANDOM_TOKEN>" },
   "mcp_bridge": { "header_values": {} }
@@ -182,7 +187,8 @@ WITH_SECRETS=1 \
 bash contest2026_031_niudanxianqianchong/scripts/make_p4x_littlefs_data_image.sh
 ```
 
-`WITH_SECRETS=1` 仅影响资源镜像，不重新构建固件。该资源镜像是整个 `/data` 分区的快照，烧录后会覆盖当前 `/data` 中运行时写入的文件；重要状态应先导出或备份。
+`WITH_SECRETS=1` 仅影响资源镜像，不重新构建固件。该资源镜像是整个 `/data` 分区的快照，烧录后会覆盖当前 `/data` 中运行时写入的文件；重要状态应先导出或备份。特别是，若镜像中的
+`secrets.json` 不含当前 Wi-Fi，烧录后需要重新在 UI 中配网。
 
 ## 8. 烧录 LittleFS 资源镜像
 
@@ -228,7 +234,19 @@ nsh> smart_home
 
 ## 10. 网络与模型连通性验证
 
-资源镜像中的 API Key 不会替代 Wi-Fi 凭据。先完成 `wlan0` 的关联和 DHCP，再测试 DNS/模型。
+资源镜像中的 API Key 不会替代 Wi-Fi 凭据。默认 `smart_home` 配置已关闭
+`CONFIG_SMART_HOME_DEMO_OFFLINE_UI`：首次启动后，从“更多 → 网络设置”输入
+SSID 和密码，点击“连接”。应用通过 P4 的 ESP-Hosted RPC 配置板载 C6、等待
+DHCP/DNS，并在获得 IP 后原子写入 `/data/smart_home/secrets.json`。下次启动会
+优先读取该运行时凭据自动连接；凭据不会写入 `settings.json`、Kconfig 或日志。
+尚未保存凭据的首次启动只准备 `wlan0` 并立即显示 UI，不会先等待一次必然失败的
+DHCP 超时。
+
+顶栏 Wi-Fi 图标反映真实链路状态：绿色为互联网/DNS 可用，琥珀色为已获得局域网
+IP 但互联网或 DNS 不可用，灰色为未连接或未获得 IP。当前版本仅支持手工输入；附近
+网络扫描依赖 C6 scan RPC，作为后续功能接入。
+
+配网完成后再进行以下只读检查；不必把 `ifup`/`renew` 当成正常配网步骤：
 
 ```text
 nsh> ifup wlan0
@@ -243,7 +261,9 @@ nsh> ping api.deepseek.com
 ESP-Hosted C6: STA credentials unset; connect skipped
 ```
 
-说明 C6 已成功完成 SDIO 初始化并注册了 `wlan0`，但尚未配置 AP 凭据；此时 `renew wlan0` 的 DHCP 失败、DNS 解析失败均是预期结果。请按项目的 Wi-Fi 接入方案配置实际 SSID、认证方式与密码后重试，而不是重复烧录 `secrets.json`。
+说明 C6 已成功完成 SDIO 初始化并注册了 `wlan0`，但尚未配置 AP 凭据。请进入
+“更多 → 网络设置”输入实际 SSID 与密码；除非要预置敏感文件，否则不需要重刷
+`secrets.json`。
 
 ## 11. 常见问题速查
 
@@ -264,4 +284,4 @@ ESP-Hosted C6: STA credentials unset; connect skipped
 | C 代码、LVGL 布局、内嵌 C 图标、Kconfig | 第 4、5 节：构建并烧录固件 |
 | 字体、技能、LittleFS PNG、普通 JSON 配置 | 第 6、8 节：生成并烧录资源镜像 |
 | 仅更新 API Key、App token、MCP 敏感 header | 第 7、8 节：`WITH_SECRETS=1` 生成并烧录资源镜像 |
-| Wi-Fi 账号或密码 | 在板端按 Wi-Fi 接入流程配置；不把凭据写入 Git 或本文档 |
+| Wi-Fi 账号或密码 | 从“更多 → 网络设置”在板端配置；不把凭据写入 Git 或本文档 |

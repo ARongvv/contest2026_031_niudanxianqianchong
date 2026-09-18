@@ -3,12 +3,26 @@
 #include "smart_home_lvgl_internal.h"
 #include "images/smart_home_icons.h"
 
+#include "../../net/smart_home_network.h"
+#include "../../smart_home_memory.h"
+
+#include <nuttx/sched.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <stdint.h>
 
 enum page_action_e {
     PAGE_ACTION_AGENT = 1,
     PAGE_ACTION_SETTINGS,
+    PAGE_ACTION_NETWORK,
 };
+
+/* DHCP and DNS use substantially more stack than the 2 KiB pthread default.
+ * Reserve this reusable stack from the bulk/PSRAM heap just as the Agent
+ * worker does; the connection worker is always serialized. */
+#define SMART_HOME_NETWORK_WORKER_STACK_SIZE 8192u
 
 static lv_obj_t *page_card(lv_obj_t *screen, int x, int y, int w, int h)
 {
@@ -96,6 +110,10 @@ static void page_click_cb(lv_event_t *event)
     } else if (action == PAGE_ACTION_SETTINGS && ui->screen_settings) {
         lv_scr_load_anim(ui->screen_settings, LV_SCR_LOAD_ANIM_MOVE_LEFT,
                          180, 0, false);
+    } else if (action == PAGE_ACTION_NETWORK && ui->screen_network) {
+        smart_home_lvgl_refresh_network_screen(ui);
+        lv_scr_load_anim(ui->screen_network, LV_SCR_LOAD_ANIM_MOVE_LEFT,
+                         180, 0, false);
     }
 }
 
@@ -113,8 +131,7 @@ static lv_obj_t *page_screen(smart_home_lvgl_t *ui)
 
     lv_obj_remove_style_all(screen);
     smart_home_lvgl_set_bg(screen, SMART_HOME_UI_COLOR_BG);
-    (void)ui;
-    smart_home_lvgl_build_top_bar(screen, "OpenVela HOME");
+    smart_home_lvgl_build_top_bar(screen, ui, "OpenVela HOME");
     return screen;
 }
 
@@ -241,8 +258,247 @@ void smart_home_lvgl_build_more_screen(smart_home_lvgl_t *ui)
     page_icon_badge(card, ICON_ROOM_LIVING, lv_color_hex(0xF2F5FF));
     page_title(card, "家庭成员", "2 人在家");
     card = page_card(screen, x + (w + gap) * 3, y, w, 140);
+    page_icon_badge(card, ICON_STATUS_WIFI, lv_color_hex(0xEAF7F1));
+    page_title(card, "网络设置", "连接家庭 Wi-Fi");
+    page_action(card, ui, PAGE_ACTION_NETWORK);
+
+    card = page_card(screen, x, y + 154, w, 140);
     page_icon_badge(card, ICON_NAV_SETTINGS, lv_color_hex(0xEDF8F3));
     page_title(card, "系统设置", "网络、智能服务与系统状态");
     page_action(card, ui, PAGE_ACTION_SETTINGS);
+    smart_home_lvgl_build_nav_bar(screen, ui);
+}
+
+typedef struct {
+    smart_home_lvgl_t *ui;
+    char ssid[33];
+    char password[65];
+} network_connect_job_t;
+
+static void network_secure_clear(void *memory, size_t size)
+{
+    volatile unsigned char *p = memory;
+
+    while (p && size-- > 0u) {
+        *p++ = 0u;
+    }
+}
+
+static void network_keyboard_input_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+    lv_event_code_t code = lv_event_get_code(event);
+
+    if (!ui || !ui->network_keyboard) {
+        return;
+    }
+    if (code == LV_EVENT_FOCUSED) {
+        lv_keyboard_set_textarea(ui->network_keyboard,
+                                 lv_event_get_current_target(event));
+        lv_obj_clear_flag(ui->network_keyboard, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void *network_connect_worker(void *argument)
+{
+    network_connect_job_t *job = argument;
+    smart_home_network_status_t status;
+    int ret;
+
+    if (!job || !job->ui || !job->ui->app) {
+        free(job);
+        return NULL;
+    }
+    ret = smart_home_network_connect_credentials(&status, job->ssid,
+                                                 job->password);
+    pthread_mutex_lock(&job->ui->pending_mutex);
+    job->ui->app->system_status.network_status = status;
+    job->ui->network_result = ret;
+    job->ui->network_result_ready = 1;
+    pthread_mutex_unlock(&job->ui->pending_mutex);
+    network_secure_clear(job->password, sizeof(job->password));
+    network_secure_clear(job->ssid, sizeof(job->ssid));
+    free(job);
+    return NULL;
+}
+
+void smart_home_lvgl_refresh_network_screen(smart_home_lvgl_t *ui)
+{
+    smart_home_network_status_t status;
+    int result_ready = 0;
+    int result = 0;
+    int worker_active = 0;
+    char text[160];
+
+    if (!ui || !ui->network_status_label || !ui->app) {
+        return;
+    }
+    pthread_mutex_lock(&ui->pending_mutex);
+    status = ui->app->system_status.network_status;
+    if (ui->network_result_ready) {
+        result_ready = 1;
+        result = ui->network_result;
+        ui->network_result_ready = 0;
+    }
+    worker_active = ui->network_worker_active;
+    pthread_mutex_unlock(&ui->pending_mutex);
+
+    if (result_ready) {
+        pthread_join(ui->network_worker, NULL);
+        pthread_mutex_lock(&ui->pending_mutex);
+        ui->network_worker_active = 0;
+        pthread_mutex_unlock(&ui->pending_mutex);
+    }
+    if (status.online) {
+        snprintf(text, sizeof(text), "已连接互联网 · %s", status.ifname ?
+                 status.ifname : "wlan0");
+    } else if (status.ip_status == SMART_HOME_NETWORK_OK) {
+        snprintf(text, sizeof(text), "已连接 Wi-Fi，互联网/DNS 暂不可用");
+    } else if (worker_active) {
+        snprintf(text, sizeof(text), "正在连接，请稍候…");
+    } else if (result_ready) {
+        snprintf(text, sizeof(text), "连接失败（%d），请检查密码或路由器", result);
+    } else {
+        snprintf(text, sizeof(text), "未连接 · 输入家庭 Wi-Fi 信息后连接");
+    }
+    lv_label_set_text(ui->network_status_label, text);
+    smart_home_lvgl_refresh_network_indicators(ui);
+}
+
+static void network_status_timer_cb(lv_timer_t *timer)
+{
+    smart_home_lvgl_refresh_network_screen(timer ?
+                                            lv_timer_get_user_data(timer) : NULL);
+}
+
+static void network_connect_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+    network_connect_job_t *job;
+    const char *ssid;
+    const char *password;
+    pthread_attr_t attr;
+    int attr_ready = 0;
+    int ret;
+
+    if (!ui || !ui->network_ssid_input || !ui->network_password_input ||
+        !ui->app || ui->network_worker_active) {
+        return;
+    }
+    ssid = lv_textarea_get_text(ui->network_ssid_input);
+    password = lv_textarea_get_text(ui->network_password_input);
+    if (!ssid || !ssid[0] || strlen(ssid) > 32u || strlen(password) > 64u) {
+        lv_label_set_text(ui->network_status_label,
+                          "SSID 或密码长度不合法");
+        return;
+    }
+    job = calloc(1u, sizeof(*job));
+    if (!job) {
+        lv_label_set_text(ui->network_status_label, "内存不足，无法开始连接");
+        return;
+    }
+    job->ui = ui;
+    memcpy(job->ssid, ssid, strlen(ssid) + 1u);
+    memcpy(job->password, password, strlen(password) + 1u);
+    pthread_mutex_lock(&ui->pending_mutex);
+    ui->network_worker_active = 1;
+    ui->network_result_ready = 0;
+    pthread_mutex_unlock(&ui->pending_mutex);
+    lv_obj_add_flag(ui->network_keyboard, LV_OBJ_FLAG_HIDDEN);
+    if (!ui->network_worker_stack_alloc) {
+        ui->network_worker_stack_alloc = smart_home_bulk_alloc(
+            SMART_HOME_NETWORK_WORKER_STACK_SIZE + STACK_ALIGNMENT - 1u);
+        if (ui->network_worker_stack_alloc) {
+            ui->network_worker_stack = (void *)STACK_ALIGN_UP(
+                (uintptr_t)ui->network_worker_stack_alloc);
+        }
+    }
+    if (!ui->network_worker_stack) {
+        ret = -1;
+    } else {
+        ret = pthread_attr_init(&attr);
+        if (ret == 0) {
+            attr_ready = 1;
+            ret = pthread_attr_setstack(&attr, ui->network_worker_stack,
+                                        SMART_HOME_NETWORK_WORKER_STACK_SIZE);
+        }
+        if (ret == 0) {
+            ret = pthread_create(&ui->network_worker, &attr,
+                                 network_connect_worker, job);
+        }
+    }
+    if (attr_ready) {
+        pthread_attr_destroy(&attr);
+    }
+    if (ret != 0) {
+        pthread_mutex_lock(&ui->pending_mutex);
+        ui->network_worker_active = 0;
+        pthread_mutex_unlock(&ui->pending_mutex);
+        network_secure_clear(job, sizeof(*job));
+        free(job);
+        lv_label_set_text(ui->network_status_label, "无法创建网络连接任务");
+        return;
+    }
+    smart_home_lvgl_refresh_network_screen(ui);
+}
+
+void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui)
+{
+    lv_obj_t *screen;
+    lv_obj_t *card;
+    lv_obj_t *label;
+    lv_obj_t *button;
+    int x = smart_home_lvgl_pad_x();
+    int compact = smart_home_lvgl_compact();
+
+    if (!ui) {
+        return;
+    }
+    screen = page_screen(ui);
+    ui->screen_network = screen;
+    page_heading(screen, "网络设置");
+    card = page_card(screen, x, SMART_HOME_TOPBAR_H + 78,
+                     smart_home_lvgl_content_w(), compact ? 248 : 300);
+    page_icon_badge(card, ICON_STATUS_WIFI, lv_color_hex(0xEAF7F1));
+    label = smart_home_lvgl_label_create(card, "家庭 Wi-Fi",
+                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY, 20);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 56, 4);
+    ui->network_status_label = smart_home_lvgl_label_create(
+        card, "", SMART_HOME_UI_COLOR_TEXT_SECONDARY, 13);
+    lv_obj_align(ui->network_status_label, LV_ALIGN_TOP_LEFT, 0, 54);
+
+    ui->network_ssid_input = lv_textarea_create(card);
+    lv_textarea_set_placeholder_text(ui->network_ssid_input, "Wi-Fi 名称（SSID）");
+    lv_textarea_set_one_line(ui->network_ssid_input, true);
+    lv_obj_set_style_text_font(ui->network_ssid_input,
+                               smart_home_lvgl_font(14), 0);
+    lv_obj_set_size(ui->network_ssid_input, lv_pct(88), 38);
+    lv_obj_align(ui->network_ssid_input, LV_ALIGN_TOP_MID, 0, 88);
+    lv_obj_add_event_cb(ui->network_ssid_input, network_keyboard_input_cb,
+                        LV_EVENT_FOCUSED, ui);
+
+    ui->network_password_input = lv_textarea_create(card);
+    lv_textarea_set_placeholder_text(ui->network_password_input, "密码（开放网络可留空）");
+    lv_textarea_set_one_line(ui->network_password_input, true);
+    lv_textarea_set_password_mode(ui->network_password_input, true);
+    lv_obj_set_style_text_font(ui->network_password_input,
+                               smart_home_lvgl_font(14), 0);
+    lv_obj_set_size(ui->network_password_input, lv_pct(88), 38);
+    lv_obj_align(ui->network_password_input, LV_ALIGN_TOP_MID, 0, 138);
+    lv_obj_add_event_cb(ui->network_password_input, network_keyboard_input_cb,
+                        LV_EVENT_FOCUSED, ui);
+
+    button = page_outline_button(card, "连接", 112);
+    smart_home_lvgl_set_bg(button, SMART_HOME_UI_COLOR_PRIMARY);
+    lv_obj_set_style_text_color(lv_obj_get_child(button, 0), lv_color_white(), 0);
+    lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, compact ? -12 : -18);
+    lv_obj_add_event_cb(button, network_connect_cb, LV_EVENT_CLICKED, ui);
+
+    ui->network_keyboard = lv_keyboard_create(screen);
+    lv_obj_set_size(ui->network_keyboard, lv_pct(100), smart_home_lvgl_keyboard_h());
+    lv_obj_align(ui->network_keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_add_flag(ui->network_keyboard, LV_OBJ_FLAG_HIDDEN);
+    ui->network_status_timer = lv_timer_create(network_status_timer_cb, 250, ui);
+    smart_home_lvgl_refresh_network_screen(ui);
     smart_home_lvgl_build_nav_bar(screen, ui);
 }

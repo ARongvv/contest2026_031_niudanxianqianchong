@@ -416,6 +416,11 @@ int board_camera_initialize(void);
 
 int board_esp_hosted_initialize(void);
 
+/* Apply a station credential at runtime and start a new association attempt.
+ * The caller owns credential persistence; this API never logs either value. */
+int board_esp_hosted_wifi_connect(FAR const char *ssid,
+                                  FAR const char *password);
+
 /****************************************************************************
  * Name: board_esp_hosted_sdio_get
  *

@@ -54,7 +54,13 @@ typedef struct {
 
 void smart_home_network_status_init(FAR smart_home_network_status_t *status);
 int smart_home_network_init(FAR smart_home_network_status_t *status);
+/* Prepare the Wi-Fi status for first-time UI setup without starting DHCP.
+ * This prevents an unconfigured AP from delaying the touchscreen UI. */
+int smart_home_network_prepare_setup(FAR smart_home_network_status_t *status);
 int smart_home_network_probe(FAR smart_home_network_status_t *status);
+int smart_home_network_connect_credentials(
+  FAR smart_home_network_status_t *status, FAR const char *ssid,
+  FAR const char *password);
 const char *smart_home_network_platform_name(
   smart_home_network_platform_t platform);
 

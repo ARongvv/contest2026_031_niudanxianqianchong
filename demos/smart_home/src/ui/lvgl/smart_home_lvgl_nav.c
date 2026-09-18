@@ -20,7 +20,8 @@ static int tab_for_screen(const smart_home_lvgl_t *ui, const lv_obj_t *screen)
     if (screen == ui->screen_panel) return SMART_HOME_TAB_DEVICES;
     if (screen == ui->screen_scenes) return SMART_HOME_TAB_SCENES;
     if (screen == ui->screen_security) return SMART_HOME_TAB_SECURITY;
-    if (screen == ui->screen_more || screen == ui->screen_settings) {
+    if (screen == ui->screen_more || screen == ui->screen_settings ||
+        screen == ui->screen_network) {
         return SMART_HOME_TAB_MORE;
     }
     return SMART_HOME_TAB_HOME;

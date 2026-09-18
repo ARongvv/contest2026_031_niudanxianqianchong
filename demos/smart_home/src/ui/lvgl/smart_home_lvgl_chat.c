@@ -737,7 +737,7 @@ void smart_home_lvgl_build_chat_screen(smart_home_lvgl_t *ui)
     smart_home_lvgl_set_bg(screen, SMART_HOME_UI_COLOR_BG);
     ui->screen_chat = screen;
 
-    smart_home_lvgl_build_top_bar(screen, "智能管家");
+    smart_home_lvgl_build_top_bar(screen, ui, "智能管家");
 
     /* Chat message list — scrollable, fills most of the screen */
     ui->chat_list = lv_obj_create(screen);

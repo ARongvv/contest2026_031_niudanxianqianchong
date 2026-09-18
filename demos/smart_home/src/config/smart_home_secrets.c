@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define SMART_HOME_SECRETS_VERSION 1
 
@@ -193,4 +194,164 @@ int smart_home_secrets_model_api_key_status(const char *backend_id)
 
     secure_clear(key, sizeof(key));
     return ret;
+}
+
+int smart_home_secrets_get_wifi_credentials(char *ssid, size_t ssid_size,
+                                            char *password,
+                                            size_t password_size)
+{
+    char *text = NULL;
+    size_t text_size = 0u;
+    cJSON *root = NULL;
+    cJSON *version;
+    cJSON *wifi;
+    cJSON *stored_ssid;
+    cJSON *stored_password;
+    int ret;
+
+    if (!ssid || ssid_size == 0u || !password || password_size == 0u) {
+        return AGENT_ERROR_INVALID;
+    }
+    ssid[0] = '\0';
+    password[0] = '\0';
+    ret = read_secrets_file(&text, &text_size);
+    if (ret != AGENT_OK) {
+        return ret;
+    }
+    root = cJSON_ParseWithLength(text, text_size);
+    secure_clear(text, text_size + 1u);
+    free(text);
+    if (!root || !cJSON_IsObject(root)) {
+        cJSON_Delete(root);
+        return AGENT_ERROR_PARSE;
+    }
+    version = cJSON_GetObjectItemCaseSensitive(root, "version");
+    if (!cJSON_IsNumber(version) ||
+        version->valueint != SMART_HOME_SECRETS_VERSION) {
+        cJSON_Delete(root);
+        return AGENT_ERROR_PARSE;
+    }
+    wifi = cJSON_GetObjectItemCaseSensitive(root, "wifi");
+    stored_ssid = cJSON_IsObject(wifi) ?
+        cJSON_GetObjectItemCaseSensitive(wifi, "ssid") : NULL;
+    stored_password = cJSON_IsObject(wifi) ?
+        cJSON_GetObjectItemCaseSensitive(wifi, "password") : NULL;
+    if (!cJSON_IsString(stored_ssid) || !cJSON_IsString(stored_password) ||
+        !stored_ssid->valuestring[0] ||
+        strlen(stored_ssid->valuestring) >= ssid_size ||
+        strlen(stored_password->valuestring) >= password_size ||
+        contains_control(stored_ssid->valuestring) ||
+        contains_control(stored_password->valuestring)) {
+        cJSON_Delete(root);
+        return AGENT_ERROR_NOTFOUND;
+    }
+    memcpy(ssid, stored_ssid->valuestring, strlen(stored_ssid->valuestring) + 1u);
+    memcpy(password, stored_password->valuestring,
+           strlen(stored_password->valuestring) + 1u);
+    cJSON_Delete(root);
+    return AGENT_OK;
+}
+
+int smart_home_secrets_set_wifi_credentials(const char *ssid,
+                                            const char *password)
+{
+    char *text = NULL;
+    size_t text_size = 0u;
+    cJSON *root = NULL;
+    cJSON *wifi;
+    cJSON *version;
+    char *serialized = NULL;
+    char temp_path[192];
+    FILE *file = NULL;
+    int ret;
+
+    if (!ssid || !password || !ssid[0] || strlen(ssid) > 32u ||
+        strlen(password) > 64u || contains_control(ssid) ||
+        contains_control(password)) {
+        return AGENT_ERROR_INVALID;
+    }
+    ret = read_secrets_file(&text, &text_size);
+    if (ret == AGENT_ERROR_NOTFOUND) {
+        /* A first-time Wi-Fi setup must work before a model credential has
+         * been provisioned.  Create the minimal versioned document. */
+        root = cJSON_CreateObject();
+        if (!root || !cJSON_AddNumberToObject(root, "version",
+                                               SMART_HOME_SECRETS_VERSION) ||
+            !cJSON_AddObjectToObject(root, "model_api_keys")) {
+            cJSON_Delete(root);
+            return AGENT_ERROR_NOMEM;
+        }
+    } else {
+        if (ret != AGENT_OK) {
+            return ret;
+        }
+        root = cJSON_ParseWithLength(text, text_size);
+        secure_clear(text, text_size + 1u);
+        free(text);
+        if (!root || !cJSON_IsObject(root)) {
+            cJSON_Delete(root);
+            return AGENT_ERROR_PARSE;
+        }
+        version = cJSON_GetObjectItemCaseSensitive(root, "version");
+        if (!cJSON_IsNumber(version) ||
+            version->valueint != SMART_HOME_SECRETS_VERSION) {
+            cJSON_Delete(root);
+            return AGENT_ERROR_PARSE;
+        }
+    }
+    wifi = cJSON_GetObjectItemCaseSensitive(root, "wifi");
+    if (!cJSON_IsObject(wifi)) {
+        wifi = cJSON_AddObjectToObject(root, "wifi");
+    }
+    if (!wifi) {
+        cJSON_Delete(root);
+        return AGENT_ERROR_NOMEM;
+    }
+    cJSON_DeleteItemFromObjectCaseSensitive(wifi, "ssid");
+    cJSON_DeleteItemFromObjectCaseSensitive(wifi, "password");
+    if (!cJSON_AddStringToObject(wifi, "ssid", ssid) ||
+        !cJSON_AddStringToObject(wifi, "password", password)) {
+        cJSON_Delete(root);
+        return AGENT_ERROR_NOMEM;
+    }
+    serialized = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!serialized) {
+        return AGENT_ERROR_NOMEM;
+    }
+    if (snprintf(temp_path, sizeof(temp_path), "%s.tmp",
+                 CONFIG_SMART_HOME_MODEL_SECRETS_PATH) >= (int)sizeof(temp_path)) {
+        secure_clear(serialized, strlen(serialized));
+        free(serialized);
+        return AGENT_ERROR_LIMIT;
+    }
+    file = fopen(temp_path, "wb");
+    if (!file) {
+        secure_clear(serialized, strlen(serialized));
+        free(serialized);
+        return AGENT_ERROR;
+    }
+    if (fwrite(serialized, 1u, strlen(serialized), file) != strlen(serialized) ||
+        fflush(file) != 0) {
+        fclose(file);
+        unlink(temp_path);
+        secure_clear(serialized, strlen(serialized));
+        free(serialized);
+        return AGENT_ERROR;
+    }
+    if (fclose(file) != 0) {
+        unlink(temp_path);
+        secure_clear(serialized, strlen(serialized));
+        free(serialized);
+        return AGENT_ERROR;
+    }
+    if (rename(temp_path, CONFIG_SMART_HOME_MODEL_SECRETS_PATH) != 0) {
+        unlink(temp_path);
+        secure_clear(serialized, strlen(serialized));
+        free(serialized);
+        return AGENT_ERROR;
+    }
+    secure_clear(serialized, strlen(serialized));
+    free(serialized);
+    return AGENT_OK;
 }

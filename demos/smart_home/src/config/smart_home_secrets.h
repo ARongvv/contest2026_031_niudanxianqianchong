@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /**
- * 只读 secrets.json 加载器。
+ * secrets.json 凭据加载与受控更新。
  *
- * 本模块只读取模型凭据，绝不创建、恢复或写回 secrets 文件。调用者按
- * backend_id 请求 API key，避免切换模型时复用其他后端的凭据。
+ * 模型凭据只读；Wi-Fi 凭据由网络设置页受控更新。调用者按 backend_id
+ * 请求 API key，避免切换模型时复用其他后端的凭据。
  */
 
 #pragma once
@@ -38,6 +38,14 @@ int smart_home_secrets_get_model_api_key(const char *backend_id,
  * 返回值与 smart_home_secrets_get_model_api_key 一致。
  */
 int smart_home_secrets_model_api_key_status(const char *backend_id);
+
+/* Wi-Fi credentials are sensitive runtime input.  They are stored only in
+ * secrets.json, never in settings.json or a tracked board defconfig. */
+int smart_home_secrets_get_wifi_credentials(char *ssid, size_t ssid_size,
+                                            char *password,
+                                            size_t password_size);
+int smart_home_secrets_set_wifi_credentials(const char *ssid,
+                                            const char *password);
 
 #ifdef __cplusplus
 }

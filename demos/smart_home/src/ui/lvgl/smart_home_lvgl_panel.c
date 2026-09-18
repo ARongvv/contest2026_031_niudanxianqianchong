@@ -1575,7 +1575,7 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
     smart_home_lvgl_set_bg(screen, SMART_HOME_UI_COLOR_BG);
     ui->screen_panel = screen;
 
-    smart_home_lvgl_build_top_bar(screen, "OpenVela HOME");
+    smart_home_lvgl_build_top_bar(screen, ui, "OpenVela HOME");
 
     ui->panel_title = smart_home_lvgl_label_create(screen,
                                                    "我的设备",

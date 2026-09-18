@@ -17,9 +17,14 @@
 
 #include "netutils/netlib.h"
 
+#include <cagent/types.h>
+
 #include "smart_home_network.h"
+#include "../config/smart_home_secrets.h"
 #ifndef CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED
 #include "smart_home_wifi.h"
+#else
+#include <arch/board/board.h>
 #endif
 
 /****************************************************************************
@@ -310,6 +315,95 @@ int smart_home_network_init(FAR smart_home_network_status_t *status)
   smart_home_network_log_link_state("init-end", status->ifname,
                                     status, ret);
   return ret;
+}
+
+int smart_home_network_connect_credentials(
+  FAR smart_home_network_status_t *status, FAR const char *ssid,
+  FAR const char *password)
+{
+#ifdef CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED
+  int ret;
+
+  if (status == NULL || ssid == NULL || password == NULL || ssid[0] == '\0')
+    {
+      return SMART_HOME_NETWORK_ERR_IFUP;
+    }
+
+  ret = board_esp_hosted_wifi_connect(ssid, password);
+  if (ret < 0)
+    {
+      smart_home_network_status_init(status);
+      status->platform = SMART_HOME_NETWORK_PLATFORM_DEVICE_WIFI;
+      status->backend = SMART_HOME_NETWORK_BACKEND_WIFI;
+      status->ifname = SMART_HOME_WIFI_IFNAME;
+      status->init_status = SMART_HOME_NETWORK_ERR_IFUP;
+      return ret;
+    }
+
+  ret = smart_home_network_init(status);
+  /* A valid DHCP lease is sufficient to retain the user-selected AP even if
+   * the internet/DNS probe is currently unavailable. */
+  if (status->ip_status == SMART_HOME_NETWORK_OK)
+    {
+      int save_ret = smart_home_secrets_set_wifi_credentials(ssid, password);
+      if (save_ret != AGENT_OK)
+        {
+          return save_ret;
+        }
+    }
+  return ret;
+#else
+  (void)status;
+  (void)ssid;
+  (void)password;
+  return SMART_HOME_NETWORK_ERR_IFUP;
+#endif
+}
+
+int smart_home_network_prepare_setup(FAR smart_home_network_status_t *status)
+{
+#ifdef CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED
+  int ret;
+
+  if (status == NULL)
+    {
+      return SMART_HOME_NETWORK_ERR_IFUP;
+    }
+
+  smart_home_network_status_init(status);
+  status->platform = SMART_HOME_NETWORK_PLATFORM_DEVICE_WIFI;
+  status->backend = SMART_HOME_NETWORK_BACKEND_WIFI;
+  status->ifname = SMART_HOME_WIFI_IFNAME;
+  ret = netlib_ifup(status->ifname);
+  status->init_status = ret < 0 ? SMART_HOME_NETWORK_ERR_IFUP :
+                                  SMART_HOME_NETWORK_OK;
+  if (ret < 0)
+    {
+      smart_home_network_log_link_state("setup-ready", status->ifname,
+                                        status, ret);
+      return ret;
+    }
+
+  /* Board Kconfig credentials may already have supplied an address during
+   * early bring-up.  Reuse it, but never wait for DHCP before first-time UI
+   * setup when there is no address yet. */
+  if (smart_home_network_has_ip(status->ifname))
+    {
+      ret = smart_home_network_probe(status);
+    }
+  else
+    {
+      status->ip_status = SMART_HOME_NETWORK_ERR_NO_IP;
+      status->dns_status = SMART_HOME_NETWORK_STATUS_UNKNOWN;
+      status->online = false;
+      ret = SMART_HOME_NETWORK_OK;
+    }
+  smart_home_network_log_link_state("setup-ready", status->ifname,
+                                    status, ret);
+  return ret;
+#else
+  return smart_home_network_init(status);
+#endif
 }
 
 int smart_home_network_probe(FAR smart_home_network_status_t *status)

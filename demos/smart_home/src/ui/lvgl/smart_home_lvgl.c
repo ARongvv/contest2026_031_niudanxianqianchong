@@ -84,6 +84,10 @@ smart_home_lvgl_t *smart_home_lvgl_init(smart_home_agent_app_t *app)
     smart_home_lvgl_build_more_screen(ui);
     smart_home_lvgl_log_build_stage("more", "done");
 
+    smart_home_lvgl_log_build_stage("network", "begin");
+    smart_home_lvgl_build_network_screen(ui);
+    smart_home_lvgl_log_build_stage("network", "done");
+
     smart_home_lvgl_log_build_stage("chat", "begin");
     smart_home_lvgl_build_chat_screen(ui);
     smart_home_lvgl_log_build_stage("chat", "done");
@@ -124,8 +128,16 @@ void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
         pthread_join(ui->agent_worker, NULL);
         ui->agent_worker_active = 0;
     }
+    if (ui->network_worker_active) {
+        pthread_join(ui->network_worker, NULL);
+        ui->network_worker_active = 0;
+    }
     smart_home_lvgl_discard_pending(ui);
     smart_home_lvgl_settings_deinit();
+    if (ui->network_status_timer) {
+        lv_timer_delete(ui->network_status_timer);
+        ui->network_status_timer = NULL;
+    }
     if (ui->remote_node_timer) {
         lv_timer_delete(ui->remote_node_timer);
         ui->remote_node_timer = NULL;
@@ -148,14 +160,17 @@ void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
     if (ui->screen_more) {
         lv_obj_del(ui->screen_more);
     }
+    if (ui->screen_network) {
+        lv_obj_del(ui->screen_network);
+    }
     if (ui->screen_chat) {
         lv_obj_del(ui->screen_chat);
     }
     if (ui->screen_settings) {
         lv_obj_del(ui->screen_settings);
     }
-
     pthread_mutex_destroy(&ui->pending_mutex);
+    smart_home_bulk_free(ui->network_worker_stack_alloc);
     smart_home_bulk_free(ui->agent_worker_stack_alloc);
     free(ui);
 }

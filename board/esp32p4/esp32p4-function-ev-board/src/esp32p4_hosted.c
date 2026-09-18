@@ -483,4 +483,41 @@ FAR struct esp_hosted_sdio_s *board_esp_hosted_sdio_get(void)
   return esp_hosted_transport_get_sdio(g_esp_hosted_transport);
 }
 
+int board_esp_hosted_wifi_connect(FAR const char *ssid,
+                                  FAR const char *password)
+{
+  int remote_result;
+  int ret;
+
+  if (!g_esp_hosted_ready || g_esp_hosted_transport == NULL ||
+      ssid == NULL || password == NULL || ssid[0] == '\0')
+    {
+      return -EINVAL;
+    }
+
+  ret = esp_hosted_transport_set_wifi_storage_ram(g_esp_hosted_transport,
+                                                   &remote_result);
+  if (ret < 0 || remote_result != OK)
+    {
+      return ret < 0 ? ret : -EIO;
+    }
+
+  ret = esp_hosted_transport_set_sta_config(g_esp_hosted_transport, ssid,
+                                            password, &remote_result);
+  if (ret < 0 || remote_result != OK)
+    {
+      return ret < 0 ? ret : -EIO;
+    }
+
+  ret = esp_hosted_transport_wifi_connect(g_esp_hosted_transport,
+                                          &remote_result);
+  if (ret < 0 || remote_result != OK)
+    {
+      return ret < 0 ? ret : -EIO;
+    }
+
+  syslog(LOG_INFO, "INFO: ESP-Hosted C6 runtime station connect requested\n");
+  return OK;
+}
+
 #endif /* CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED */
