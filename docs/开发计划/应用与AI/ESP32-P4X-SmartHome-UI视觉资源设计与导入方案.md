@@ -37,7 +37,7 @@ PNG；真机包只能存放经过裁剪、压缩和预算审核的运行时产�
 | --- | --- | --- |
 | 显示 | ESP32-P4X，1024×600，LVGL 软件渲染 | 一张全屏 RGB565 位图约 1,228,800 bytes（约 1.17 MiB），不能常驻多张。 |
 | P4X `smart_home` 配置 | LittleFS MTD 起始偏移 `0x600000`、大小 10 MiB | 当前采用 6 MiB 固件 + 10 MiB 资源布局；完整字体可部署，但 `/data` 中的字体、图标、技能文件仍须共用预算。 |
-| 当前产品图标 | `quickapp/smart_home_ui/prototype-web/assets/icons/` 有 61 个 PNG（240/256 px RGBA） | 该目录为唯一视觉源；构建时裁边、统一留白后生成 61 个 32 px、16 个 20 px、8 个 48 px 的内嵌 A8 图标。 |
+| 当前产品图标 | `quickapp/smart_home_ui/prototype-web/assets/icons/` 有 71 个 PNG（200/240/256 px RGBA） | 该目录为唯一视觉源；构建时裁边、统一留白后生成 71 个 32 px、16 个 20 px、8 个 48 px 的内嵌 A8 图标。 |
 | 现有 LVGL 字体 | 完整 MiSans 约 7.9 MiB/字重，subset 约 72 KiB/字重 | 完整字体已实机部署，运行时约占 7.58 MiB PSRAM；适合 Agent 动态中文。subset 仍适用于 PSRAM 紧张的受限配置。 |
 | 当前 LVGL 配置 | POSIX 文件系统、`LV_USE_LODEPNG`、TinyTTF data API | PNG 继续从文件系统加载；完整 TTF 启动时预加载 PSRAM，并由 `lv_tiny_ttf_create_data()` 使用，不走 TinyTTF 文件流。 |
 | QuickApp | 基于 QuickJS、UIKit、Yoga 和 LVGL；RPK 本质是 zip 包 | 图片应随 RPK 打包并由本地 `image` 组件引用；QuickApp 不是网络图片容器，仍要受同一存储和解码预算约束。 |
@@ -307,7 +307,7 @@ P4X LVGL 真机视觉与 30 FPS        Goldfish → P4X QuickApp 验证
 ### R0：资源底座
 
 建立 `ui-assets/manifest/assets.json`、`chars.txt`、命名表和设计许可证台账；将
-`prototype-web/assets/icons/` 的 61 个单色 PNG 录入清单，并以 PNG 文件名作为稳定逻辑 ID。
+`prototype-web/assets/icons/` 的 71 个单色 PNG 录入清单，并以 PNG 文件名作为稳定逻辑 ID。
 LVGL 侧由 `generate_smart_home_lvgl_icons.py` 生成 32px 全量及按需 20px/48px 的 A8 C 图片；
 不再将图标编码为字体字形。
 
@@ -341,3 +341,4 @@ Goldfish RPK 验证所有静态路径、中文与缺图降级。LVGL 与 QuickAp
 | --- | --- |
 | 2026-09-14 | 初版：定义 SmartHome 图标、插画、字体与动态视觉资源清单；基于现有 LVGL 文件资源/内嵌字体路径和 QuickApp RPK 机制，给出双 UI 模式的导入、预算、更新和验收方案。 |
 | 2026-09-18 | 将原型网页的 61 个单色 PNG 全量纳入 LVGL 图标库：全量生成 32px，状态栏/导航按需生成 20px，首页重点卡片按需生成 48px；ESP32-P4 软件渲染路径采用可见且可重着色的 A8 C 图片，并以生成结果替换主页、导航与设备页的旧图标引用。 |
+| 2026-09-18 | 新增 `MIJIA`、充电电池、消息、插座、设置、计时器、工具、成员等 10 个单色 PNG；先全量生成标准 32px A8 C 图片，待页面实际采用后再按需补充 20px 或 48px。 |
