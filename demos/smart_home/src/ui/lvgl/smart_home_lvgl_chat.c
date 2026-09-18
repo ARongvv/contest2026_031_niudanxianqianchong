@@ -770,7 +770,7 @@ void smart_home_lvgl_build_chat_screen(smart_home_lvgl_t *ui)
     ui->chat_input = lv_textarea_create(input_bar);
     lv_obj_set_size(ui->chat_input, content_w - 70, SMART_HOME_CHAT_INPUT_H);
     lv_textarea_set_one_line(ui->chat_input, true);
-    lv_textarea_set_placeholder_text(ui->chat_input, "问问小乔…");
+    lv_textarea_set_placeholder_text(ui->chat_input, "问问 OpenVela…");
     lv_obj_set_style_text_font(ui->chat_input, smart_home_lvgl_font(12), 0);
     lv_obj_set_style_radius(ui->chat_input, 8, 0);
     lv_obj_set_style_border_color(ui->chat_input, SMART_HOME_UI_COLOR_BORDER, 0);
