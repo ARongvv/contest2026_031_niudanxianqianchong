@@ -170,8 +170,8 @@ static void security_camera_refresh_ui(smart_home_lvgl_t *ui)
 
     if (ui->security_camera_metrics) {
         snprintf(text, sizeof(text), "预览上限 15 FPS · 采集 %u.%02u FPS",
-                 status.capture_fps_x100 / 100,
-                 status.capture_fps_x100 % 100);
+                 (unsigned)(status.capture_fps_x100 / 100),
+                 (unsigned)(status.capture_fps_x100 % 100));
         lv_label_set_text(ui->security_camera_metrics, text);
     }
 }
