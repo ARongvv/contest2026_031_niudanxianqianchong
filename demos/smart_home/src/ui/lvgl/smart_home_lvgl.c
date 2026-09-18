@@ -134,6 +134,15 @@ void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
         lv_timer_delete(ui->network_status_timer);
         ui->network_status_timer = NULL;
     }
+#ifdef CONFIG_SMART_HOME_CAMERA_PREVIEW
+    if (ui->security_camera_timer) {
+        lv_timer_delete(ui->security_camera_timer);
+        ui->security_camera_timer = NULL;
+    }
+    smart_home_lvgl_security_camera_stop(ui);
+    smart_home_bulk_free(ui->security_camera_buffer);
+    ui->security_camera_buffer = NULL;
+#endif
     if (ui->remote_node_timer) {
         lv_timer_delete(ui->remote_node_timer);
         ui->remote_node_timer = NULL;

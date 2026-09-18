@@ -23,6 +23,7 @@
 #include <stdint.h>
 
 #include "../../agent/smart_home_agent.h"
+#include "../../camera/smart_home_camera_service.h"
 #include "../../device/smart_home_device.h"
 #include "smart_home_lvgl_style.h"
 
@@ -52,6 +53,19 @@ typedef struct {
     lv_obj_t *screen_network;
     lv_obj_t *screen_chat;
     lv_obj_t *screen_settings;
+
+#ifdef CONFIG_SMART_HOME_CAMERA_PREVIEW
+    /* Security-camera preview. The RGB565 image memory belongs to the UI;
+     * camera_service copies into it, never hands LVGL a DMA buffer. */
+    lv_obj_t *security_camera_preview;
+    lv_obj_t *security_camera_status;
+    lv_obj_t *security_camera_metrics;
+    lv_obj_t *security_camera_switch;
+    lv_timer_t *security_camera_timer;
+    uint8_t *security_camera_buffer;
+    lv_image_dsc_t security_camera_image;
+    uint32_t security_camera_sequence;
+#endif
 
     /* Shared five-item nav bar (recreated per product screen). */
     int      active_tab;

@@ -6,6 +6,7 @@
 #include "../../net/smart_home_network.h"
 #include "../../smart_home_memory.h"
 
+#include <errno.h>
 #include <nuttx/sched.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -104,9 +105,8 @@ static void page_click_cb(lv_event_t *event)
     if (lv_event_get_code(event) != LV_EVENT_CLICKED || !ui) {
         return;
     }
-    if (action == PAGE_ACTION_AGENT && ui->screen_chat) {
-        lv_scr_load_anim(ui->screen_chat, LV_SCR_LOAD_ANIM_MOVE_LEFT,
-                         180, 0, false);
+    if (action == PAGE_ACTION_AGENT) {
+        smart_home_lvgl_load_tab(ui, SMART_HOME_TAB_CHAT);
     } else if (action == PAGE_ACTION_SETTINGS && ui->screen_settings) {
         lv_scr_load_anim(ui->screen_settings, LV_SCR_LOAD_ANIM_MOVE_LEFT,
                          180, 0, false);
@@ -115,6 +115,139 @@ static void page_click_cb(lv_event_t *event)
         lv_scr_load_anim(ui->screen_network, LV_SCR_LOAD_ANIM_MOVE_LEFT,
                          180, 0, false);
     }
+}
+
+#ifdef CONFIG_SMART_HOME_CAMERA_PREVIEW
+static void security_camera_refresh_ui(smart_home_lvgl_t *ui)
+{
+    struct smart_home_camera_status_s status;
+    uint32_t sequence;
+    int ret;
+    char text[80];
+
+    if (!ui || !ui->security_camera_status) {
+        return;
+    }
+
+    ret = smart_home_camera_get_status(&status);
+    if (ret < 0) {
+        snprintf(text, sizeof(text), "摄像头状态读取失败 (%d)", ret);
+        lv_label_set_text(ui->security_camera_status, text);
+        return;
+    }
+
+    switch (status.state) {
+    case SMART_HOME_CAMERA_STARTING:
+        lv_label_set_text(ui->security_camera_status, "摄像头启动中…");
+        break;
+    case SMART_HOME_CAMERA_RUNNING:
+        lv_label_set_text(ui->security_camera_status, "● 摄像头在线");
+        if (ui->security_camera_preview && ui->security_camera_buffer &&
+            status.preview_sequence != ui->security_camera_sequence &&
+            smart_home_camera_copy_latest(ui->security_camera_buffer,
+                                           SMART_HOME_CAMERA_PREVIEW_BYTES,
+                                           &sequence) == OK) {
+            ui->security_camera_sequence = sequence;
+            lv_obj_invalidate(ui->security_camera_preview);
+        }
+        break;
+    case SMART_HOME_CAMERA_ERROR:
+        snprintf(text, sizeof(text), "摄像头不可用 (%d)", status.last_error);
+        lv_label_set_text(ui->security_camera_status, text);
+        if (ui->security_camera_switch) {
+            lv_obj_remove_state(ui->security_camera_switch,
+                                LV_STATE_CHECKED);
+        }
+        /* A failed worker remains joinable until reaped. Reap it here so a
+         * later user retry can allocate a fresh V4L2 ring and PSRAM buffers. */
+        (void)smart_home_camera_stop();
+        break;
+    case SMART_HOME_CAMERA_OFF:
+    default:
+        lv_label_set_text(ui->security_camera_status, "摄像头已关闭");
+        break;
+    }
+
+    if (ui->security_camera_metrics) {
+        snprintf(text, sizeof(text), "预览上限 15 FPS · 采集 %u.%02u FPS",
+                 status.capture_fps_x100 / 100,
+                 status.capture_fps_x100 % 100);
+        lv_label_set_text(ui->security_camera_metrics, text);
+    }
+}
+
+static int security_camera_set_enabled(smart_home_lvgl_t *ui, bool enabled)
+{
+    int ret;
+
+    if (!ui) {
+        return -EINVAL;
+    }
+
+    ret = enabled ? smart_home_camera_start() : smart_home_camera_stop();
+    if (ret < 0 && enabled && ui->security_camera_switch) {
+        lv_obj_remove_state(ui->security_camera_switch, LV_STATE_CHECKED);
+    }
+
+    security_camera_refresh_ui(ui);
+    return ret;
+}
+
+static void security_camera_switch_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+    lv_obj_t *sw = lv_event_get_current_target(event);
+
+    if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED || !ui || !sw) {
+        return;
+    }
+
+    (void)security_camera_set_enabled(ui,
+        lv_obj_has_state(sw, LV_STATE_CHECKED));
+}
+
+static void security_camera_button_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+    bool enabled;
+
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED || !ui) {
+        return;
+    }
+
+    enabled = !ui->security_camera_switch ||
+              !lv_obj_has_state(ui->security_camera_switch, LV_STATE_CHECKED);
+    if (ui->security_camera_switch) {
+        if (enabled) {
+            lv_obj_add_state(ui->security_camera_switch, LV_STATE_CHECKED);
+        } else {
+            lv_obj_remove_state(ui->security_camera_switch, LV_STATE_CHECKED);
+        }
+    }
+    (void)security_camera_set_enabled(ui, enabled);
+}
+
+static void security_camera_timer_cb(lv_timer_t *timer)
+{
+    security_camera_refresh_ui((smart_home_lvgl_t *)timer->user_data);
+}
+#endif
+
+void smart_home_lvgl_security_camera_stop(smart_home_lvgl_t *ui)
+{
+#ifdef CONFIG_SMART_HOME_CAMERA_PREVIEW
+    if (!ui) {
+        return;
+    }
+
+    if (ui->security_camera_switch) {
+        lv_obj_remove_state(ui->security_camera_switch, LV_STATE_CHECKED);
+    }
+    (void)smart_home_camera_stop();
+    security_camera_refresh_ui(ui);
+#else
+    (void)ui;
+#endif
 }
 
 static void page_action(lv_obj_t *card, smart_home_lvgl_t *ui,
@@ -142,8 +275,12 @@ void smart_home_lvgl_build_security_screen(smart_home_lvgl_t *ui)
     int x = smart_home_lvgl_pad_x();
     int y = SMART_HOME_TOPBAR_H + 78;
     int content_w = smart_home_lvgl_content_w();
-    int preview_w = content_w * 2 / 3 - 10;
-    int alert_w = content_w - preview_w - 14;
+    int alert_w = 250;
+    int preview_w = content_w - alert_w - 14;
+    /* Fill the preview card down to the navigation bar so the 512x300
+     * feed becomes the dominant element of the security page. */
+    int preview_h = smart_home_lvgl_disp_h() - y -
+                    (SMART_HOME_NAV_H + SMART_HOME_NAV_BOTTOM_PAD) - 8;
     lv_obj_t *label;
     lv_obj_t *footer;
     lv_obj_t *button;
@@ -157,30 +294,82 @@ void smart_home_lvgl_build_security_screen(smart_home_lvgl_t *ui)
                                          14);
     lv_obj_align(label, LV_ALIGN_TOP_RIGHT, -x, SMART_HOME_TOPBAR_H + 34);
 
-    card = page_card(screen, x, y, preview_w, 286);
+    card = page_card(screen, x, y, preview_w, preview_h);
     smart_home_lvgl_set_bg(card, lv_color_hex(0x354846));
     lv_obj_set_style_border_color(card, lv_color_hex(0x415654), 0);
-    label = smart_home_lvgl_label_create(card, "客厅 · 实时预览占位",
+#ifdef CONFIG_SMART_HOME_CAMERA_PREVIEW
+    label = smart_home_lvgl_label_create(card, "客厅 · 本地实时预览",
                                          lv_color_hex(0xD9E4E0), 13);
-    lv_obj_align(label, LV_ALIGN_BOTTOM_LEFT, 0, -52);
-    label = smart_home_lvgl_label_create(card, "原生 Monitor / CameraPreview",
-                                         lv_color_hex(0xA7BFBA), 12);
-    lv_obj_align(label, LV_ALIGN_BOTTOM_RIGHT, 0, -52);
-    label = smart_home_lvgl_label_create(card, "·", lv_color_hex(0xF5D976), 32);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 0);
+    ui->security_camera_buffer =
+        smart_home_bulk_alloc(SMART_HOME_CAMERA_PREVIEW_BYTES);
+    if (ui->security_camera_buffer) {
+        memset(ui->security_camera_buffer, 0,
+               SMART_HOME_CAMERA_PREVIEW_BYTES);
+        memset(&ui->security_camera_image, 0,
+               sizeof(ui->security_camera_image));
+        ui->security_camera_image.header.magic = LV_IMAGE_HEADER_MAGIC;
+        ui->security_camera_image.header.cf = LV_COLOR_FORMAT_RGB565;
+        ui->security_camera_image.header.w = SMART_HOME_CAMERA_PREVIEW_WIDTH;
+        ui->security_camera_image.header.h = SMART_HOME_CAMERA_PREVIEW_HEIGHT;
+        ui->security_camera_image.header.stride =
+            SMART_HOME_CAMERA_PREVIEW_WIDTH * 2u;
+        ui->security_camera_image.data_size = SMART_HOME_CAMERA_PREVIEW_BYTES;
+        ui->security_camera_image.data = ui->security_camera_buffer;
+        ui->security_camera_preview = lv_image_create(card);
+        lv_image_set_src(ui->security_camera_preview,
+                         &ui->security_camera_image);
+        lv_obj_set_size(ui->security_camera_preview,
+                        SMART_HOME_CAMERA_PREVIEW_WIDTH,
+                        SMART_HOME_CAMERA_PREVIEW_HEIGHT);
+        /* Center the feed in the area above the metrics footer. */
+        lv_obj_align(ui->security_camera_preview, LV_ALIGN_CENTER, 0, -22);
+        lv_obj_set_style_radius(ui->security_camera_preview, 12, 0);
+        lv_obj_add_flag(ui->security_camera_preview,
+                        LV_OBJ_FLAG_ADV_HITTEST);
+    } else {
+        label = smart_home_lvgl_label_create(card, "预览缓冲区分配失败",
+                                             SMART_HOME_UI_COLOR_DANGER, 14);
+        lv_obj_center(label);
+    }
+#else
+    label = smart_home_lvgl_label_create(card, "本机构建未启用摄像头预览",
+                                         lv_color_hex(0xD9E4E0), 13);
     lv_obj_center(label);
+#endif
 
     footer = lv_obj_create(card);
     lv_obj_remove_style_all(footer);
     lv_obj_set_size(footer, lv_pct(100), 48);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, 0);
     smart_home_lvgl_set_bg(footer, SMART_HOME_UI_COLOR_SURFACE);
-    label = smart_home_lvgl_label_create(footer, "● 摄像头在线",
-                                         SMART_HOME_UI_COLOR_PRIMARY, 13);
-    lv_obj_align(label, LV_ALIGN_LEFT_MID, 0, 0);
+#ifdef CONFIG_SMART_HOME_CAMERA_PREVIEW
+    ui->security_camera_metrics = smart_home_lvgl_label_create(
+        footer, "预览上限 15 FPS · 等待开启", SMART_HOME_UI_COLOR_TEXT_MUTED, 11);
+    lv_obj_align(ui->security_camera_metrics, LV_ALIGN_TOP_LEFT, 0, 2);
+    ui->security_camera_status = smart_home_lvgl_label_create(
+        footer, "摄像头已关闭", SMART_HOME_UI_COLOR_TEXT_SECONDARY, 13);
+    lv_obj_align(ui->security_camera_status, LV_ALIGN_BOTTOM_LEFT, 0, -2);
     button = page_outline_button(footer, "进入监控", 92);
     lv_obj_align(button, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_add_event_cb(button, security_camera_button_cb,
+                        LV_EVENT_CLICKED, ui);
+    ui->security_camera_switch = lv_switch_create(footer);
+    lv_obj_set_size(ui->security_camera_switch, 46, 26);
+    lv_obj_align_to(ui->security_camera_switch, button, LV_ALIGN_OUT_LEFT_MID,
+                    -12, 0);
+    lv_obj_add_event_cb(ui->security_camera_switch, security_camera_switch_cb,
+                        LV_EVENT_VALUE_CHANGED, ui);
+    ui->security_camera_timer = lv_timer_create(security_camera_timer_cb,
+                                                1000u / 15u, ui);
+    security_camera_refresh_ui(ui);
+#else
+    label = smart_home_lvgl_label_create(footer, "摄像头预览未启用",
+                                         SMART_HOME_UI_COLOR_TEXT_SECONDARY, 13);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, 0, 0);
+#endif
 
-    card = page_card(screen, x + preview_w + 14, y, alert_w, 286);
+    card = page_card(screen, x + preview_w + 14, y, alert_w, preview_h);
     label = smart_home_lvgl_label_create(card, "最近动态",
                                          SMART_HOME_UI_COLOR_TEXT_SECONDARY,
                                          14);

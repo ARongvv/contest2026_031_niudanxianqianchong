@@ -48,6 +48,10 @@ if(CONFIG_SMART_HOME_DEMO)
     endif()
   endif()
 
+  if(CONFIG_SMART_HOME_CAMERA_PREVIEW)
+    list(APPEND SMART_HOME_SRCS src/camera/smart_home_camera_service.c)
+  endif()
+
   if(CONFIG_SMART_HOME_NODE_GATEWAY OR CONFIG_SMART_HOME_MCP_BRIDGE OR CONFIG_SMART_HOME_APP_BRIDGE)
     list(APPEND SMART_HOME_DEPS cagent_addons)
   endif()

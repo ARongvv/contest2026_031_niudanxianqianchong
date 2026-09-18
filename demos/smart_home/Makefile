@@ -45,6 +45,9 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
   CSRCS     += src/skills/smart_home_skills.c
   CSRCS     += src/tools/smart_home_tools.c
   CSRCS     += src/ui/smart_home_ui.c
+  ifneq ($(CONFIG_SMART_HOME_CAMERA_PREVIEW),)
+    CSRCS   += src/camera/smart_home_camera_service.c
+  endif
   ifneq ($(CONFIG_SMART_HOME_DEMO_UI_LVGL),)
     CSRCS   += src/ui/lvgl/smart_home_lvgl.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_agent.c
@@ -74,6 +77,7 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/addons
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/agent
+  CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/camera
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/config
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/device
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/net

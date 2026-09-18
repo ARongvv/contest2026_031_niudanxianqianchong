@@ -98,6 +98,7 @@ lv_obj_t *smart_home_lvgl_build_nav_bar(lv_obj_t *screen,
 void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_screensaver_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_security_screen(smart_home_lvgl_t *ui);
+void smart_home_lvgl_security_camera_stop(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_more_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_refresh_network_screen(smart_home_lvgl_t *ui);
