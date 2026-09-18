@@ -1,7 +1,7 @@
 # ESP32-P4X SmartHome UI 视觉资源设计与导入方案
 
-> 状态：方案阶段。本文定义图标、插画、字体和图片的资源边界、目录和导入方式；不表示
-> 资源包、转换脚本或 QuickApp 工程已经实现。
+> 状态：方案为主，完整 MiSans 的 LVGL 部署路径已完成 P4X 真机验证；其余图标、插画和
+> QuickApp 资源管线仍处于方案阶段。
 >
 > 目标：让 LVGL 主 UI 与 QuickApp 主 UI 共享同一套设计源资产，而由各自构建链生成可在
 > ESP32-P4X 上运行的资源，保障 1024×600 面板的可读性和复杂交互页 30 FPS 目标。
@@ -36,10 +36,10 @@ PNG；真机包只能存放经过裁剪、压缩和预算审核的运行时产�
 | 项目 | 当前情况 | 对资源方案的含义 |
 | --- | --- | --- |
 | 显示 | ESP32-P4X，1024×600，LVGL 软件渲染 | 一张全屏 RGB565 位图约 1,228,800 bytes（约 1.17 MiB），不能常驻多张。 |
-| P4X `smart_home` 配置 | LittleFS MTD 起始偏移 `0x800000`、大小 1 MiB | `/data` 中的字体、图标、技能文件和可能的 RPK 必须共用明确预算；不得假定可以放入完整字体或任意图片包。 |
-| 现有 LVGL 图标 | `demos/smart_home/res/icons/` 有 25 个 PNG，约 140 KiB；源文件均为 200×200 RGBA PNG | 可作为命名和功能覆盖的起点，但不宜不经裁剪继续扩充 200 px 图标。 |
-| 现有 LVGL 字体 | 完整 MiSans 约 7.9 MiB/字重，subset 约 72 KiB/字重 | 完整字体不适合当前 1 MiB LittleFS；首期只能部署经过字集裁剪、经实测可显示的字体。 |
-| 当前 LVGL 配置 | 已启用 POSIX 文件系统、`LV_USE_LODEPNG`、TinyTTF 文件支持 | PNG 可从文件系统加载；字体可由 TinyTTF 从文件流读取，但仍须验证字集、内存和首帧耗时。 |
+| P4X `smart_home` 配置 | LittleFS MTD 起始偏移 `0x600000`、大小 10 MiB | 当前采用 6 MiB 固件 + 10 MiB 资源布局；完整字体可部署，但 `/data` 中的字体、图标、技能文件仍须共用预算。 |
+| 当前产品图标 | `quickapp/smart_home_ui/prototype-web/assets/icons/` 有 61 个 PNG（240/256 px RGBA） | 该目录为唯一视觉源；构建时裁边、统一留白后生成 61 个 32 px、16 个 20 px、8 个 48 px 的内嵌 A8 图标。 |
+| 现有 LVGL 字体 | 完整 MiSans 约 7.9 MiB/字重，subset 约 72 KiB/字重 | 完整字体已实机部署，运行时约占 7.58 MiB PSRAM；适合 Agent 动态中文。subset 仍适用于 PSRAM 紧张的受限配置。 |
+| 当前 LVGL 配置 | POSIX 文件系统、`LV_USE_LODEPNG`、TinyTTF data API | PNG 继续从文件系统加载；完整 TTF 启动时预加载 PSRAM，并由 `lv_tiny_ttf_create_data()` 使用，不走 TinyTTF 文件流。 |
 | QuickApp | 基于 QuickJS、UIKit、Yoga 和 LVGL；RPK 本质是 zip 包 | 图片应随 RPK 打包并由本地 `image` 组件引用；QuickApp 不是网络图片容器，仍要受同一存储和解码预算约束。 |
 
 `CONFIG_SMART_HOME_DEMO_DATA_ROOT` 当前定义 LVGL 资源根，图标目录由
@@ -66,11 +66,11 @@ PNG；真机包只能存放经过裁剪、压缩和预算审核的运行时产�
 
 ### 3.2 图标规范
 
-- 以 24×24 设计网格为基准；状态栏可输出 20 px，卡片操作可输出 24/28 px，设备图标可输出 40/48 px。
+- 以 24×24 设计网格为基准；产品运行时使用 20 / 32 / 48 px 三档，不对 A8 图像做缩放。
 - 图标名称使用小写 `snake_case`，例如 `status_microphone`、`device_air_conditioner`、
   `action_temperature_up`。逻辑 ID 不带分辨率和格式，文件名可追加 `_20`、`_48`。
-- 单色图标优先输出为 LVGL 4 bpp 图标字体或带透明通道的小 PNG；UI 在运行时应用主题色，
-  不为亮/暗主题各存一张彩色图。
+- 单色图标输出为 LVGL A8 Alpha C 图片；UI 在运行时应用 `image_recolor` 主题色，
+  不为亮/暗主题各存一张彩色图。ESP32-P4 的软件渲染器不支持 A4 绘制，不能使用 A4。
 - 图标要有可读轮廓和最小 1.5 px 视觉笔画；“摄像头可用”和“摄像头正在预览”、
   “麦克风可用”和“正在录音”必须使用不同语义和文字状态，不能只替换颜色。
 - 设计文件必须记录来源、作者、许可证和是否可商用；只接收自制、明确授权或许可证相容的素材。
@@ -135,24 +135,24 @@ ui-assets/                              # 建议新增：唯一设计源资源�
 
 ## 5. 存储、内存与性能预算
 
-当前 P4X `smart_home` 的 LittleFS 分区只有 1 MiB。下表是首期**上限**，不是已分配容量；每次
-实际构建必须以生成分区镜像和 `nuttx/.config` 为准。
+当前 P4X `smart_home` 的 LittleFS 分区为 10 MiB；完整 MiSans 已占约 7.58 MiB。下表是当前
+LVGL 路线的边界，不是允许把 10 MiB 写满的授权；每次实际构建必须以生成分区镜像和
+`nuttx/.config` 为准。
 
 | 内容 | LVGL 文件资源预算 | QuickApp RPK/共享数据预算 | 规则 |
 | --- | ---: | ---: | --- |
-| 中文字体（正体+半粗） | ≤ 180 KiB | ≤ 180 KiB 或复用系统已部署字体 | 使用 `chars.txt` 从产品文案、设备名和告警词提取字集。 |
-| 文件型图标 | ≤ 100 KiB | ≤ 100 KiB | 常用单色图标应转为 LVGL 内嵌字体，不重复落盘。 |
-| 场景/封面插画 | ≤ 280 KiB | ≤ 280 KiB | 首期仅 6–8 张，按卡片尺寸导出。 |
-| 启动图及保留空间 | ≤ 80 KiB | ≤ 80 KiB | 无法满足则改用纯色与渐变。 |
-| 配置、技能、索引与余量 | ≥ 360 KiB | 与实际挂载拓扑共同核算 | 必须保留至少 20% 分区余量，不能把 1 MiB 写满。 |
+| 中文字体（单一正体） | 完整 MiSans 约 7.58 MiB | 不与当前 LVGL 字体预算合并 | 为 Agent 动态中文预留；第二完整字重须另做 PSRAM/Flash 评审。 |
+| 内嵌图标、场景/封面插画 | 图标 A8 像素数据约 87 KiB；插画使用完整字体后的剩余空间 | 按 RPK 独立核算 | 常用单色图标编译进固件；插画继续按卡片尺寸导出。 |
+| 启动图 | 非必要，优先纯色与渐变 | 非必要 | 不与摄像头帧缓冲或多张大图同时常驻。 |
+| 配置、技能、索引与余量 | 资源镜像总量应保持 ≤ 8 MiB | 与实际挂载拓扑共同核算 | 为 LittleFS 元数据、运行时资源更新保留约 2 MiB；每次生成镜像后复核。 |
 
 QuickApp 的 RPK 可能安装/解压到 `/data/app/<package>`，而运行时 `QUICKAPP_RPK_DIR` 的默认值
 是 `/resource/package`。P4X 最终采用哪个挂载点、RPK 是否与 `/data` 的 LittleFS 共用，尚未由
 QuickApp P4X 构建实测确认。因此：
 
 1. 在确定 P4X 的最终 `.config`、挂载表和资源镜像前，不承诺上述两栏预算可以简单相加；
-2. 若 RPK 与 LVGL/技能文件共用 1 MiB，应将首期 RPK（JS、样式、图片和字体）压到 450 KiB
-   以下，并保留分区余量；
+2. 当前 QuickApp 尚未在 P4X 上验证，不得把 RPK 默认并入已部署完整 MiSans 的 LittleFS
+   分区；如未来确认共用分区，须重新划分 Flash/PSRAM 预算并保留分区余量；
 3. 若使用独立只读资源分区或扩容后的数据分区，仍须记录其镜像大小、flash offset、写入范围；
    不得沿用其他 ESP32 板卡的烧录地址。
 
@@ -162,22 +162,15 @@ QuickApp P4X 构建实测确认。因此：
 
 ## 6. LVGL 模式：导入与使用方案
 
-### 6.1 首选路径：内嵌图标字体
+### 6.1 首选路径：内嵌 A8 图标图片
 
-状态栏、导航、操作和高频设备图标应优先生成 LVGL 4 bpp 图标字体 C 文件。现有工程已经使用
-此模式：`src/ui/lvgl/icons/light_20.c` 等生成 `lv_font_t`，并由
-`smart_home_lvgl_icons.h` 声明和映射。
+状态栏、导航、操作和设备图标使用同一批原始 PNG 生成 LVGL A8 C 图片。生成脚本为
+`scripts/generate_smart_home_lvgl_icons.py`；输出在 `src/ui/lvgl/icons/generated/`，查询入口为
+`smart_home_lvgl_png_icons.[ch]`。`Makefile` 使用通配符、`CMakeLists.txt` 使用 GLOB 自动收录所有生成 C 文件。
 
-新增一个内嵌图标的步骤：
-
-1. 在 `ui-assets/source/icons/` 提交 SVG 和 manifest 条目；按 20/24/28 px 导出 LVGL 字体 C 文件。
-2. 将生成的 `*_20.c` 放入 `demos/smart_home/src/ui/lvgl/icons/`，在
-   `smart_home_lvgl_icons.h` 声明 glyph，在 `smart_home_icons.h` 增加逻辑宏。
-3. 同时修改 `demos/smart_home/Makefile` 与 `CMakeLists.txt`，把该 `.c` 加入
-   `SMART_HOME_DEMO_UI_LVGL` 条件源文件，保证两种构建系统结果一致。
-4. 页面通过既有 `smart_home_lvgl_icon_create(parent, ICON_xxx, w, h)` 创建图标。
-
-这种路径无需运行时 PNG 解码，适合常驻小图标；代价是更换图标需要重新构建/烧录固件。
+更新步骤：替换或新增原始 PNG，运行生成脚本，检查 `git diff --check`，再编译固件。页面通过
+`smart_home_lvgl_icon_create(parent, "asset:camera", w, h)` 使用逻辑 ID；图标颜色由 A8 重着色样式提供。
+该路径无需运行时 PNG 解码，适合常驻图标；代价是图标变更需要重新构建/烧录固件。
 
 ### 6.2 文件资源路径：PNG 图标和场景插画
 
@@ -208,10 +201,15 @@ lv_image_set_src(image, "A:/data/res/icons/icon_device_light.png")
 
 ### 6.3 中文字体
 
-当前 `smart_home_lvgl_style.c` 会优先使用 FreeType，或在 P4X 路线使用 TinyTTF 从
-`/data/res/fonts/MiSans-Normal.ttf` 加载。现有目录中的完整 MiSans 文件约 7.9 MiB，不能复制到
-当前 1 MiB LittleFS；实施时必须将加载路径切换到经过字集验证的 subset 字体，或采用预生成的
-LVGL 字库，并同步更新 `chars.txt` 和资源 manifest。
+P4X LVGL 当前将 `/data/res/fonts/MiSans-Normal.ttf` 的完整 MiSans（约 7.9 MiB）在启动时
+一次性预加载到 PSRAM，并以 `lv_tiny_ttf_create_data()` 创建 12/14/16/20/32 px 字体实例。
+该路径已完成实机验证，能够覆盖 Agent 的动态中文回复；不得退回 TinyTTF 从 LittleFS 文件流
+随机读取完整字体的路径。详细日志见
+[完整 MiSans PSRAM 预加载修复](../../开发日志/ESP32-P4X-SmartHome-完整MiSans-PSRAM预加载修复.md)。
+
+这不是无成本方案：TTF 缓冲区会在 LVGL 生命周期内常驻 PSRAM，另有字形缓存和页面对象开销。
+若摄像头、图片或多字重同时扩展导致 PSRAM 预算不足，应选择经字集验证的 subset 字体或预生成
+LVGL 字库，并同步维护 `chars.txt` 和资源 manifest；不能在线下载字体。
 
 首期应覆盖：界面固定文案、城市/天气、设备类型、常见设备名称、常见告警、数字、英文缩写与
 必要标点。新增设备名/场景名进入产品文案前，先运行字集检查；缺字应显示可识别降级字符并在
@@ -308,8 +306,10 @@ P4X LVGL 真机视觉与 30 FPS        Goldfish → P4X QuickApp 验证
 
 ### R0：资源底座
 
-建立 `ui-assets/manifest/assets.json`、`chars.txt`、命名表和设计许可证台账；把当前 25 个
-PNG 录入清单，标出可保留、需裁剪和需改为内嵌字体的项。此阶段不替换任何实机资源。
+建立 `ui-assets/manifest/assets.json`、`chars.txt`、命名表和设计许可证台账；将
+`prototype-web/assets/icons/` 的 61 个单色 PNG 录入清单，并以 PNG 文件名作为稳定逻辑 ID。
+LVGL 侧由 `generate_smart_home_lvgl_icons.py` 生成 32px 全量及按需 20px/48px 的 A8 C 图片；
+不再将图标编码为字体字形。
 
 ### R1：首页最小资源包
 
@@ -340,3 +340,4 @@ Goldfish RPK 验证所有静态路径、中文与缺图降级。LVGL 与 QuickAp
 | 日期 | 变更 |
 | --- | --- |
 | 2026-09-14 | 初版：定义 SmartHome 图标、插画、字体与动态视觉资源清单；基于现有 LVGL 文件资源/内嵌字体路径和 QuickApp RPK 机制，给出双 UI 模式的导入、预算、更新和验收方案。 |
+| 2026-09-18 | 将原型网页的 61 个单色 PNG 全量纳入 LVGL 图标库：全量生成 32px，状态栏/导航按需生成 20px，首页重点卡片按需生成 48px；ESP32-P4 软件渲染路径采用可见且可重着色的 A8 C 图片，并以生成结果替换主页、导航与设备页的旧图标引用。 |

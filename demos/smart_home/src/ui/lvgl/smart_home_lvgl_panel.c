@@ -102,6 +102,25 @@ static const char *device_room_name(const char *room)
     return "家庭";
 }
 
+static const char *device_display_name(const smart_home_device_t *device)
+{
+    if (!device || !device->name[0]) {
+        return "未命名设备";
+    }
+    /* Keep the seeded demo readable in the Chinese product shell while real
+     * devices continue to use their service-provided names unchanged. */
+    if (!strcmp(device->name, "Living Light")) {
+        return "客厅主灯";
+    }
+    if (!strcmp(device->name, "Bedroom Light")) {
+        return "床头灯";
+    }
+    if (!strcmp(device->name, "Bedroom AC")) {
+        return "卧室空调";
+    }
+    return device->name;
+}
+
 static int device_matches_filter(smart_home_lvgl_t *ui,
                                  const smart_home_device_t *device)
 {
@@ -133,66 +152,77 @@ static void format_device_card_text(const smart_home_device_t *device,
         if (device->on) {
             snprintf(buffer,
                      buffer_size,
-                     "%s\n%s · %d°C · %s",
-                     device->name,
-                     smart_home_ac_mode_name(device->ac_mode),
-                     device->temperature,
-                     smart_home_ac_fan_speed_name(device->ac_fan_speed));
+                     "%s · %d°C · %s",
+                     device_room_name(device->room), device->temperature,
+                     smart_home_ac_mode_name(device->ac_mode));
         } else {
-            snprintf(buffer, buffer_size, "%s\n%s · 已关闭", device->name,
+            snprintf(buffer, buffer_size, "%s · 已关闭",
                      device_room_name(device->room));
         }
     } else if (device->on) {
         snprintf(buffer,
                  buffer_size,
-                 "%s\n%s · %d%%",
-                 device->name,
+                 "%s · 亮度 %d%%",
                  device_room_name(device->room),
                  device->brightness);
     } else {
-        snprintf(buffer, buffer_size, "%s\n%s · 已关闭", device->name,
+        snprintf(buffer, buffer_size, "%s · 已关闭",
                  device_room_name(device->room));
     }
 }
 
+static int device_card_width(void)
+{
+    int columns = smart_home_lvgl_compact() ? 2 : 4;
+    int gap = smart_home_lvgl_compact() ? 8 : 12;
+
+    return (smart_home_lvgl_content_w() - gap * (columns - 1)) / columns;
+}
+
 static void set_card_content(lv_obj_t *card,
                              const char *icon_name,
-                             const char *text,
+                             const char *title,
+                             const char *detail,
                              int is_on)
 {
-    lv_obj_t *cont;
+    lv_obj_t *badge;
+    lv_obj_t *glyph;
     lv_obj_t *label;
+    lv_obj_t *sw;
 
     lv_obj_clean(card);
+    badge = lv_obj_create(card);
+    lv_obj_remove_style_all(badge);
+    lv_obj_set_size(badge, 42, 42);
+    lv_obj_align(badge, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_radius(badge, 12, 0);
+    smart_home_lvgl_set_bg(badge, is_on ? lv_color_hex(0xFFF8EF) :
+                           SMART_HOME_UI_COLOR_SURFACE_SOFT);
+    lv_obj_clear_flag(badge, LV_OBJ_FLAG_CLICKABLE);
+    glyph = smart_home_lvgl_icon_create(badge, icon_name, 24, 24);
+    if (glyph) {
+        lv_obj_set_style_text_color(glyph, SMART_HOME_UI_COLOR_TEXT_PRIMARY, 0);
+        lv_obj_set_style_image_recolor(glyph, SMART_HOME_UI_COLOR_TEXT_PRIMARY, 0);
+        lv_obj_set_style_image_recolor_opa(glyph, LV_OPA_COVER, 0);
+        lv_obj_center(glyph);
+    }
 
-    cont = lv_obj_create(card);
-    lv_obj_remove_style_all(cont);
-    lv_obj_set_size(cont, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_clear_flag(cont, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(cont, 0, 0);
-    lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(cont,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(cont, smart_home_lvgl_compact() ? 4 : 6, 0);
-    lv_obj_center(cont);
+    sw = lv_switch_create(card);
+    lv_obj_set_size(sw, 40, 22);
+    lv_obj_align(sw, LV_ALIGN_TOP_RIGHT, 0, 0);
+    if (is_on) {
+        lv_obj_add_state(sw, LV_STATE_CHECKED);
+    }
+    /* Card tap opens the native fine-control sheet; this switch is a state
+     * indicator until an immediate control action is explicitly designed. */
+    lv_obj_clear_flag(sw, LV_OBJ_FLAG_CLICKABLE);
 
-    smart_home_lvgl_icon_create(cont,
-                                icon_name,
-                                smart_home_lvgl_compact() ? 22 : 28,
-                                smart_home_lvgl_compact() ? 22 : 28);
-
-    label = smart_home_lvgl_label_create(cont,
-                                         text,
-                                         is_on ?
-                                             SMART_HOME_UI_COLOR_TEXT_PRIMARY :
-                                             SMART_HOME_UI_COLOR_TEXT_MUTED,
-                                         smart_home_lvgl_compact() ? 11 : 12);
-    lv_obj_set_width(label, smart_home_lvgl_compact() ? 112 : 150);
-    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    label = smart_home_lvgl_label_create(card, title,
+                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY, 16);
+    lv_obj_align(label, LV_ALIGN_BOTTOM_LEFT, 0, -23);
+    label = smart_home_lvgl_label_create(card, detail,
+                                         SMART_HOME_UI_COLOR_TEXT_SECONDARY, 12);
+    lv_obj_align(label, LV_ALIGN_BOTTOM_LEFT, 0, 0);
 }
 
 static lv_obj_t *create_action_button(lv_obj_t *parent,
@@ -474,6 +504,60 @@ static void panel_room_cb(lv_event_t *event)
     smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
 
     rebuild_device_cards(ui);
+}
+
+static void room_chip_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
+    lv_obj_t *chip = lv_event_get_current_target(event);
+    lv_obj_t *row;
+    int selected;
+    uint32_t i;
+
+    if (!ui || !ui->panel_room_dd || !chip ||
+        lv_event_get_code(event) != LV_EVENT_CLICKED) {
+        return;
+    }
+
+    selected = (int)(intptr_t)lv_obj_get_user_data(chip);
+    lv_dropdown_set_selected(ui->panel_room_dd, selected);
+    row = lv_obj_get_parent(chip);
+    for (i = 0; row && i < lv_obj_get_child_count(row); i++) {
+        lv_obj_t *item = lv_obj_get_child(row, i);
+        lv_obj_t *label;
+        int active = (int)(intptr_t)lv_obj_get_user_data(item) == selected;
+
+        smart_home_lvgl_set_bg(item, active ? SMART_HOME_UI_COLOR_SURFACE_ON :
+                               SMART_HOME_UI_COLOR_SURFACE);
+        label = lv_obj_get_child(item, 0);
+        if (label) {
+            lv_obj_set_style_text_color(label,
+                                        active ? SMART_HOME_UI_COLOR_PRIMARY_DARK :
+                                        SMART_HOME_UI_COLOR_TEXT_SECONDARY,
+                                        0);
+        }
+    }
+    rebuild_device_cards(ui);
+}
+
+static void create_room_chip(lv_obj_t *row, smart_home_lvgl_t *ui,
+                             const char *text, int index)
+{
+    lv_obj_t *chip = lv_btn_create(row);
+    lv_obj_t *label;
+    int selected = index == 0;
+
+    lv_obj_remove_style_all(chip);
+    lv_obj_set_size(chip, smart_home_lvgl_compact() ? 62 : 82, 34);
+    lv_obj_set_style_radius(chip, 12, 0);
+    smart_home_lvgl_set_bg(chip, selected ? SMART_HOME_UI_COLOR_SURFACE_ON :
+                           SMART_HOME_UI_COLOR_SURFACE);
+    lv_obj_set_user_data(chip, (void *)(intptr_t)index);
+    lv_obj_add_event_cb(chip, room_chip_cb, LV_EVENT_CLICKED, ui);
+    label = smart_home_lvgl_label_create(chip, text,
+                                         selected ? SMART_HOME_UI_COLOR_PRIMARY_DARK :
+                                         SMART_HOME_UI_COLOR_TEXT_SECONDARY, 14);
+    lv_obj_center(label);
 }
 
 static void add_device_cb(lv_event_t *event)
@@ -960,8 +1044,8 @@ static lv_obj_t *create_device_card(lv_obj_t *grid,
                                     int slot,
                                     const smart_home_device_t *device)
 {
-    int card_w = smart_home_lvgl_content_w() / 2 - 12;
-    int card_h = smart_home_lvgl_compact() ? 82 : 98;
+    int card_w = device_card_width();
+    int card_h = smart_home_lvgl_compact() ? 92 : 112;
     lv_obj_t *card = lv_obj_create(grid);
     char text[128];
 
@@ -971,28 +1055,22 @@ static lv_obj_t *create_device_card(lv_obj_t *grid,
     lv_obj_add_event_cb(card, card_click_cb, LV_EVENT_CLICKED, ui);
 
     format_device_card_text(device, text, sizeof(text));
-    set_card_content(card, device_icon(device), text, device && device->on);
-
-    if (device && device->on) {
-        smart_home_lvgl_set_bg(card, SMART_HOME_UI_COLOR_SURFACE_ON);
-        lv_obj_set_style_border_color(card,
-                                      SMART_HOME_UI_COLOR_DEVICE_ON_BORDER,
-                                      0);
-    }
+    set_card_content(card, device_icon(device), device_display_name(device), text,
+                     device && device->on);
 
     return card;
 }
 
 static lv_obj_t *create_add_card(lv_obj_t *grid, smart_home_lvgl_t *ui)
 {
-    int card_w = smart_home_lvgl_content_w() / 2 - 12;
-    int card_h = smart_home_lvgl_compact() ? 82 : 98;
+    int card_w = device_card_width();
+    int card_h = smart_home_lvgl_compact() ? 92 : 112;
     lv_obj_t *card = lv_obj_create(grid);
 
     lv_obj_set_size(card, card_w, card_h);
     smart_home_lvgl_card_style(card);
     lv_obj_add_event_cb(card, add_device_cb, LV_EVENT_CLICKED, ui);
-    set_card_content(card, ICON_ADD, "添加设备", 0);
+    set_card_content(card, ICON_ADD, "添加设备", "接入新的家庭设备", 0);
     smart_home_lvgl_set_bg(card, SMART_HOME_UI_COLOR_SURFACE_SOFT);
     return card;
 }
@@ -1044,8 +1122,8 @@ static void format_remote_command_text(const caddons_node_info_t *node,
 static lv_obj_t *create_remote_node_card(lv_obj_t *grid,
                                          const caddons_node_info_t *node)
 {
-    int card_w = smart_home_lvgl_content_w() / 2 - 12;
-    int card_h = smart_home_lvgl_compact() ? 118 : 132;
+    int card_w = device_card_width();
+    int card_h = smart_home_lvgl_compact() ? 104 : 112;
     int font_size = smart_home_lvgl_compact() ? 10 : 11;
     lv_obj_t *card;
     lv_obj_t *content;
@@ -1149,7 +1227,6 @@ static void rebuild_device_cards(smart_home_lvgl_t *ui)
     }
 
     lv_obj_clean(ui->panel_grid);
-    ui->panel_add_btn = create_add_card(ui->panel_grid, ui);
     for (slot = 0; slot < SMART_HOME_MAX_DEVICES; slot++) {
         smart_home_device_t *device;
 
@@ -1165,6 +1242,8 @@ static void rebuild_device_cards(smart_home_lvgl_t *ui)
         ui->device_cards[slot] =
             create_device_card(ui->panel_grid, ui, slot, device);
     }
+
+    ui->panel_add_btn = create_add_card(ui->panel_grid, ui);
 
 #ifdef CONFIG_SMART_HOME_NODE_GATEWAY
     append_online_remote_node_cards(ui);
@@ -1217,6 +1296,10 @@ static lv_obj_t *create_sensor_entry(lv_obj_t *row,
         lv_obj_set_style_text_color(icon,
                                     SMART_HOME_UI_COLOR_TEXT_MUTED,
                                     0);
+        lv_obj_set_style_image_recolor(icon,
+                                        SMART_HOME_UI_COLOR_TEXT_MUTED,
+                                        0);
+        lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
     }
 
     label = smart_home_lvgl_label_create(content,
@@ -1235,11 +1318,12 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
     lv_obj_t *screen;
     lv_obj_t *grid;
     lv_obj_t *sensor_bar;
+    lv_obj_t *filter_row;
     lv_obj_t *label;
     int content_w = smart_home_lvgl_content_w();
     int pad_x = smart_home_lvgl_pad_x();
     int compact = smart_home_lvgl_compact();
-    int grid_y = SMART_HOME_TOPBAR_H + (compact ? 40 : 52);
+    int grid_y = SMART_HOME_TOPBAR_H + (compact ? 84 : 122);
     int sensor_h = compact ? 26 : 30;
     int sensor_bottom =
         SMART_HOME_NAV_H + SMART_HOME_NAV_BOTTOM_PAD + (compact ? 8 : 16);
@@ -1258,29 +1342,42 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
     smart_home_lvgl_set_bg(screen, SMART_HOME_UI_COLOR_BG);
     ui->screen_panel = screen;
 
-    smart_home_lvgl_build_top_bar(screen, "设备");
+    smart_home_lvgl_build_top_bar(screen, "OpenVela HOME");
 
     ui->panel_title = smart_home_lvgl_label_create(screen,
-                                                   "设备",
+                                                   "我的设备",
                                                    SMART_HOME_UI_COLOR_TEXT_PRIMARY,
-                                                   16);
+                                                   compact ? 20 : 28);
     lv_obj_align(ui->panel_title,
                  LV_ALIGN_TOP_LEFT,
                  pad_x,
-                 SMART_HOME_TOPBAR_H + (compact ? 8 : 12));
+                 SMART_HOME_TOPBAR_H + (compact ? 10 : 26));
 
     ui->panel_room_dd = lv_dropdown_create(screen);
     lv_dropdown_set_options(ui->panel_room_dd, "全部\n客厅\n卧室");
-    lv_obj_set_size(ui->panel_room_dd, compact ? 88 : 100, compact ? 28 : 32);
-    lv_obj_align(ui->panel_room_dd,
-                 LV_ALIGN_TOP_RIGHT,
-                 -pad_x,
-                 SMART_HOME_TOPBAR_H + (compact ? 6 : 8));
-    lv_obj_set_style_text_font(ui->panel_room_dd, smart_home_lvgl_font(12), 0);
+    /* Keep the existing selection contract as the source of truth while the
+     * product page exposes it as touch-friendly room chips below. */
+    lv_obj_set_size(ui->panel_room_dd, 1, 1);
+    lv_obj_add_flag(ui->panel_room_dd, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(ui->panel_room_dd,
                         panel_room_cb,
                         LV_EVENT_VALUE_CHANGED,
                         ui);
+
+    filter_row = lv_obj_create(screen);
+    lv_obj_remove_style_all(filter_row);
+    lv_obj_set_size(filter_row, content_w, 38);
+    lv_obj_align(filter_row, LV_ALIGN_TOP_LEFT, pad_x,
+                 SMART_HOME_TOPBAR_H + (compact ? 44 : 70));
+    lv_obj_set_style_bg_opa(filter_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(filter_row, 0, 0);
+    lv_obj_set_style_pad_column(filter_row, compact ? 6 : 10, 0);
+    lv_obj_set_flex_flow(filter_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(filter_row, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    create_room_chip(filter_row, ui, "全部", 0);
+    create_room_chip(filter_row, ui, "客厅", 1);
+    create_room_chip(filter_row, ui, "卧室", 2);
 
     grid = lv_obj_create(screen);
     lv_obj_remove_style_all(grid);
@@ -1291,7 +1388,7 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
                           LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_row(grid, compact ? 8 : 10, 0);
+    lv_obj_set_style_pad_row(grid, compact ? 8 : 12, 0);
     lv_obj_set_style_pad_column(grid, compact ? 8 : 12, 0);
     lv_obj_set_scroll_dir(grid, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(grid, LV_SCROLLBAR_MODE_AUTO);

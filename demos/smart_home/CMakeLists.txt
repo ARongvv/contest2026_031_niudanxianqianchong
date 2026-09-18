@@ -69,25 +69,22 @@ if(CONFIG_SMART_HOME_DEMO)
   endif()
 
   if(CONFIG_SMART_HOME_DEMO_UI_LVGL)
+    file(GLOB SMART_HOME_GENERATED_ICON_SRCS
+      "${CMAKE_CURRENT_LIST_DIR}/src/ui/lvgl/icons/generated/*.c"
+    )
     list(APPEND SMART_HOME_SRCS
       src/ui/lvgl/smart_home_lvgl.c
       src/ui/lvgl/smart_home_lvgl_agent.c
       src/ui/lvgl/smart_home_lvgl_chat.c
+      src/ui/lvgl/smart_home_lvgl_home.c
       src/ui/lvgl/smart_home_lvgl_nav.c
       src/ui/lvgl/smart_home_lvgl_panel.c
+      src/ui/lvgl/smart_home_lvgl_pages.c
+      src/ui/lvgl/smart_home_lvgl_screensaver.c
       src/ui/lvgl/smart_home_lvgl_settings.c
       src/ui/lvgl/smart_home_lvgl_style.c
-      src/ui/lvgl/icons/ac_20.c
-      src/ui/lvgl/icons/bed_20.c
-      src/ui/lvgl/icons/chat_20.c
-      src/ui/lvgl/icons/couch_20.c
-      src/ui/lvgl/icons/device_20.c
-      src/ui/lvgl/icons/droplet_20.c
-      src/ui/lvgl/icons/fan_20.c
-      src/ui/lvgl/icons/light_20.c
-      src/ui/lvgl/icons/sun_20.c
-      src/ui/lvgl/icons/temperature_20.c
-      src/ui/lvgl/icons/tool_20.c
+      src/ui/lvgl/icons/smart_home_lvgl_png_icons.c
+      ${SMART_HOME_GENERATED_ICON_SRCS}
     )
   endif()
 

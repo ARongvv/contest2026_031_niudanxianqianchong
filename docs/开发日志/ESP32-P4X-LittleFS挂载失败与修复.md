@@ -18,8 +18,8 @@ P4X Smart Home 联调过程中曾同时出现两类故障：
 | 项目 | 当前配置 |
 | --- | --- |
 | Flash 容量 | 16 MiB |
-| LittleFS 资源分区偏移 | `0x00800000` |
-| LittleFS 资源分区大小 | `0x00100000` (1 MiB) |
+| LittleFS 资源分区偏移 | `0x00600000` |
+| LittleFS 资源分区大小 | `0x00a00000` (10 MiB) |
 | MTD 设备 | `/dev/espflash` |
 | 挂载点 | `/data` |
 | GT911 总线 | I²C0，SCL=GPIO8，SDA=GPIO7 |
@@ -27,8 +27,10 @@ P4X Smart Home 联调过程中曾同时出现两类故障：
 | GT911 探测地址 | 主地址 `0x5d`，备用地址 `0x14` |
 | 板级启动顺序 | DSI framebuffer → GT911 → Flash MTD/LittleFS |
 
-> 历史版本曾使用 `0x00e00000`。当前固件与资源镜像必须统一使用
-> `0x00800000`，不能混用新旧偏移。
+> 历史版本曾使用 `0x00e00000`、`0x00800000 + 1 MiB`。当前布局为
+> **6 MiB 固件 + 10 MiB LittleFS**，固件与资源镜像必须统一使用
+> `0x00600000 + 0x00a00000`，不能混用旧偏移。完整 MiSans 的加载方式及
+> 真机证据见《ESP32-P4X SmartHome 完整 MiSans PSRAM 预加载修复》。
 
 ## 3. 问题一：LittleFS 底层 Flash 未初始化
 
@@ -187,7 +189,7 @@ esp_bringup()
       → 注册 /dev/input0
   → board_spiflash_init()
       → esp_spiflash_initialize()
-      → 创建 0x00800000 + 1 MiB MTD 分区
+      → 创建 0x00600000 + 10 MiB MTD 分区
       → 注册 /dev/espflash
       → 挂载 LittleFS 到 /data
   → 启动 NSH/应用
@@ -204,7 +206,7 @@ esp_bringup()
 | `chips/esp32p4/common/espressif/esp_spiflash_mtd.c` | 增加 MTD 读、写、擦除失败诊断。 |
 | `board/esp32p4/common/src/esp_board_spiflash.c` | 在 MTD/LittleFS 创建前保证 Flash 就绪。 |
 | `chips/esp32p4/common/espressif/Kconfig` | 增加存储分区和可关闭的诊断配置。 |
-| `board/esp32p4/esp32p4-function-ev-board/configs/smart_home/defconfig` | 启用 LittleFS，将资源分区设为 `0x00800000`。 |
+| `board/esp32p4/esp32p4-function-ev-board/configs/smart_home/defconfig` | 启用 LittleFS，将资源分区设为 `0x00600000`、`0x00a00000`。 |
 
 ### 6.2 GT911/I²C
 
@@ -225,9 +227,9 @@ GT911 power-on wait: 100 ms before product-ID probe
 GT911 probing I2C address 0x5d
 GT911 product id: 39 31 31 00 (911)
 GT911 registered at /dev/input0: I2C0 address=0x5d poll=20ms
-P4X storage bring-up: offset=0x00800000 size=0x00100000
+P4X storage bring-up: offset=0x00600000 size=0x00a00000
 P4X default Flash chip initialized: size=0x01000000
-P4X MTD partition: flash_size=0x1000000 offset=0x800000 size=0x100000
+P4X MTD partition: flash_size=0x1000000 offset=0x600000 size=0xa00000
 P4X LittleFS register: source=/dev/espflash mount=/data
 P4X LittleFS mounted: source=/dev/espflash mount=/data
 ```
@@ -274,7 +276,7 @@ esptool --chip esp32p4 --port /dev/ttyACM0 --baud 921600 \
 
 esptool --chip esp32p4 --port /dev/ttyACM0 --baud 921600 \
   write-flash -fs 16MB -fm dio -ff 80m \
-  0x800000 out/p4x_littlefs_data/data_lfs.bin
+  0x600000 out/p4x_littlefs_data/data_lfs.bin
 ```
 
 ## 9. NSH 验证
@@ -303,7 +305,8 @@ smart_home
    和 LVGL 触摸可用。
 2. 验证单指点按、滑动、抬起及边缘坐标，防止只验证 Product ID 而遗漏
    事件链问题。
-3. 保持固件 `CONFIG_ESPRESSIF_STORAGE_MTD_OFFSET=0x800000` 与烧录命令一致。
+3. 保持固件 `CONFIG_ESPRESSIF_STORAGE_MTD_OFFSET=0x600000` 与烧录命令一致，
+   并确认资源镜像不超过 `CONFIG_ESPRESSIF_STORAGE_MTD_SIZE=0xa00000`。
 4. 不要将一次成功解读为“间歇性 NACK 的唯一根因已得到绝对证明”。
    当前结论是：Flash 初始化闭环、I²C 引脚属性、探测参数和启动顺序
    已经形成可共存的真机配置。

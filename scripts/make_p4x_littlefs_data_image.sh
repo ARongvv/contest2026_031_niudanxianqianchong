@@ -21,11 +21,11 @@ MKLITTLEFS="${MKLITTLEFS:-${OPENVELA_ROOT}/vendor/artinchip/tools/scripts/mklitt
 # the SPI Flash MTD reports a 64-byte program block and LittleFS uses the
 # configured PROGRAM_SIZE_FACTOR (4), therefore prog/page size is 256 bytes.
 # The full MiSans runtime font is about 7.9 MiB.  The P4X Smart Home image
-# reserves the upper 8 MiB of its verified 16 MiB flash for LittleFS.
-DATA_SIZE="${DATA_SIZE:-0x800000}"
+# reserves the upper 10 MiB of its verified 16 MiB flash for LittleFS.
+DATA_SIZE="${DATA_SIZE:-0xa00000}"
 BLOCK_SIZE="${BLOCK_SIZE:-4096}"
 PAGE_SIZE="${PAGE_SIZE:-256}"
-FLASH_OFFSET="${FLASH_OFFSET:-0x800000}"
+FLASH_OFFSET="${FLASH_OFFSET:-0x600000}"
 FLASH_SIZE_BYTES="${FLASH_SIZE_BYTES:-0x1000000}"
 
 CONFIG_DIR="${CONFIG_DIR:-${SMART_HOME_DIR}/res/config}"

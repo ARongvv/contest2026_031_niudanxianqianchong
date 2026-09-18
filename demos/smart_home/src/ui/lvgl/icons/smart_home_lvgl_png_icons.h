@@ -1,0 +1,101 @@
+/** Generated SmartHome PNG-derived LVGL A8 icon declarations. */
+#pragma once
+
+#include <lvgl/lvgl.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+extern const lv_image_dsc_t smart_home_icon_air_conditioning_disabled_32;
+extern const lv_image_dsc_t smart_home_icon_air_conditioning_20;
+extern const lv_image_dsc_t smart_home_icon_air_conditioning_32;
+extern const lv_image_dsc_t smart_home_icon_air_conditioning_48;
+extern const lv_image_dsc_t smart_home_icon_air_purifier_32;
+extern const lv_image_dsc_t smart_home_icon_bath_32;
+extern const lv_image_dsc_t smart_home_icon_bed_king_outline_32;
+extern const lv_image_dsc_t smart_home_icon_bell_32;
+extern const lv_image_dsc_t smart_home_icon_blinds_open_32;
+extern const lv_image_dsc_t smart_home_icon_blinds_32;
+extern const lv_image_dsc_t smart_home_icon_boombox_32;
+extern const lv_image_dsc_t smart_home_icon_bulb_20;
+extern const lv_image_dsc_t smart_home_icon_bulb_32;
+extern const lv_image_dsc_t smart_home_icon_camera_off_32;
+extern const lv_image_dsc_t smart_home_icon_camera_20;
+extern const lv_image_dsc_t smart_home_icon_camera_32;
+extern const lv_image_dsc_t smart_home_icon_camera_48;
+extern const lv_image_dsc_t smart_home_icon_cancel_32;
+extern const lv_image_dsc_t smart_home_icon_chevron_right_32;
+extern const lv_image_dsc_t smart_home_icon_cloud_cog_32;
+extern const lv_image_dsc_t smart_home_icon_cloud_rain_20;
+extern const lv_image_dsc_t smart_home_icon_cloud_rain_32;
+extern const lv_image_dsc_t smart_home_icon_cloud_rain_48;
+extern const lv_image_dsc_t smart_home_icon_cloud_32;
+extern const lv_image_dsc_t smart_home_icon_corner_up_left_32;
+extern const lv_image_dsc_t smart_home_icon_device_computer_camera_off_32;
+extern const lv_image_dsc_t smart_home_icon_device_computer_camera_32;
+extern const lv_image_dsc_t smart_home_icon_devices_20;
+extern const lv_image_dsc_t smart_home_icon_devices_32;
+extern const lv_image_dsc_t smart_home_icon_door_32;
+extern const lv_image_dsc_t smart_home_icon_dots_20;
+extern const lv_image_dsc_t smart_home_icon_dots_32;
+extern const lv_image_dsc_t smart_home_icon_fridge_off_32;
+extern const lv_image_dsc_t smart_home_icon_fridge_32;
+extern const lv_image_dsc_t smart_home_icon_home_shield_32;
+extern const lv_image_dsc_t smart_home_icon_home_shield_48;
+extern const lv_image_dsc_t smart_home_icon_home_20;
+extern const lv_image_dsc_t smart_home_icon_home_32;
+extern const lv_image_dsc_t smart_home_icon_home_48;
+extern const lv_image_dsc_t smart_home_icon_lamp_2_32;
+extern const lv_image_dsc_t smart_home_icon_lamp_off_32;
+extern const lv_image_dsc_t smart_home_icon_lamp_32;
+extern const lv_image_dsc_t smart_home_icon_loader_32;
+extern const lv_image_dsc_t smart_home_icon_lock_open_32;
+extern const lv_image_dsc_t smart_home_icon_lock_32;
+extern const lv_image_dsc_t smart_home_icon_microphone_off_32;
+extern const lv_image_dsc_t smart_home_icon_microphone_20;
+extern const lv_image_dsc_t smart_home_icon_microphone_32;
+extern const lv_image_dsc_t smart_home_icon_minus_32;
+extern const lv_image_dsc_t smart_home_icon_moon_20;
+extern const lv_image_dsc_t smart_home_icon_moon_32;
+extern const lv_image_dsc_t smart_home_icon_music_circle_outline_32;
+extern const lv_image_dsc_t smart_home_icon_music_circle_outline_48;
+extern const lv_image_dsc_t smart_home_icon_player_pause_32;
+extern const lv_image_dsc_t smart_home_icon_player_play_32;
+extern const lv_image_dsc_t smart_home_icon_player_track_next_32;
+extern const lv_image_dsc_t smart_home_icon_player_track_prev_32;
+extern const lv_image_dsc_t smart_home_icon_playlist_32;
+extern const lv_image_dsc_t smart_home_icon_plus_32;
+extern const lv_image_dsc_t smart_home_icon_propeller_20;
+extern const lv_image_dsc_t smart_home_icon_propeller_32;
+extern const lv_image_dsc_t smart_home_icon_robot_vacuum_32;
+extern const lv_image_dsc_t smart_home_icon_robot_20;
+extern const lv_image_dsc_t smart_home_icon_robot_32;
+extern const lv_image_dsc_t smart_home_icon_robot_48;
+extern const lv_image_dsc_t smart_home_icon_shield_20;
+extern const lv_image_dsc_t smart_home_icon_shield_32;
+extern const lv_image_dsc_t smart_home_icon_sofa_single_outline_32;
+extern const lv_image_dsc_t smart_home_icon_sparkle_2_20;
+extern const lv_image_dsc_t smart_home_icon_sparkle_2_32;
+extern const lv_image_dsc_t smart_home_icon_sparkle_2_48;
+extern const lv_image_dsc_t smart_home_icon_sun_20;
+extern const lv_image_dsc_t smart_home_icon_sun_32;
+extern const lv_image_dsc_t smart_home_icon_television_classic_32;
+extern const lv_image_dsc_t smart_home_icon_temperature_20;
+extern const lv_image_dsc_t smart_home_icon_temperature_32;
+extern const lv_image_dsc_t smart_home_icon_video_off_32;
+extern const lv_image_dsc_t smart_home_icon_video_32;
+extern const lv_image_dsc_t smart_home_icon_volume_2_32;
+extern const lv_image_dsc_t smart_home_icon_volume_32;
+extern const lv_image_dsc_t smart_home_icon_wash_machine_32;
+extern const lv_image_dsc_t smart_home_icon_wifi_off_32;
+extern const lv_image_dsc_t smart_home_icon_wifi_20;
+extern const lv_image_dsc_t smart_home_icon_wifi_32;
+extern const lv_image_dsc_t smart_home_icon_window_32;
+
+/* `name` must use the stable `asset:<png-stem>` vocabulary. */
+const lv_image_dsc_t *smart_home_lvgl_png_icon_get(const char *name, int requested_size);
+
+#ifdef __cplusplus
+}
+#endif

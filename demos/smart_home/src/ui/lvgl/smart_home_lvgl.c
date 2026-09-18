@@ -32,6 +32,16 @@
 
 #define SMART_HOME_LVGL_QUEUE_POLL_MS 10u
 
+#ifdef CONFIG_SMART_HOME_DEMO_DEBUG_LOG
+static void smart_home_lvgl_log_build_stage(const char *stage,
+                                            const char *phase)
+{
+    printf("[smart_home_lvgl] build %s %s\n", stage, phase);
+}
+#else
+#define smart_home_lvgl_log_build_stage(stage, phase) ((void)0)
+#endif
+
 smart_home_lvgl_t *smart_home_lvgl_init(smart_home_agent_app_t *app)
 {
     smart_home_lvgl_t *ui;
@@ -50,14 +60,37 @@ smart_home_lvgl_t *smart_home_lvgl_init(smart_home_agent_app_t *app)
         return NULL;
     }
 
+    smart_home_lvgl_log_build_stage("screensaver", "begin");
     smart_home_lvgl_build_screensaver_screen(ui);
+    smart_home_lvgl_log_build_stage("screensaver", "done");
+
+    smart_home_lvgl_log_build_stage("home", "begin");
     smart_home_lvgl_build_home_screen(ui);
+    smart_home_lvgl_log_build_stage("home", "done");
+
+    smart_home_lvgl_log_build_stage("panel", "begin");
     smart_home_lvgl_build_panel_screen(ui);
+    smart_home_lvgl_log_build_stage("panel", "done");
+
+    smart_home_lvgl_log_build_stage("scenes", "begin");
     smart_home_lvgl_build_scene_screen(ui);
+    smart_home_lvgl_log_build_stage("scenes", "done");
+
+    smart_home_lvgl_log_build_stage("security", "begin");
     smart_home_lvgl_build_security_screen(ui);
+    smart_home_lvgl_log_build_stage("security", "done");
+
+    smart_home_lvgl_log_build_stage("more", "begin");
     smart_home_lvgl_build_more_screen(ui);
+    smart_home_lvgl_log_build_stage("more", "done");
+
+    smart_home_lvgl_log_build_stage("chat", "begin");
     smart_home_lvgl_build_chat_screen(ui);
+    smart_home_lvgl_log_build_stage("chat", "done");
+
+    smart_home_lvgl_log_build_stage("settings", "begin");
     smart_home_lvgl_build_settings_screen(ui);
+    smart_home_lvgl_log_build_stage("settings", "done");
     return ui;
 }
 

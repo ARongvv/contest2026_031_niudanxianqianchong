@@ -3,14 +3,19 @@
  */
 
 #include "smart_home_lvgl_style.h"
-#include "icons/smart_home_lvgl_icons.h"
+#include "icons/smart_home_lvgl_png_icons.h"
+#include "smart_home_memory.h"
 
 #include <nuttx/config.h>
 
+#include <errno.h>
+#include <fcntl.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #ifndef CONFIG_SMART_HOME_DEMO_DATA_ROOT
@@ -34,6 +39,96 @@
 
 static smart_home_lvgl_style_t g_style;
 
+/* TinyTTF's file backend performs many small seeks while locating and
+ * rasterising CJK glyphs.  On LittleFS this makes a complete MiSans font
+ * impractical at startup.  Keep one immutable copy in the ESP32-P4 user
+ * heap (configured as PSRAM) and let every point size share that buffer. */
+static void *g_font_data;
+static size_t g_font_data_size;
+
+static int smart_home_lvgl_load_font_data(void)
+{
+    struct stat st;
+    ssize_t ret;
+    size_t offset = 0;
+    int fd;
+
+    if (g_font_data) {
+        return 0;
+    }
+
+    printf("[smart_home_lvgl] font preload begin path=%s\n",
+           SMART_HOME_FONT_NORMAL);
+
+    fd = open(SMART_HOME_FONT_NORMAL, O_RDONLY);
+    if (fd < 0) {
+        printf("[smart_home_lvgl] font preload open failed errno=%d\n", errno);
+        return -1;
+    }
+
+    if (fstat(fd, &st) < 0) {
+        printf("[smart_home_lvgl] font preload stat failed errno=%d\n", errno);
+        close(fd);
+        return -1;
+    }
+
+    if (st.st_size <= 0 || (uintmax_t)st.st_size > SIZE_MAX) {
+        printf("[smart_home_lvgl] font preload invalid size=%ld\n",
+               (long)st.st_size);
+        close(fd);
+        return -1;
+    }
+
+    g_font_data_size = (size_t)st.st_size;
+    g_font_data = smart_home_bulk_alloc(g_font_data_size);
+    if (!g_font_data) {
+        printf("[smart_home_lvgl] font preload alloc failed size=%zu\n",
+               g_font_data_size);
+        g_font_data_size = 0;
+        close(fd);
+        return -1;
+    }
+
+    while (offset < g_font_data_size) {
+        ret = read(fd, (char *)g_font_data + offset,
+                   g_font_data_size - offset);
+        if (ret > 0) {
+            offset += (size_t)ret;
+            continue;
+        }
+
+        if (ret < 0 && errno == EINTR) {
+            continue;
+        }
+
+        printf("[smart_home_lvgl] font preload read failed read=%zd "
+               "expected=%zu errno=%d\n",
+               ret, g_font_data_size, errno);
+        smart_home_bulk_free(g_font_data);
+        g_font_data = NULL;
+        g_font_data_size = 0;
+        close(fd);
+        return -1;
+    }
+
+    close(fd);
+
+    /* With CONFIG_ESPRESSIF_SPIRAM_USER_HEAP, ESP32-P4's user heap is the
+     * external PSRAM region.  Keep this explicit in the boot log so the
+     * resource image and runtime allocation can be checked together. */
+#if defined(CONFIG_ARCH_CHIP_ESP32P4) && \
+    defined(CONFIG_ESPRESSIF_SPIRAM_USER_HEAP)
+    printf("[smart_home_lvgl] font preload done size=%zu buffer=%p "
+           "region=PSRAM(user-heap)\n",
+           g_font_data_size, g_font_data);
+#else
+    printf("[smart_home_lvgl] font preload done size=%zu buffer=%p "
+           "region=bulk-heap\n",
+           g_font_data_size, g_font_data);
+#endif
+    return 0;
+}
+
 static lv_font_t *load_font(int size)
 {
 #ifdef CONFIG_LV_USE_FREETYPE
@@ -41,11 +136,12 @@ static lv_font_t *load_font(int size)
                                    LV_FREETYPE_FONT_RENDER_MODE_BITMAP,
                                    size,
                                    LV_FREETYPE_FONT_STYLE_NORMAL);
-#elif defined(CONFIG_LV_USE_TINY_TTF) && \
-      defined(CONFIG_LV_TINY_TTF_FILE_SUPPORT)
-    /* TinyTTF streams the subset font from LittleFS and avoids an external
-     * FreeType package dependency in the P4X Route-A build. */
-    return lv_tiny_ttf_create_file(SMART_HOME_FONT_NORMAL, size);
+#elif defined(CONFIG_LV_USE_TINY_TTF)
+    if (!g_font_data) {
+        return NULL;
+    }
+
+    return lv_tiny_ttf_create_data(g_font_data, g_font_data_size, size);
 #else
     (void)size;
     return NULL;
@@ -54,17 +150,26 @@ static lv_font_t *load_font(int size)
 
 int smart_home_lvgl_style_init(void)
 {
+#if defined(CONFIG_LV_USE_TINY_TTF)
+    if (smart_home_lvgl_load_font_data() < 0) {
+        printf("[smart_home_lvgl] external font disabled; using Montserrat fallback\n");
+    }
+#endif
+
     g_style.font_12 = load_font(12);
     g_style.font_14 = load_font(14);
     g_style.font_16 = load_font(16);
     g_style.font_20 = load_font(20);
     g_style.font_32 = load_font(32);
-    printf("[smart_home_lvgl] font path=%s font12=%p font14=%p font16=%p font20=%p\n",
-           SMART_HOME_FONT_NORMAL,
+    printf("[smart_home_lvgl] font instances source=%s size=%zu "
+           "font12=%p font14=%p font16=%p font20=%p font32=%p\n",
+           g_font_data ? "PSRAM-data" : "builtin-fallback",
+           g_font_data_size,
            g_style.font_12,
            g_style.font_14,
            g_style.font_16,
-           g_style.font_20);
+           g_style.font_20,
+           g_style.font_32);
     return 0;
 }
 
@@ -108,6 +213,12 @@ void smart_home_lvgl_style_deinit(void)
     g_style.font_16 = NULL;
     g_style.font_20 = NULL;
     g_style.font_32 = NULL;
+
+    if (g_font_data) {
+        smart_home_bulk_free(g_font_data);
+        g_font_data = NULL;
+        g_font_data_size = 0;
+    }
 }
 
 const lv_font_t *smart_home_lvgl_font(int size)
@@ -212,46 +323,16 @@ static int icon_is_lv_symbol(const char *icon)
     return first >= 0x80;
 }
 
+static int icon_is_product_asset(const char *icon)
+{
+    return icon && strncmp(icon, "asset:", strlen("asset:")) == 0;
+}
+
 const lv_font_t *smart_home_lvgl_embedded_icon_font(const char *icon)
 {
-    if (!icon) {
-        return NULL;
-    }
-
-    if (strcmp(icon, SMART_HOME_ICON_AC) == 0) {
-        return &ac_20;
-    }
-    if (strcmp(icon, SMART_HOME_ICON_BED) == 0) {
-        return &bed_20;
-    }
-    if (strcmp(icon, SMART_HOME_ICON_CHAT) == 0) {
-        return &chat_20;
-    }
-    if (strcmp(icon, SMART_HOME_ICON_COUCH) == 0) {
-        return &couch_20;
-    }
-    if (strcmp(icon, SMART_HOME_ICON_DEVICE) == 0) {
-        return &device_20;
-    }
-    if (strcmp(icon, SMART_HOME_ICON_DROPLET) == 0) {
-        return &droplet_20;
-    }
-    if (strcmp(icon, SMART_HOME_ICON_FAN) == 0) {
-        return &fan_20;
-    }
-    if (strcmp(icon, SMART_HOME_ICON_LIGHT) == 0) {
-        return &light_20;
-    }
-    if (strcmp(icon, SMART_HOME_ICON_SUN) == 0) {
-        return &sun_20;
-    }
-    if (strcmp(icon, SMART_HOME_ICON_TEMPERATURE) == 0) {
-        return &temperature_20;
-    }
-    if (strcmp(icon, SMART_HOME_ICON_TOOL) == 0) {
-        return &tool_20;
-    }
-
+    /* Product UI uses the PNG-derived A8 library.  Keep this compatibility
+     * hook for callers that pass LVGL built-in symbols. */
+    (void)icon;
     return NULL;
 }
 
@@ -268,6 +349,24 @@ lv_obj_t *smart_home_lvgl_icon_create(lv_obj_t *parent,
 
     if (!parent || !filename) {
         return NULL;
+    }
+
+    if (icon_is_product_asset(filename)) {
+        const lv_image_dsc_t *asset = smart_home_lvgl_png_icon_get(
+            filename, width > height ? width : height);
+
+        if (!asset) {
+            return NULL;
+        }
+        img = lv_image_create(parent);
+        lv_image_set_src(img, asset);
+        if (width > 0) {
+            lv_obj_set_size(img, width, height > 0 ? height : width);
+        }
+        lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CENTER);
+        lv_obj_set_style_image_recolor(img, SMART_HOME_UI_COLOR_TEXT_PRIMARY, 0);
+        lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
+        return img;
     }
 
     if (icon_is_lv_symbol(filename)) {
@@ -349,6 +448,8 @@ lv_obj_t *smart_home_lvgl_icon_with_text(lv_obj_t *parent,
     if (icon) {
         lv_obj_set_style_margin_bottom(icon, 4, 0);
         lv_obj_set_style_text_color(icon, text_color, 0);
+        lv_obj_set_style_image_recolor(icon, text_color, 0);
+        lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
     }
 
     label = smart_home_lvgl_label_create(cont, text, text_color, text_size);

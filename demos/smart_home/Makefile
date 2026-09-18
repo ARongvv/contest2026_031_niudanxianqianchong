@@ -56,17 +56,8 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
     CSRCS   += src/ui/lvgl/smart_home_lvgl_screensaver.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_settings.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_style.c
-    CSRCS   += src/ui/lvgl/icons/ac_20.c
-    CSRCS   += src/ui/lvgl/icons/bed_20.c
-    CSRCS   += src/ui/lvgl/icons/chat_20.c
-    CSRCS   += src/ui/lvgl/icons/couch_20.c
-    CSRCS   += src/ui/lvgl/icons/device_20.c
-    CSRCS   += src/ui/lvgl/icons/droplet_20.c
-    CSRCS   += src/ui/lvgl/icons/fan_20.c
-    CSRCS   += src/ui/lvgl/icons/light_20.c
-    CSRCS   += src/ui/lvgl/icons/sun_20.c
-    CSRCS   += src/ui/lvgl/icons/temperature_20.c
-    CSRCS   += src/ui/lvgl/icons/tool_20.c
+    CSRCS   += src/ui/lvgl/icons/smart_home_lvgl_png_icons.c
+    CSRCS   += $(wildcard src/ui/lvgl/icons/generated/*.c)
   endif
   endif
   PROGNAME  += smart_home
