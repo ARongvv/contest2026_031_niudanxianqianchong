@@ -6,11 +6,11 @@
 #include <stdint.h>
 
 static const char *const g_nav_titles[SMART_HOME_TAB_COUNT] = {
-    "首页", "设备", "场景", "安防", "更多"
+    "首页", "设备", "聊天", "安防", "更多"
 };
 
 static const char *const g_nav_icons[SMART_HOME_TAB_COUNT] = {
-    ICON_NAV_HOME, ICON_NAV_DEVICES, ICON_NAV_SCENES, ICON_NAV_SECURITY,
+    ICON_NAV_HOME, ICON_NAV_DEVICES, ICON_NAV_CHAT, ICON_NAV_SECURITY,
     ICON_NAV_MORE
 };
 
@@ -18,7 +18,7 @@ static int tab_for_screen(const smart_home_lvgl_t *ui, const lv_obj_t *screen)
 {
     if (!ui || !screen) return SMART_HOME_TAB_HOME;
     if (screen == ui->screen_panel) return SMART_HOME_TAB_DEVICES;
-    if (screen == ui->screen_scenes) return SMART_HOME_TAB_SCENES;
+    if (screen == ui->screen_chat) return SMART_HOME_TAB_CHAT;
     if (screen == ui->screen_security) return SMART_HOME_TAB_SECURITY;
     if (screen == ui->screen_more || screen == ui->screen_settings ||
         screen == ui->screen_network) {
@@ -37,7 +37,7 @@ void smart_home_lvgl_load_tab(smart_home_lvgl_t *ui, int tab)
     switch (tab) {
     case SMART_HOME_TAB_HOME:     screen = ui->screen_home; break;
     case SMART_HOME_TAB_DEVICES:  screen = ui->screen_panel; break;
-    case SMART_HOME_TAB_SCENES:   screen = ui->screen_scenes; break;
+    case SMART_HOME_TAB_CHAT:     screen = ui->screen_chat; break;
     case SMART_HOME_TAB_SECURITY: screen = ui->screen_security; break;
     case SMART_HOME_TAB_MORE:     screen = ui->screen_more; break;
     default: break;
@@ -113,6 +113,12 @@ lv_obj_t *smart_home_lvgl_build_nav_bar(lv_obj_t *screen,
         content = smart_home_lvgl_icon_with_text(button, g_nav_icons[i],
                                                   20, 20, g_nav_titles[i],
                                                   color, 11);
+        /* The icon/text container is the actual hit target on some LVGL
+         * input paths. Give it the same handler as its button so tapping
+         * the Chat glyph or label always changes screen. */
+        lv_obj_add_flag(content, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_user_data(content, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(content, nav_btn_click, LV_EVENT_CLICKED, ui);
         lv_obj_center(content);
     }
     return bar;

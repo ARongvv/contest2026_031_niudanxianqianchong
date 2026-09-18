@@ -47,7 +47,6 @@ typedef struct {
     lv_obj_t *screen_screensaver;
     lv_obj_t *screen_home;
     lv_obj_t *screen_panel;    /* Devices page, legacy member name */
-    lv_obj_t *screen_scenes;
     lv_obj_t *screen_security;
     lv_obj_t *screen_more;
     lv_obj_t *screen_network;
@@ -78,6 +77,7 @@ typedef struct {
     lv_obj_t *home_env_label;
     lv_obj_t *home_ac_label;
     lv_obj_t *home_status_label;
+    lv_obj_t *scene_popup;      /* home-screen mode picker overlay */
 
     /* Device control popup (overlay on panel) */
     lv_obj_t *ctrl_popup;

@@ -21,6 +21,149 @@ enum home_action_e {
     HOME_ACTION_MIHOME,
 };
 
+/* Scene modes moved from the removed scenes tab into the home card popup.
+ * A mode click pre-fills the chat input; the agent owns the execution. */
+static const struct scene_mode_s {
+    const char *name;
+    const char *command;
+    const char *desc;
+    const char *icon;
+    uint32_t badge_bg;
+} g_scene_modes[] = {
+    { "回家模式", "执行回家模式", "温暖灯光 · 新风开启",
+      ICON_NAV_HOME, 0xFFF5EC },
+    { "观影模式", "执行观影模式", "调暗灯光 · 合上窗帘",
+      ICON_MEDIA_VIDEO, 0xF1F4FF },
+    { "睡眠模式", "执行睡眠模式", "关闭照明 · 安静守护",
+      ICON_STATUS_DND, 0xF4F2FF },
+    { "离家模式", "执行离家模式", "关闭设备 · 安防布防",
+      ICON_NAV_SECURITY, 0xEDF8F3 },
+};
+
+static void scene_popup_dismiss(smart_home_lvgl_t *ui)
+{
+    if (ui && ui->scene_popup) {
+        lv_obj_add_flag(ui->scene_popup, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void scene_popup_mask_cb(lv_event_t *event)
+{
+    scene_popup_dismiss(lv_event_get_user_data(event));
+}
+
+static void scene_mode_click_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+    lv_obj_t *button = lv_event_get_current_target(event);
+    int mode = (int)(intptr_t)lv_obj_get_user_data(button);
+
+    if (!ui || mode < 0 ||
+        mode >= (int)(sizeof(g_scene_modes) / sizeof(g_scene_modes[0]))) {
+        return;
+    }
+    scene_popup_dismiss(ui);
+    smart_home_lvgl_load_tab(ui, SMART_HOME_TAB_CHAT);
+    if (ui->chat_input) {
+        lv_textarea_set_text(ui->chat_input, g_scene_modes[mode].command);
+    }
+}
+
+static void open_scene_mode_popup(smart_home_lvgl_t *ui)
+{
+    lv_obj_t *mask;
+    lv_obj_t *card;
+    lv_obj_t *button;
+    lv_obj_t *badge;
+    lv_obj_t *label;
+    int compact = smart_home_lvgl_compact();
+    int popup_w = compact ? 380 : 470;
+    int popup_h = compact ? 300 : 350;
+    int pad = compact ? 14 : 20;
+    int title_h = compact ? 30 : 34;
+    int gap = 14;
+    int btn_w = (popup_w - 2 * pad - gap) / 2;
+    int btn_h = (popup_h - 2 * pad - title_h - gap) / 2;
+    int i;
+
+    if (!ui || !ui->screen_home) {
+        return;
+    }
+    if (ui->scene_popup) {
+        lv_obj_clear_flag(ui->scene_popup, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    /* Full-screen click-catcher doubles as the popup root; clicking the
+     * dimmed background dismisses without selecting a mode. */
+    mask = lv_obj_create(ui->screen_home);
+    lv_obj_remove_style_all(mask);
+    lv_obj_set_size(mask, smart_home_lvgl_disp_w(), smart_home_lvgl_disp_h());
+    lv_obj_set_style_bg_color(mask, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(mask, LV_OPA_30, 0);
+    lv_obj_add_flag(mask, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(mask, scene_popup_mask_cb, LV_EVENT_CLICKED, ui);
+    ui->scene_popup = mask;
+
+    card = lv_obj_create(mask);
+    lv_obj_remove_style_all(card);
+    lv_obj_set_size(card, popup_w, popup_h);
+    lv_obj_align(card, LV_ALIGN_CENTER, 0, 0);
+    smart_home_lvgl_card_style(card);
+
+    label = smart_home_lvgl_label_create(card, "选择模式",
+                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY, 18);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    for (i = 0; i < (int)(sizeof(g_scene_modes) / sizeof(g_scene_modes[0]));
+         i++) {
+        int col = i % 2;
+        int row = i / 2;
+
+        button = lv_obj_create(card);
+        lv_obj_remove_style_all(button);
+        lv_obj_set_size(button, btn_w, btn_h);
+        lv_obj_align(button, LV_ALIGN_TOP_LEFT,
+                     col * (btn_w + gap), title_h + row * (btn_h + gap));
+        smart_home_lvgl_set_bg(button, SMART_HOME_UI_COLOR_SURFACE_SOFT);
+        lv_obj_set_style_radius(button, 12, 0);
+        lv_obj_set_style_border_width(button, 1, 0);
+        lv_obj_set_style_border_color(button, SMART_HOME_UI_COLOR_BORDER, 0);
+        lv_obj_set_style_pad_all(button, 10, 0);
+        lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_user_data(button, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(button, scene_mode_click_cb, LV_EVENT_CLICKED, ui);
+
+        badge = lv_obj_create(button);
+        lv_obj_remove_style_all(badge);
+        lv_obj_set_size(badge, 44, 44);
+        lv_obj_align(badge, LV_ALIGN_TOP_LEFT, 0, 0);
+        lv_obj_set_style_radius(badge, 12, 0);
+        smart_home_lvgl_set_bg(badge, lv_color_hex(g_scene_modes[i].badge_bg));
+        lv_obj_clear_flag(badge, LV_OBJ_FLAG_CLICKABLE);
+        {
+            lv_obj_t *glyph = smart_home_lvgl_icon_create(
+                badge, g_scene_modes[i].icon, 26, 26);
+
+            if (glyph) {
+                lv_obj_center(glyph);
+                lv_obj_set_style_image_recolor(
+                    glyph, SMART_HOME_UI_COLOR_TEXT_PRIMARY, 0);
+                lv_obj_set_style_image_recolor_opa(glyph, LV_OPA_COVER, 0);
+            }
+        }
+
+        label = smart_home_lvgl_label_create(button, g_scene_modes[i].name,
+                                             SMART_HOME_UI_COLOR_TEXT_PRIMARY,
+                                             16);
+        lv_obj_align(label, LV_ALIGN_BOTTOM_LEFT, 0, compact ? -30 : -34);
+        label = smart_home_lvgl_label_create(button, g_scene_modes[i].desc,
+                                             SMART_HOME_UI_COLOR_TEXT_SECONDARY,
+                                             12);
+        lv_obj_align(label, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    }
+}
+
 static lv_color_t topbar_network_color(const smart_home_lvgl_t *ui)
 {
     const smart_home_network_status_t *status;
@@ -186,19 +329,6 @@ static lv_obj_t *home_card(lv_obj_t *screen, int x, int y, int w, int h,
     return card;
 }
 
-static void home_card_text(lv_obj_t *card, const char *title, const char *body,
-                           lv_color_t title_color)
-{
-    lv_obj_t *label;
-
-    label = smart_home_lvgl_label_create(card, title, title_color, 16);
-    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 0);
-    label = smart_home_lvgl_label_create(card, body,
-                                         SMART_HOME_UI_COLOR_TEXT_SECONDARY,
-                                         14);
-    lv_obj_align(label, LV_ALIGN_BOTTOM_LEFT, 0, 0);
-}
-
 static void home_feature_text(lv_obj_t *card, const char *title,
                               const char *body, lv_color_t title_color)
 {
@@ -232,6 +362,43 @@ static lv_obj_t *home_icon_badge(lv_obj_t *card, const char *icon,
     return badge;
 }
 
+static void home_music_controls(lv_obj_t *card)
+{
+    static const char *const controls[] = {
+        ICON_MEDIA_PREVIOUS,
+        ICON_MEDIA_PLAY,
+        ICON_MEDIA_PAUSE,
+        ICON_MEDIA_NEXT,
+    };
+    lv_obj_t *row;
+    int i;
+    const int item_w = 38;
+    const int item_h = 32;
+    const int gap = 6;
+    const int row_w = (int)(sizeof(controls) / sizeof(controls[0])) * item_w +
+                      ((int)(sizeof(controls) / sizeof(controls[0])) - 1) * gap;
+
+    row = lv_obj_create(card);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, row_w, item_h);
+    lv_obj_align(row, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+    for (i = 0; i < (int)(sizeof(controls) / sizeof(controls[0])); i++) {
+        lv_obj_t *icon = smart_home_lvgl_icon_create(row, controls[i], 32, 32);
+
+        if (!icon) {
+            continue;
+        }
+        lv_obj_set_pos(icon, i * (item_w + gap) + (item_w - 32) / 2, 0);
+        lv_obj_set_style_image_recolor(icon,
+                                       SMART_HOME_UI_COLOR_TEXT_PRIMARY, 0);
+        lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
+        lv_obj_clear_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+    }
+}
+
 static void home_action_cb(lv_event_t *event)
 {
     smart_home_lvgl_t *ui = lv_event_get_user_data(event);
@@ -256,7 +423,7 @@ static void home_action_cb(lv_event_t *event)
         smart_home_lvgl_load_tab(ui, SMART_HOME_TAB_DEVICES);
         break;
     case HOME_ACTION_SCENES:
-        smart_home_lvgl_load_tab(ui, SMART_HOME_TAB_SCENES);
+        open_scene_mode_popup(ui);
         break;
     case HOME_ACTION_SECURITY:
         smart_home_lvgl_load_tab(ui, SMART_HOME_TAB_SECURITY);
@@ -265,10 +432,7 @@ static void home_action_cb(lv_event_t *event)
         smart_home_lvgl_load_tab(ui, SMART_HOME_TAB_MORE);
         break;
     case HOME_ACTION_AGENT:
-        if (ui->screen_chat) {
-            lv_scr_load_anim(ui->screen_chat, LV_SCR_LOAD_ANIM_MOVE_LEFT,
-                              180, 0, false);
-        }
+        smart_home_lvgl_load_tab(ui, SMART_HOME_TAB_CHAT);
         break;
     default:
         break;
@@ -307,8 +471,8 @@ void smart_home_lvgl_refresh_home(smart_home_lvgl_t *ui)
     }
 
     if (ui->home_env_label) {
-        snprintf(text, sizeof(text), "%d°C  ·  湿度 %d%%\n空气舒适",
-                 state->env_temperature, state->env_humidity);
+        snprintf(text, sizeof(text), "湿度 %d%%  ·  空气舒适",
+                 state->env_humidity);
         lv_label_set_text(ui->home_env_label, text);
     }
     if (ui->home_ac_label) {
@@ -355,10 +519,17 @@ void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui)
 
     card = home_card(screen, x, y, weather_w, top_h + bottom_h + gap,
                      SMART_HOME_UI_COLOR_SURFACE_SOFT);
-    home_card_text(card, "9月18日 星期五", "深圳市南山区", SMART_HOME_UI_COLOR_TEXT_PRIMARY);
+    /* Keep location in the fixed top metadata block. The dynamic environment
+     * summary occupies the bottom, so the two strings never share an anchor. */
+    label = smart_home_lvgl_label_create(card, "9月18日 星期五",
+                                         SMART_HOME_UI_COLOR_TEXT_SECONDARY, 13);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 0);
     label = smart_home_lvgl_label_create(card, "11:37", SMART_HOME_UI_COLOR_TEXT_PRIMARY,
                                          32);
-    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 28);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 24);
+    label = smart_home_lvgl_label_create(card, "深圳市南山区",
+                                         SMART_HOME_UI_COLOR_TEXT_SECONDARY, 13);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 70);
     badge = home_icon_badge(card, ICON_HUMIDITY, lv_color_hex(0xEAF4F5), 76);
     /* Make the weather pictogram the visual anchor of the tall card. */
     lv_obj_align(badge, LV_ALIGN_CENTER, 0, -10);
@@ -379,7 +550,7 @@ void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui)
 
     card = home_card(screen, x + weather_w + gap + scene_w + gap, y,
                      primary_w, top_h, SMART_HOME_UI_COLOR_SURFACE);
-    home_icon_badge(card, ICON_DEVICE_GENERIC, lv_color_hex(0xFFF8F4), 48);
+    home_icon_badge(card, ICON_MIJIA, lv_color_hex(0xFFF8F4), 48);
     label = smart_home_lvgl_label_create(card, "米家设备",
                                          SMART_HOME_UI_COLOR_TEXT_PRIMARY, 18);
     lv_obj_align(label, LV_ALIGN_TOP_LEFT, 58, 0);
@@ -413,9 +584,7 @@ void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui)
     home_icon_badge(card, ICON_MEDIA_AUDIO, lv_color_hex(0xFFF8F2), 48);
     home_feature_text(card, "Last Dance", "卧室 · 家庭音响",
                       SMART_HOME_UI_COLOR_TEXT_PRIMARY);
-    label = smart_home_lvgl_label_create(card, "◁◁    ▷    ▷▷",
-                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY, 18);
-    lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, 0);
+    home_music_controls(card);
     home_make_clickable(card, ui, HOME_ACTION_MORE);
 
     card = home_card(screen, x + weather_w + gap + scene_w + gap + primary_w + gap,

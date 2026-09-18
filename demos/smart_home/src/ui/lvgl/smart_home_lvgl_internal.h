@@ -81,16 +81,15 @@ static inline int smart_home_lvgl_pad_x(void)
 enum {
     SMART_HOME_TAB_HOME = 0,
     SMART_HOME_TAB_DEVICES,
-    SMART_HOME_TAB_SCENES,
+    SMART_HOME_TAB_CHAT,
     SMART_HOME_TAB_SECURITY,
     SMART_HOME_TAB_MORE,
     SMART_HOME_TAB_COUNT,
 };
 
-/* Legacy names keep the existing device, chat and settings modules buildable
+/* Legacy names keep the existing device and settings modules buildable
  * while their product entry points are migrated to the five-page shell. */
 #define SMART_HOME_TAB_PANEL    SMART_HOME_TAB_DEVICES
-#define SMART_HOME_TAB_CHAT     SMART_HOME_TAB_HOME
 #define SMART_HOME_TAB_SETTINGS SMART_HOME_TAB_MORE
 
 lv_obj_t *smart_home_lvgl_build_nav_bar(lv_obj_t *screen,
@@ -98,7 +97,6 @@ lv_obj_t *smart_home_lvgl_build_nav_bar(lv_obj_t *screen,
 
 void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_screensaver_screen(smart_home_lvgl_t *ui);
-void smart_home_lvgl_build_scene_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_security_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_more_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui);

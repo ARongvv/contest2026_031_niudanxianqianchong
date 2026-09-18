@@ -72,10 +72,6 @@ smart_home_lvgl_t *smart_home_lvgl_init(smart_home_agent_app_t *app)
     smart_home_lvgl_build_panel_screen(ui);
     smart_home_lvgl_log_build_stage("panel", "done");
 
-    smart_home_lvgl_log_build_stage("scenes", "begin");
-    smart_home_lvgl_build_scene_screen(ui);
-    smart_home_lvgl_log_build_stage("scenes", "done");
-
     smart_home_lvgl_log_build_stage("security", "begin");
     smart_home_lvgl_build_security_screen(ui);
     smart_home_lvgl_log_build_stage("security", "done");
@@ -150,9 +146,6 @@ void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
     }
     if (ui->screen_panel) {
         lv_obj_del(ui->screen_panel);
-    }
-    if (ui->screen_scenes) {
-        lv_obj_del(ui->screen_scenes);
     }
     if (ui->screen_security) {
         lv_obj_del(ui->screen_security);

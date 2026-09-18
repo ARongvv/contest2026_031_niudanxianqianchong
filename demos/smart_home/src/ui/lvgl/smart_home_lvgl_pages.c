@@ -135,41 +135,6 @@ static lv_obj_t *page_screen(smart_home_lvgl_t *ui)
     return screen;
 }
 
-void smart_home_lvgl_build_scene_screen(smart_home_lvgl_t *ui)
-{
-    lv_obj_t *screen;
-    lv_obj_t *card;
-    int x = smart_home_lvgl_pad_x();
-    int y = SMART_HOME_TOPBAR_H + 78;
-    int gap = 14;
-    int w = (smart_home_lvgl_content_w() - 2 * gap) / 3;
-
-    if (!ui) return;
-    screen = page_screen(ui);
-    ui->screen_scenes = screen;
-    page_heading(screen, "我的场景");
-    card = page_card(screen, x, y, w, 148);
-    page_icon_badge(card, ICON_NAV_HOME, lv_color_hex(0xFFF5EC));
-    page_title(card, "回家模式", "温暖灯光 · 新风开启");
-    page_action(card, ui, PAGE_ACTION_AGENT);
-    card = page_card(screen, x + w + gap, y, w, 148);
-    page_icon_badge(card, ICON_MEDIA_VIDEO, lv_color_hex(0xF1F4FF));
-    page_title(card, "观影模式", "调暗灯光 · 合上窗帘");
-    page_action(card, ui, PAGE_ACTION_AGENT);
-    card = page_card(screen, x + (w + gap) * 2, y, w, 148);
-    page_icon_badge(card, ICON_STATUS_DND, lv_color_hex(0xF4F2FF));
-    page_title(card, "睡眠模式", "关闭照明 · 安静守护");
-    page_action(card, ui, PAGE_ACTION_AGENT);
-    card = page_card(screen, x, y + 162, w, 148);
-    page_icon_badge(card, ICON_NAV_SECURITY, lv_color_hex(0xEDF8F3));
-    page_title(card, "离家模式", "关闭设备 · 安防布防");
-    page_action(card, ui, PAGE_ACTION_AGENT);
-    card = page_outline_button(screen, "+ 新建场景", 112);
-    lv_obj_align(card, LV_ALIGN_TOP_RIGHT, -x,
-                 SMART_HOME_TOPBAR_H + 26);
-    smart_home_lvgl_build_nav_bar(screen, ui);
-}
-
 void smart_home_lvgl_build_security_screen(smart_home_lvgl_t *ui)
 {
     lv_obj_t *screen;
@@ -306,15 +271,31 @@ static void layout_network_keyboard(smart_home_lvgl_t *ui, int visible)
 static void network_keyboard_input_cb(lv_event_t *event)
 {
     smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+    lv_obj_t *target = lv_event_get_current_target(event);
     lv_event_code_t code = lv_event_get_code(event);
 
     if (!ui || !ui->network_keyboard) {
         return;
     }
     if (code == LV_EVENT_FOCUSED) {
-        lv_keyboard_set_textarea(ui->network_keyboard,
-                                 lv_event_get_current_target(event));
+        lv_keyboard_set_textarea(ui->network_keyboard, target);
         layout_network_keyboard(ui, 1);
+    } else if (code == LV_EVENT_CANCEL || code == LV_EVENT_READY ||
+               code == LV_EVENT_DEFOCUSED) {
+        layout_network_keyboard(ui, 0);
+    }
+}
+
+static void network_keyboard_event_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+    lv_event_code_t code = lv_event_get_code(event);
+
+    if (!ui) {
+        return;
+    }
+    if (code == LV_EVENT_CANCEL || code == LV_EVENT_READY) {
+        layout_network_keyboard(ui, 0);
     }
 }
 
@@ -375,6 +356,8 @@ void smart_home_lvgl_refresh_network_screen(smart_home_lvgl_t *ui)
         snprintf(text, sizeof(text), "已连接 Wi-Fi，互联网/DNS 暂不可用");
     } else if (worker_active) {
         snprintf(text, sizeof(text), "正在连接，请稍候…");
+    } else if (status.ip_status == SMART_HOME_NETWORK_ERR_DHCP) {
+        snprintf(text, sizeof(text), "Wi-Fi 已关联，但 DHCP 地址获取失败");
     } else if (result_ready) {
         snprintf(text, sizeof(text), "连接失败（%d），请检查密码或路由器", result);
     } else {
@@ -494,7 +477,7 @@ void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui)
     lv_obj_set_size(ui->network_ssid_input, lv_pct(88), 38);
     lv_obj_align(ui->network_ssid_input, LV_ALIGN_TOP_MID, 0, 88);
     lv_obj_add_event_cb(ui->network_ssid_input, network_keyboard_input_cb,
-                        LV_EVENT_FOCUSED, ui);
+                        LV_EVENT_ALL, ui);
 
     ui->network_password_input = lv_textarea_create(card);
     lv_textarea_set_placeholder_text(ui->network_password_input, "密码（开放网络可留空）");
@@ -505,7 +488,7 @@ void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui)
     lv_obj_set_size(ui->network_password_input, lv_pct(88), 38);
     lv_obj_align(ui->network_password_input, LV_ALIGN_TOP_MID, 0, 138);
     lv_obj_add_event_cb(ui->network_password_input, network_keyboard_input_cb,
-                        LV_EVENT_FOCUSED, ui);
+                        LV_EVENT_ALL, ui);
 
     button = page_outline_button(card, "连接", 112);
     smart_home_lvgl_set_bg(button, SMART_HOME_UI_COLOR_PRIMARY);
@@ -514,6 +497,9 @@ void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui)
     lv_obj_add_event_cb(button, network_connect_cb, LV_EVENT_CLICKED, ui);
 
     ui->network_keyboard = lv_keyboard_create(screen);
+    smart_home_lvgl_style_keyboard(ui->network_keyboard);
+    lv_obj_add_event_cb(ui->network_keyboard, network_keyboard_event_cb,
+                        LV_EVENT_ALL, ui);
     ui->network_status_timer = lv_timer_create(network_status_timer_cb, 250, ui);
     smart_home_lvgl_refresh_network_screen(ui);
     smart_home_lvgl_build_nav_bar(screen, ui);
