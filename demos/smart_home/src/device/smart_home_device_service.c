@@ -356,6 +356,25 @@ int smart_home_device_service_add(smart_home_device_service_t *service,
     return ret;
 }
 
+int smart_home_device_service_add_room(smart_home_device_service_t *service,
+                                       const char *room)
+{
+    char data[SMART_HOME_DEVICE_EVENT_DATA_SIZE];
+    int ret;
+
+    if (!service || !room || !service->mutex_initialized) {
+        return AGENT_ERROR_INVALID;
+    }
+
+    pthread_mutex_lock(&service->mutex);
+    ret = smart_home_room_add(service->state, room);
+    snprintf(data, sizeof(data),
+             "{\"room\":\"%s\",\"operation\":\"room_added\"}", room);
+    /* Room changes are state changes as well.  Reuse the established event
+     * category so existing state-change consumers observe the update. */
+    return commit_mutation(service, ret, "device_state_changed", data);
+}
+
 int smart_home_device_service_update_meta(smart_home_device_service_t *service,
                                           int device_id, const char *room,
                                           const char *name)

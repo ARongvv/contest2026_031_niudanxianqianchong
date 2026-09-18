@@ -8,9 +8,23 @@ static int room_is(const char *room, const char *name)
     return room && strcmp(room, name) == 0;
 }
 
-static int valid_room(const char *room)
+static int valid_room_name(const char *room)
 {
-    return room_is(room, "living_room") || room_is(room, "bedroom");
+    size_t i;
+
+    if (!room || !room[0] || strlen(room) >= SMART_HOME_ROOM_NAME_SIZE) {
+        return 0;
+    }
+
+    for (i = 0; room[i]; i++) {
+        char ch = room[i];
+
+        if (!((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') ||
+              ch == '_')) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 static int clamp_brightness(int brightness)
@@ -126,6 +140,52 @@ int smart_home_room_to_index(const char *room)
     return room_is(room, "bedroom") ? 1 : 0;
 }
 
+int smart_home_room_count(const smart_home_state_t *state)
+{
+    return state && state->room_count > 0 ? state->room_count : 0;
+}
+
+const char *smart_home_room_get(const smart_home_state_t *state, int index)
+{
+    if (!state || index < 0 || index >= state->room_count) {
+        return NULL;
+    }
+    return state->rooms[index];
+}
+
+int smart_home_room_index(const smart_home_state_t *state, const char *room)
+{
+    int i;
+
+    if (!state || !room) {
+        return -1;
+    }
+    for (i = 0; i < state->room_count; i++) {
+        if (room_is(state->rooms[i], room)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int smart_home_room_add(smart_home_state_t *state, const char *room)
+{
+    if (!state || !valid_room_name(room)) {
+        return AGENT_ERROR_INVALID;
+    }
+    if (smart_home_room_index(state, room) >= 0) {
+        return AGENT_OK;
+    }
+    if (state->room_count >= SMART_HOME_MAX_ROOMS) {
+        return AGENT_ERROR_LIMIT;
+    }
+    strncpy(state->rooms[state->room_count], room,
+            SMART_HOME_ROOM_NAME_SIZE - 1u);
+    state->rooms[state->room_count][SMART_HOME_ROOM_NAME_SIZE - 1u] = '\0';
+    state->room_count++;
+    return AGENT_OK;
+}
+
 const char *smart_home_ac_mode_name(int mode)
 {
     switch (mode) {
@@ -227,7 +287,7 @@ int smart_home_device_add(smart_home_state_t *state,
     int i;
     const char *fallback_name;
 
-    if (!state || !valid_room(room) ||
+    if (!state || smart_home_room_index(state, room) < 0 ||
         (type != SMART_HOME_DEVICE_LIGHT && type != SMART_HOME_DEVICE_AC)) {
         return AGENT_ERROR_INVALID;
     }
@@ -261,7 +321,8 @@ int smart_home_device_update_meta(smart_home_state_t *state,
 {
     smart_home_device_t *device;
 
-    if (!state || !valid_room(room) || !name || name[0] == '\0') {
+    if (!state || smart_home_room_index(state, room) < 0 ||
+        !name || name[0] == '\0') {
         return AGENT_ERROR_INVALID;
     }
 
@@ -385,6 +446,8 @@ void smart_home_device_init(smart_home_state_t *state)
 
     memset(state, 0, sizeof(*state));
     state->next_device_id = 1;
+    (void)smart_home_room_add(state, "living_room");
+    (void)smart_home_room_add(state, "bedroom");
     state->env_temperature = 26;
     state->env_humidity = 45;
     state->env_light = 300;
@@ -642,6 +705,7 @@ cJSON *smart_home_device_state_to_json(const smart_home_state_t *state)
 {
     cJSON *root;
     cJSON *devices;
+    cJSON *rooms;
     int count;
     int i;
 
@@ -653,7 +717,25 @@ cJSON *smart_home_device_state_to_json(const smart_home_state_t *state)
     if (!root) {
         return NULL;
     }
+    /* Keep the config-store wire version stable.  "rooms" is an optional
+     * extension of the v1 state document, so devices saved by earlier builds
+     * still load and the config-store version gate remains valid. */
     cJSON_AddNumberToObject(root, "version", 1);
+
+    rooms = cJSON_AddArrayToObject(root, "rooms");
+    if (!rooms) {
+        cJSON_Delete(root);
+        return NULL;
+    }
+    for (i = 0; i < state->room_count; i++) {
+        cJSON *room = cJSON_CreateString(state->rooms[i]);
+
+        if (!room) {
+            cJSON_Delete(root);
+            return NULL;
+        }
+        cJSON_AddItemToArray(rooms, room);
+    }
 
     devices = cJSON_AddArrayToObject(root, "devices");
     if (!devices) {
@@ -713,6 +795,7 @@ int smart_home_device_state_from_json(smart_home_state_t *state,
                                       const cJSON *root)
 {
     const cJSON *devices;
+    const cJSON *rooms;
     const cJSON *env;
     const cJSON *item;
     smart_home_state_t tmp;
@@ -729,6 +812,25 @@ int smart_home_device_state_from_json(smart_home_state_t *state,
     /* 先解析到临时 state，全部合法才提交，避免半恢复 */
     memset(&tmp, 0, sizeof(tmp));
     tmp.next_device_id = 1;
+
+    rooms = cJSON_GetObjectItemCaseSensitive(root, "rooms");
+    if (rooms) {
+        const cJSON *room;
+
+        if (!cJSON_IsArray(rooms)) {
+            return AGENT_ERROR_PARSE;
+        }
+        cJSON_ArrayForEach(room, rooms) {
+            if (!cJSON_IsString(room) ||
+                smart_home_room_add(&tmp, room->valuestring) != AGENT_OK) {
+                return AGENT_ERROR_PARSE;
+            }
+        }
+    } else {
+        /* Version 1 state.json had no catalog; preserve its two fixed rooms. */
+        (void)smart_home_room_add(&tmp, "living_room");
+        (void)smart_home_room_add(&tmp, "bedroom");
+    }
 
     cJSON_ArrayForEach(item, devices) {
         const cJSON *id;

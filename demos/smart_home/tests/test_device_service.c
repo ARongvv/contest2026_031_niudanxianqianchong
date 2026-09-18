@@ -88,6 +88,30 @@ static void test_scene_catalog_drives_one_logical_revision(void)
     smart_home_device_service_deinit(&service);
 }
 
+static void test_room_catalog_allows_device_reassignment(void)
+{
+    smart_home_state_t state;
+    smart_home_device_service_t service;
+    smart_home_device_t *device;
+
+    smart_home_device_init(&state);
+    assert(smart_home_device_service_init(&service, &state) == AGENT_OK);
+
+    assert(smart_home_device_service_add_room(&service, "kitchen") == AGENT_OK);
+    assert(smart_home_room_count(&state) == 3);
+    assert(smart_home_room_index(&state, "kitchen") == 2);
+    assert(smart_home_device_service_revision(&service) == 1u);
+
+    device = smart_home_device_get_by_slot(&state, 0);
+    assert(device != NULL);
+    assert(smart_home_device_service_update_meta(&service, device->id,
+                                                  "kitchen", device->name)
+           == AGENT_OK);
+    assert(strcmp(device->room, "kitchen") == 0);
+    assert(smart_home_device_service_revision(&service) == 2u);
+    smart_home_device_service_deinit(&service);
+}
+
 static void test_default_scene_skill_catalog_is_valid(void)
 {
     FILE *file;
@@ -117,6 +141,7 @@ int main(void)
 {
     test_state_mutation_emits_revisioned_event();
     test_scene_catalog_drives_one_logical_revision();
+    test_room_catalog_allows_device_reassignment();
     test_default_scene_skill_catalog_is_valid();
     printf("all device_service tests passed\n");
     return 0;

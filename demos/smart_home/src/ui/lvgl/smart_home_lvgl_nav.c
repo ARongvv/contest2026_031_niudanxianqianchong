@@ -51,6 +51,9 @@ static void nav_btn_click(lv_event_t *event)
     smart_home_lvgl_t *ui = lv_event_get_user_data(event);
     int tab = (int)(intptr_t)lv_obj_get_user_data(lv_event_get_current_target(event));
     if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
+        if (ui && tab == SMART_HOME_TAB_DEVICES && ui->panel_title) {
+            lv_label_set_text(ui->panel_title, "我的设备");
+        }
         smart_home_lvgl_load_tab(ui, tab);
     }
 }

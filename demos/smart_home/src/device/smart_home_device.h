@@ -6,6 +6,7 @@
 #include "../config/cjson_compat.h"
 
 #define SMART_HOME_MAX_DEVICES 8
+#define SMART_HOME_MAX_ROOMS 6
 #define SMART_HOME_ROOM_NAME_SIZE 16
 #define SMART_HOME_DEVICE_NAME_SIZE 32
 
@@ -29,6 +30,8 @@ typedef struct {
 
 typedef struct {
     smart_home_device_t devices[SMART_HOME_MAX_DEVICES];
+    char rooms[SMART_HOME_MAX_ROOMS][SMART_HOME_ROOM_NAME_SIZE];
+    int room_count;
     int next_device_id;
     int env_temperature;
     int env_humidity;
@@ -40,7 +43,7 @@ void smart_home_device_init(smart_home_state_t *state);
 /* ── 序列化（state.json 持久化用） ── */
 
 /**
- * 将 typed state 序列化为 cJSON（version 1 + devices + environment）。
+ * 将 typed state 序列化为 cJSON（version 1 + rooms + devices + environment）。
  * 返回堆 cJSON *，调用者 cJSON_Delete 释放；失败返回 NULL。
  */
 cJSON *smart_home_device_state_to_json(const smart_home_state_t *state);
@@ -57,6 +60,13 @@ smart_home_device_type_t smart_home_device_type_from_index(int index);
 int smart_home_device_type_to_index(smart_home_device_type_t type);
 const char *smart_home_room_from_index(int index);
 int smart_home_room_to_index(const char *room);
+
+/* Rooms are persisted independently from devices, so an empty room can be
+ * created before a device is assigned to it. */
+int smart_home_room_count(const smart_home_state_t *state);
+const char *smart_home_room_get(const smart_home_state_t *state, int index);
+int smart_home_room_index(const smart_home_state_t *state, const char *room);
+int smart_home_room_add(smart_home_state_t *state, const char *room);
 
 int smart_home_device_count(const smart_home_state_t *state);
 smart_home_device_t *smart_home_device_get_by_slot(smart_home_state_t *state,

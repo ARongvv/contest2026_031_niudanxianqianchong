@@ -10,7 +10,6 @@
 #include "images/smart_home_icons.h"
 
 #include <stdio.h>
-#include <string.h>
 
 enum home_action_e {
     HOME_ACTION_DEVICES = 1,
@@ -18,18 +17,8 @@ enum home_action_e {
     HOME_ACTION_SECURITY,
     HOME_ACTION_AGENT,
     HOME_ACTION_MORE,
+    HOME_ACTION_MIHOME,
 };
-
-static const char *home_room_name(const char *room)
-{
-    if (room && !strcmp(room, "living_room")) {
-        return "客厅";
-    }
-    if (room && !strcmp(room, "bedroom")) {
-        return "卧室";
-    }
-    return "家庭";
-}
 
 void smart_home_lvgl_build_top_bar(lv_obj_t *screen, const char *title)
 {
@@ -43,10 +32,9 @@ void smart_home_lvgl_build_top_bar(lv_obj_t *screen, const char *title)
     lv_obj_t *brand;
     lv_obj_t *brand_mark;
     lv_obj_t *time;
+    lv_obj_t *status_row;
     lv_obj_t *icon;
     int width = smart_home_lvgl_disp_w();
-    int time_width;
-    int status_x;
     int i;
 
     if (!screen) {
@@ -88,12 +76,21 @@ void smart_home_lvgl_build_top_bar(lv_obj_t *screen, const char *title)
     time = smart_home_lvgl_label_create(bar, "11:37",
                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY, 20);
     lv_obj_align(time, LV_ALIGN_RIGHT_MID, -smart_home_lvgl_pad_x(), 0);
-    time_width = lv_obj_get_width(time);
-    status_x = width - smart_home_lvgl_pad_x() - time_width - 14 -
-               (int)(sizeof(status_icons) / sizeof(status_icons[0])) * 26;
+
+    /* Keep status icons in a fixed row anchored to the measured time label.
+     * This avoids overlap when the rendered font gives the time a wider
+     * bounding box (for example after the full MiSans font is loaded). */
+    status_row = lv_obj_create(bar);
+    lv_obj_remove_style_all(status_row);
+    lv_obj_set_size(status_row,
+                    (int)(sizeof(status_icons) / sizeof(status_icons[0])) * 26,
+                    20);
+    lv_obj_align_to(status_row, time, LV_ALIGN_OUT_LEFT_MID, -18, 0);
+    lv_obj_clear_flag(status_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(status_row, LV_OBJ_FLAG_CLICKABLE);
 
     for (i = 0; i < (int)(sizeof(status_icons) / sizeof(status_icons[0])); i++) {
-        icon = smart_home_lvgl_icon_create(bar, status_icons[i], 20, 20);
+        icon = smart_home_lvgl_icon_create(status_row, status_icons[i], 20, 20);
         if (!icon) {
             continue;
         }
@@ -101,8 +98,7 @@ void smart_home_lvgl_build_top_bar(lv_obj_t *screen, const char *title)
         lv_obj_set_style_text_color(icon, SMART_HOME_UI_COLOR_TEXT_PRIMARY, 0);
         lv_obj_set_style_image_recolor(icon, SMART_HOME_UI_COLOR_TEXT_PRIMARY, 0);
         lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
-        lv_obj_set_pos(icon, status_x + i * 26,
-                       (SMART_HOME_TOPBAR_H - 20) / 2);
+        lv_obj_set_pos(icon, i * 26, 0);
     }
 }
 
@@ -165,43 +161,6 @@ static lv_obj_t *home_icon_badge(lv_obj_t *card, const char *icon,
     return badge;
 }
 
-static void home_round_action(lv_obj_t *card, const char *text,
-                              lv_align_t align, int x_ofs)
-{
-    lv_obj_t *button = lv_obj_create(card);
-    lv_obj_t *label;
-
-    lv_obj_remove_style_all(button);
-    lv_obj_set_size(button, 48, 48);
-    lv_obj_align(button, align, x_ofs, -2);
-    lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, 0);
-    smart_home_lvgl_set_bg(button, SMART_HOME_UI_COLOR_SURFACE);
-    lv_obj_clear_flag(button, LV_OBJ_FLAG_CLICKABLE);
-    label = smart_home_lvgl_label_create(button, text,
-                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY, 24);
-    lv_obj_center(label);
-}
-
-static void home_toggle(lv_obj_t *card, int on)
-{
-    lv_obj_t *toggle = lv_obj_create(card);
-    lv_obj_t *dot = lv_obj_create(toggle);
-
-    lv_obj_remove_style_all(toggle);
-    lv_obj_set_size(toggle, 48, 30);
-    lv_obj_align(toggle, LV_ALIGN_TOP_RIGHT, 0, 0);
-    lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, 0);
-    smart_home_lvgl_set_bg(toggle, on ? SMART_HOME_UI_COLOR_PRIMARY :
-                            SMART_HOME_UI_COLOR_TEXT_MUTED);
-    lv_obj_clear_flag(toggle, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_style_all(dot);
-    lv_obj_set_size(dot, 20, 20);
-    lv_obj_align(dot, on ? LV_ALIGN_RIGHT_MID : LV_ALIGN_LEFT_MID,
-                 on ? -5 : 5, 0);
-    lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-    smart_home_lvgl_set_bg(dot, lv_color_white());
-}
-
 static void home_action_cb(lv_event_t *event)
 {
     smart_home_lvgl_t *ui = lv_event_get_user_data(event);
@@ -214,6 +173,15 @@ static void home_action_cb(lv_event_t *event)
 
     switch (action) {
     case HOME_ACTION_DEVICES:
+        if (ui->panel_title) {
+            lv_label_set_text(ui->panel_title, "我的设备");
+        }
+        smart_home_lvgl_load_tab(ui, SMART_HOME_TAB_DEVICES);
+        break;
+    case HOME_ACTION_MIHOME:
+        if (ui->panel_title) {
+            lv_label_set_text(ui->panel_title, "米家设备管理");
+        }
         smart_home_lvgl_load_tab(ui, SMART_HOME_TAB_DEVICES);
         break;
     case HOME_ACTION_SCENES:
@@ -247,7 +215,6 @@ static void home_make_clickable(lv_obj_t *card, smart_home_lvgl_t *ui,
 void smart_home_lvgl_refresh_home(smart_home_lvgl_t *ui)
 {
     const smart_home_state_t *state;
-    const smart_home_device_t *ac = NULL;
     char text[96];
     int on_count = 0;
     int i;
@@ -266,9 +233,6 @@ void smart_home_lvgl_refresh_home(smart_home_lvgl_t *ui)
         if (device->on) {
             on_count++;
         }
-        if (!ac && device->type == SMART_HOME_DEVICE_AC) {
-            ac = device;
-        }
     }
 
     if (ui->home_env_label) {
@@ -277,13 +241,8 @@ void smart_home_lvgl_refresh_home(smart_home_lvgl_t *ui)
         lv_label_set_text(ui->home_env_label, text);
     }
     if (ui->home_ac_label) {
-        if (ac) {
-            snprintf(text, sizeof(text), "%s  ·  %s\n%d°C  %s",
-                     home_room_name(ac->room), ac->on ? "运行中" : "已关闭",
-                     ac->temperature, smart_home_ac_mode_name(ac->ac_mode));
-        } else {
-            snprintf(text, sizeof(text), "暂无空调设备\n前往设备页添加");
-        }
+        snprintf(text, sizeof(text), "%d 台设备已接入\n点击进入设备管理",
+                 smart_home_device_count(state));
         lv_label_set_text(ui->home_ac_label, text);
     }
     if (ui->home_status_label) {
@@ -349,21 +308,18 @@ void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui)
 
     card = home_card(screen, x + weather_w + gap + scene_w + gap, y,
                      primary_w, top_h, SMART_HOME_UI_COLOR_SURFACE);
-    home_icon_badge(card, ICON_DEVICE_AC, lv_color_hex(0xFFF8F4), 48);
-    home_toggle(card, 1);
-    label = smart_home_lvgl_label_create(card, "空调伴侣",
+    home_icon_badge(card, ICON_DEVICE_GENERIC, lv_color_hex(0xFFF8F4), 48);
+    label = smart_home_lvgl_label_create(card, "米家设备",
                                          SMART_HOME_UI_COLOR_TEXT_PRIMARY, 18);
     lv_obj_align(label, LV_ALIGN_TOP_LEFT, 58, 0);
-    label = smart_home_lvgl_label_create(card, "客厅",
+    label = smart_home_lvgl_label_create(card, "已连接 · 本地管理",
                                          SMART_HOME_UI_COLOR_TEXT_SECONDARY, 13);
     lv_obj_align(label, LV_ALIGN_TOP_LEFT, 58, 25);
-    home_round_action(card, "−", LV_ALIGN_LEFT_MID, 0);
-    home_round_action(card, "+", LV_ALIGN_RIGHT_MID, 0);
     ui->home_ac_label = smart_home_lvgl_label_create(card, "",
                                                      SMART_HOME_UI_COLOR_TEXT_SECONDARY,
                                                      16);
     lv_obj_align(ui->home_ac_label, LV_ALIGN_CENTER, 0, 16);
-    home_make_clickable(card, ui, HOME_ACTION_DEVICES);
+    home_make_clickable(card, ui, HOME_ACTION_MIHOME);
 
     card = home_card(screen, x + weather_w + gap + scene_w + gap + primary_w + gap,
                      y, monitor_w, top_h, SMART_HOME_UI_COLOR_SURFACE_SOFT);

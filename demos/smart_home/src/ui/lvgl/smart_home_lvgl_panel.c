@@ -99,7 +99,47 @@ static const char *device_room_name(const char *room)
     if (room && strcmp(room, "bedroom") == 0) {
         return "卧室";
     }
-    return "家庭";
+    if (room && strcmp(room, "kitchen") == 0) {
+        return "厨房";
+    }
+    if (room && strcmp(room, "bathroom") == 0) {
+        return "卫生间";
+    }
+    if (room && strcmp(room, "study") == 0) {
+        return "书房";
+    }
+    if (room && strcmp(room, "balcony") == 0) {
+        return "阳台";
+    }
+    return room && room[0] ? room : "家庭";
+}
+
+static void room_dropdown_options(const smart_home_state_t *state,
+                                  char *buffer, size_t buffer_size,
+                                  int include_all)
+{
+    size_t used = 0u;
+    int i;
+
+    if (!buffer || buffer_size == 0u) {
+        return;
+    }
+    buffer[0] = '\0';
+    if (include_all) {
+        snprintf(buffer, buffer_size, "全部");
+        used = strlen(buffer);
+    }
+    for (i = 0; state && i < smart_home_room_count(state); i++) {
+        const char *room = smart_home_room_get(state, i);
+        int written;
+
+        written = snprintf(buffer + used, buffer_size - used,
+                           "%s%s", used ? "\n" : "", device_room_name(room));
+        if (written < 0 || (size_t)written >= buffer_size - used) {
+            break;
+        }
+        used += (size_t)written;
+    }
 }
 
 static const char *device_display_name(const smart_home_device_t *device)
@@ -131,13 +171,14 @@ static int device_matches_filter(smart_home_lvgl_t *ui,
     }
 
     filter = lv_dropdown_get_selected(ui->panel_room_dd);
-    if (filter == 1) {
-        return smart_home_room_to_index(device->room) == 0;
+    if (filter <= 0) {
+        return 1;
     }
-    if (filter == 2) {
-        return smart_home_room_to_index(device->room) == 1;
+    {
+        const char *room = smart_home_room_get(ui->device_state, filter - 1);
+
+        return room && strcmp(device->room, room) == 0;
     }
-    return 1;
 }
 
 static void format_device_card_text(const smart_home_device_t *device,
@@ -298,7 +339,7 @@ static void ctrl_mode_cb(lv_event_t *event)
         if (ui->ctrl_pending_mode == 2 || ui->ctrl_pending_mode == 3) {
             lv_obj_add_flag(ui->ctrl_slider, LV_OBJ_FLAG_HIDDEN);
             if (ui->ctrl_value_label) {
-                lv_label_set_text(ui->ctrl_value_label, "No temp target");
+                lv_label_set_text(ui->ctrl_value_label, "当前模式无需设定温度");
             }
         } else {
             lv_obj_clear_flag(ui->ctrl_slider, LV_OBJ_FLAG_HIDDEN);
@@ -321,8 +362,23 @@ static void ctrl_fan_cb(lv_event_t *event)
 static void ctrl_confirm_cb(lv_event_t *event)
 {
     smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
+    smart_home_device_t *device;
+    const char *room;
 
-    if (!ui || !ui->app) {
+    if (!ui || !ui->app || !ui->device_state || !ui->ctrl_room_dd) {
+        return;
+    }
+
+    device = smart_home_device_find_by_id(ui->device_state, ui->ctrl_device_id);
+    ui->ctrl_pending_room_index = lv_dropdown_get_selected(ui->ctrl_room_dd);
+    room = smart_home_room_get(ui->device_state, ui->ctrl_pending_room_index);
+    if (!device || !room) {
+        return;
+    }
+    if (strcmp(device->room, room) != 0 &&
+        smart_home_device_service_update_meta(&ui->app->device_service,
+                                              device->id, room,
+                                              device->name) != AGENT_OK) {
         return;
     }
 
@@ -469,8 +525,11 @@ static void device_editor_confirm_cb(lv_event_t *event)
     }
 
     name = lv_textarea_get_text(ui->device_name_input);
-    room = smart_home_room_from_index(lv_dropdown_get_selected(
-        ui->device_room_dd));
+    room = smart_home_room_get(ui->device_state,
+                               lv_dropdown_get_selected(ui->device_room_dd));
+    if (!room) {
+        return;
+    }
 
     if (ui->device_edit_id == 0) {
         smart_home_device_type_t type;
@@ -490,7 +549,7 @@ static void device_editor_confirm_cb(lv_event_t *event)
     }
 
     if (ret != AGENT_OK) {
-        lv_label_set_text(ui->device_popup_title, "Apply failed");
+        lv_label_set_text(ui->device_popup_title, "保存失败，请检查设备名称和房间");
         return;
     }
 
@@ -545,7 +604,8 @@ static void create_room_chip(lv_obj_t *row, smart_home_lvgl_t *ui,
 {
     lv_obj_t *chip = lv_btn_create(row);
     lv_obj_t *label;
-    int selected = index == 0;
+    int selected = ui && ui->panel_room_dd &&
+                   lv_dropdown_get_selected(ui->panel_room_dd) == index;
 
     lv_obj_remove_style_all(chip);
     lv_obj_set_size(chip, smart_home_lvgl_compact() ? 62 : 82, 34);
@@ -558,6 +618,140 @@ static void create_room_chip(lv_obj_t *row, smart_home_lvgl_t *ui,
                                          selected ? SMART_HOME_UI_COLOR_PRIMARY_DARK :
                                          SMART_HOME_UI_COLOR_TEXT_SECONDARY, 14);
     lv_obj_center(label);
+}
+
+static void room_popup_cancel_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
+
+    if (ui && ui->room_popup) {
+        lv_obj_add_flag(ui->room_popup, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void rebuild_room_filters(smart_home_lvgl_t *ui);
+
+static void room_popup_confirm_cb(lv_event_t *event)
+{
+    static const char *const presets[] = {
+        "kitchen", "bathroom", "study", "balcony",
+    };
+    smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
+    int selected;
+    int ret;
+
+    if (!ui || !ui->app || !ui->room_preset_dd) {
+        return;
+    }
+    selected = lv_dropdown_get_selected(ui->room_preset_dd);
+    if (selected < 0 || selected >= (int)(sizeof(presets) / sizeof(presets[0]))) {
+        return;
+    }
+    ret = smart_home_device_service_add_room(&ui->app->device_service,
+                                             presets[selected]);
+    if (ret != AGENT_OK) {
+        if (ui->room_popup_title) {
+            lv_label_set_text(ui->room_popup_title, "新增房间失败或数量已满");
+        }
+        return;
+    }
+    {
+        char rooms[128];
+
+        room_dropdown_options(ui->device_state, rooms, sizeof(rooms), 1);
+        lv_dropdown_set_options(ui->panel_room_dd, rooms);
+        lv_dropdown_set_selected(ui->panel_room_dd, 0);
+    }
+    rebuild_room_filters(ui);
+    rebuild_device_cards(ui);
+    if (ui->room_popup) {
+        lv_obj_add_flag(ui->room_popup, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void open_room_creator(smart_home_lvgl_t *ui)
+{
+    lv_obj_t *popup;
+    lv_obj_t *btn;
+    int compact = smart_home_lvgl_compact();
+
+    if (!ui || !ui->screen_panel) {
+        return;
+    }
+    if (!ui->room_popup) {
+        popup = lv_obj_create(ui->screen_panel);
+        lv_obj_remove_style_all(popup);
+        lv_obj_set_size(popup, compact ? 240 : 320, compact ? 154 : 184);
+        lv_obj_align(popup, LV_ALIGN_CENTER, 0, 0);
+        smart_home_lvgl_card_style(popup);
+        smart_home_lvgl_set_bg(popup, SMART_HOME_UI_COLOR_SURFACE);
+        ui->room_popup = popup;
+
+        ui->room_popup_title = smart_home_lvgl_label_create(
+            popup, "新增房间", SMART_HOME_UI_COLOR_TEXT_PRIMARY,
+            compact ? 14 : 16);
+        lv_obj_align(ui->room_popup_title, LV_ALIGN_TOP_MID, 0,
+                     compact ? 12 : 16);
+
+        ui->room_preset_dd = lv_dropdown_create(popup);
+        lv_dropdown_set_options(ui->room_preset_dd, "厨房\n卫生间\n书房\n阳台");
+        lv_obj_set_size(ui->room_preset_dd, lv_pct(74), compact ? 32 : 36);
+        lv_obj_align(ui->room_preset_dd, LV_ALIGN_TOP_MID, 0,
+                     compact ? 48 : 62);
+        lv_obj_set_style_text_font(ui->room_preset_dd,
+                                   smart_home_lvgl_font(12), 0);
+
+        btn = create_action_button(popup, "取消",
+                                   SMART_HOME_UI_COLOR_BTN_SECONDARY,
+                                   SMART_HOME_UI_COLOR_TEXT_PRIMARY);
+        lv_obj_align(btn, LV_ALIGN_BOTTOM_LEFT, compact ? 22 : 30,
+                     compact ? -10 : -16);
+        lv_obj_add_event_cb(btn, room_popup_cancel_cb, LV_EVENT_CLICKED, ui);
+        btn = create_action_button(popup, "创建",
+                                   SMART_HOME_UI_COLOR_PRIMARY, lv_color_white());
+        lv_obj_align(btn, LV_ALIGN_BOTTOM_RIGHT, compact ? -22 : -30,
+                     compact ? -10 : -16);
+        lv_obj_add_event_cb(btn, room_popup_confirm_cb, LV_EVENT_CLICKED, ui);
+    }
+    lv_label_set_text(ui->room_popup_title, "新增房间");
+    lv_obj_clear_flag(ui->room_popup, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void add_room_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
+
+    open_room_creator(ui);
+}
+
+static void rebuild_room_filters(smart_home_lvgl_t *ui)
+{
+    int i;
+
+    if (!ui || !ui->panel_filter_row || !ui->panel_room_dd) {
+        return;
+    }
+    lv_obj_clean(ui->panel_filter_row);
+    create_room_chip(ui->panel_filter_row, ui, "全部", 0);
+    for (i = 0; i < smart_home_room_count(ui->device_state); i++) {
+        create_room_chip(ui->panel_filter_row, ui,
+                         device_room_name(smart_home_room_get(ui->device_state, i)),
+                         i + 1);
+    }
+    {
+        lv_obj_t *btn = lv_btn_create(ui->panel_filter_row);
+        lv_obj_t *label;
+
+        lv_obj_remove_style_all(btn);
+        lv_obj_set_size(btn, smart_home_lvgl_compact() ? 72 : 96, 34);
+        lv_obj_set_style_radius(btn, 12, 0);
+        smart_home_lvgl_set_bg(btn, SMART_HOME_UI_COLOR_SURFACE_SOFT);
+        lv_obj_add_event_cb(btn, add_room_cb, LV_EVENT_CLICKED, ui);
+        label = smart_home_lvgl_label_create(btn, "+ 新增房间",
+                                             SMART_HOME_UI_COLOR_PRIMARY_DARK,
+                                             12);
+        lv_obj_center(label);
+    }
 }
 
 static void add_device_cb(lv_event_t *event)
@@ -579,7 +773,7 @@ static void update_popup_value(smart_home_lvgl_t *ui)
     device = smart_home_device_find_by_id(ui->device_state, ui->ctrl_device_id);
     snprintf(text,
              sizeof(text),
-             device && device->type == SMART_HOME_DEVICE_AC ? "%d C" : "%d%%",
+             device && device->type == SMART_HOME_DEVICE_AC ? "%d°C" : "亮度 %d%%",
              ui->ctrl_pending_val);
     lv_label_set_text(ui->ctrl_value_label, text);
 }
@@ -646,6 +840,8 @@ static void ensure_control_popup(smart_home_lvgl_t *ui)
     lv_obj_t *row;
     lv_obj_t *btn;
     int compact = smart_home_lvgl_compact();
+    int drawer_w;
+    int drawer_h;
 
     if (!ui || ui->ctrl_popup) {
         return;
@@ -653,8 +849,14 @@ static void ensure_control_popup(smart_home_lvgl_t *ui)
 
     popup = lv_obj_create(ui->screen_panel);
     lv_obj_remove_style_all(popup);
-    lv_obj_set_size(popup, smart_home_lvgl_content_w(), compact ? 214 : 306);
-    lv_obj_align(popup, LV_ALIGN_CENTER, 0, 0);
+    drawer_w = compact ? smart_home_lvgl_content_w() :
+               smart_home_lvgl_disp_w() * 62 / 100;
+    drawer_h = smart_home_lvgl_disp_h() - SMART_HOME_TOPBAR_H -
+               SMART_HOME_NAV_H - 10;
+    lv_obj_set_size(popup, drawer_w, drawer_h);
+    lv_obj_set_pos(popup, smart_home_lvgl_disp_w() -
+                   smart_home_lvgl_pad_x() - drawer_w,
+                   SMART_HOME_TOPBAR_H + 6);
     smart_home_lvgl_card_style(popup);
     smart_home_lvgl_set_bg(popup, SMART_HOME_UI_COLOR_SURFACE);
     ui->ctrl_popup = popup;
@@ -662,37 +864,51 @@ static void ensure_control_popup(smart_home_lvgl_t *ui)
     ui->ctrl_title = smart_home_lvgl_label_create(popup,
                                                   "",
                                                   SMART_HOME_UI_COLOR_TEXT_PRIMARY,
-                                                  compact ? 14 : 16);
-    lv_obj_align(ui->ctrl_title, LV_ALIGN_TOP_MID, 0, compact ? 8 : 14);
+                                                  compact ? 16 : 22);
+    lv_obj_align(ui->ctrl_title, LV_ALIGN_TOP_LEFT,
+                 compact ? 16 : 28, compact ? 10 : 18);
 
     ui->ctrl_switch = lv_btn_create(popup);
     lv_obj_remove_style_all(ui->ctrl_switch);
-    lv_obj_set_size(ui->ctrl_switch, compact ? 82 : 92, compact ? 32 : 38);
-    lv_obj_align(ui->ctrl_switch, LV_ALIGN_TOP_MID, 0, compact ? 34 : 54);
+    lv_obj_set_size(ui->ctrl_switch, compact ? 82 : 96, compact ? 32 : 38);
+    lv_obj_align(ui->ctrl_switch, LV_ALIGN_TOP_RIGHT,
+                 compact ? -16 : -28, compact ? 10 : 16);
     lv_obj_set_style_radius(ui->ctrl_switch, 8, 0);
     lv_obj_add_event_cb(ui->ctrl_switch, ctrl_toggle_cb, LV_EVENT_CLICKED, ui);
     label = smart_home_lvgl_label_create(ui->ctrl_switch,
-                                         "ON / OFF",
+                                         "开关",
                                          lv_color_white(),
                                          12);
     lv_obj_center(label);
 
+    label = smart_home_lvgl_label_create(popup, "所属房间",
+                                         SMART_HOME_UI_COLOR_TEXT_SECONDARY,
+                                         compact ? 11 : 13);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, compact ? 16 : 28,
+                 compact ? 52 : 68);
+    ui->ctrl_room_dd = lv_dropdown_create(popup);
+    lv_obj_set_size(ui->ctrl_room_dd, compact ? 112 : 142,
+                    compact ? 30 : 34);
+    lv_obj_align(ui->ctrl_room_dd, LV_ALIGN_TOP_LEFT,
+                 compact ? 76 : 98, compact ? 46 : 60);
+    lv_obj_set_style_text_font(ui->ctrl_room_dd, smart_home_lvgl_font(12), 0);
+
     ui->ctrl_value_label = smart_home_lvgl_label_create(popup,
                                                         "",
                                                         SMART_HOME_UI_COLOR_TEXT_SECONDARY,
-                                                        compact ? 12 : 14);
+                                                        compact ? 16 : 22);
     lv_obj_align(ui->ctrl_value_label,
-                 LV_ALIGN_TOP_MID,
-                 0,
-                 compact ? 74 : 104);
+                 LV_ALIGN_TOP_LEFT,
+                 compact ? 16 : 28,
+                 compact ? 90 : 114);
 
     ui->ctrl_mode_dd = lv_dropdown_create(popup);
-    lv_dropdown_set_options(ui->ctrl_mode_dd, "cool\nheat\ndry\nfan\nauto");
+    lv_dropdown_set_options(ui->ctrl_mode_dd, "制冷\n制热\n除湿\n送风\n自动");
     lv_obj_set_size(ui->ctrl_mode_dd, compact ? 104 : 116, 32);
     lv_obj_align(ui->ctrl_mode_dd,
                  LV_ALIGN_TOP_LEFT,
-                 compact ? 22 : 34,
-                 compact ? 98 : 128);
+                 compact ? 16 : 28,
+                 compact ? 126 : 164);
     lv_obj_set_style_text_font(ui->ctrl_mode_dd, smart_home_lvgl_font(12), 0);
     lv_obj_add_event_cb(ui->ctrl_mode_dd,
                         ctrl_mode_cb,
@@ -700,12 +916,12 @@ static void ensure_control_popup(smart_home_lvgl_t *ui)
                         ui);
 
     ui->ctrl_fan_dd = lv_dropdown_create(popup);
-    lv_dropdown_set_options(ui->ctrl_fan_dd, "low\nmedium\nhigh\nauto");
+    lv_dropdown_set_options(ui->ctrl_fan_dd, "低速\n中速\n高速\n自动");
     lv_obj_set_size(ui->ctrl_fan_dd, compact ? 104 : 116, 32);
     lv_obj_align(ui->ctrl_fan_dd,
                  LV_ALIGN_TOP_RIGHT,
-                 compact ? -22 : -34,
-                 compact ? 98 : 128);
+                 compact ? -16 : -28,
+                 compact ? 126 : 164);
     lv_obj_set_style_text_font(ui->ctrl_fan_dd, smart_home_lvgl_font(12), 0);
     lv_obj_add_event_cb(ui->ctrl_fan_dd,
                         ctrl_fan_cb,
@@ -714,7 +930,7 @@ static void ensure_control_popup(smart_home_lvgl_t *ui)
 
     ui->ctrl_slider = lv_slider_create(popup);
     lv_obj_set_size(ui->ctrl_slider, lv_pct(72), 8);
-    lv_obj_align(ui->ctrl_slider, LV_ALIGN_TOP_MID, 0, compact ? 144 : 180);
+    lv_obj_align(ui->ctrl_slider, LV_ALIGN_TOP_MID, 0, compact ? 182 : 226);
     lv_obj_add_event_cb(ui->ctrl_slider,
                         ctrl_slider_cb,
                         LV_EVENT_VALUE_CHANGED,
@@ -723,9 +939,9 @@ static void ensure_control_popup(smart_home_lvgl_t *ui)
     row = lv_obj_create(popup);
     lv_obj_remove_style_all(row);
     lv_obj_set_size(row,
-                    smart_home_lvgl_content_w() - (compact ? 18 : 36),
+                    drawer_w - (compact ? 18 : 36),
                     compact ? 32 : 38);
-    lv_obj_align(row, LV_ALIGN_BOTTOM_MID, 0, compact ? -8 : -16);
+    lv_obj_align(row, LV_ALIGN_BOTTOM_MID, 0, compact ? -10 : -18);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row,
                           LV_FLEX_ALIGN_SPACE_EVENLY,
@@ -735,25 +951,25 @@ static void ensure_control_popup(smart_home_lvgl_t *ui)
     lv_obj_set_style_border_width(row, 0, 0);
 
     btn = create_action_button(row,
-                               "Delete",
+                               "删除",
                                SMART_HOME_UI_COLOR_DANGER,
                                lv_color_white());
     lv_obj_add_event_cb(btn, ctrl_delete_cb, LV_EVENT_CLICKED, ui);
 
     btn = create_action_button(row,
-                               "Cancel",
+                               "关闭",
                                SMART_HOME_UI_COLOR_BTN_SECONDARY,
                                SMART_HOME_UI_COLOR_TEXT_PRIMARY);
     lv_obj_add_event_cb(btn, ctrl_cancel_cb, LV_EVENT_CLICKED, ui);
 
     btn = create_action_button(row,
-                               "Edit",
+                               "重命名",
                                SMART_HOME_UI_COLOR_SURFACE_SOFT,
                                SMART_HOME_UI_COLOR_TEXT_PRIMARY);
     lv_obj_add_event_cb(btn, ctrl_edit_cb, LV_EVENT_CLICKED, ui);
 
     btn = create_action_button(row,
-                               "Apply",
+                               "保存",
                                SMART_HOME_UI_COLOR_PRIMARY,
                                lv_color_white());
     lv_obj_add_event_cb(btn, ctrl_confirm_cb, LV_EVENT_CLICKED, ui);
@@ -766,6 +982,7 @@ static void card_click_cb(lv_event_t *event)
         (int)(intptr_t)lv_obj_get_user_data(lv_event_get_current_target(event));
     smart_home_device_t *device;
     int is_ac;
+    char rooms[128];
 
     if (!ui || !ui->device_state) {
         return;
@@ -788,7 +1005,15 @@ static void card_click_cb(lv_event_t *event)
         return;
     }
 
-    lv_label_set_text(ui->ctrl_title, device->name);
+    lv_label_set_text(ui->ctrl_title, device_display_name(device));
+    room_dropdown_options(ui->device_state, rooms, sizeof(rooms), 0);
+    lv_dropdown_set_options(ui->ctrl_room_dd, rooms);
+    ui->ctrl_pending_room_index = smart_home_room_index(ui->device_state,
+                                                         device->room);
+    if (ui->ctrl_pending_room_index < 0) {
+        ui->ctrl_pending_room_index = 0;
+    }
+    lv_dropdown_set_selected(ui->ctrl_room_dd, ui->ctrl_pending_room_index);
     smart_home_lvgl_set_bg(ui->ctrl_switch,
                            device->on ? SMART_HOME_UI_COLOR_PRIMARY :
                                         SMART_HOME_UI_COLOR_SURFACE_SOFT);
@@ -807,7 +1032,7 @@ static void card_click_cb(lv_event_t *event)
 
     if (is_ac && (ui->ctrl_pending_mode == 2 || ui->ctrl_pending_mode == 3)) {
         lv_obj_add_flag(ui->ctrl_slider, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(ui->ctrl_value_label, "No temp target");
+        lv_label_set_text(ui->ctrl_value_label, "当前模式无需设定温度");
     } else {
         lv_obj_clear_flag(ui->ctrl_slider, LV_OBJ_FLAG_HIDDEN);
         update_popup_value(ui);
@@ -919,6 +1144,7 @@ static void open_device_editor(smart_home_lvgl_t *ui,
     lv_obj_t *btn;
     int is_edit = device != NULL;
     int compact = smart_home_lvgl_compact();
+    char rooms[128];
 
     if (!ui || !ui->screen_panel) {
         return;
@@ -963,7 +1189,7 @@ static void open_device_editor(smart_home_lvgl_t *ui,
                             ui);
 
         ui->device_room_dd = lv_dropdown_create(popup);
-        lv_dropdown_set_options(ui->device_room_dd, "Living Room\nBedroom");
+        lv_dropdown_set_options(ui->device_room_dd, "客厅\n卧室");
         lv_obj_set_size(ui->device_room_dd, lv_pct(78), compact ? 32 : 34);
         lv_obj_align(ui->device_room_dd,
                      LV_ALIGN_TOP_MID,
@@ -974,7 +1200,7 @@ static void open_device_editor(smart_home_lvgl_t *ui,
                                    0);
 
         ui->device_type_dd = lv_dropdown_create(popup);
-        lv_dropdown_set_options(ui->device_type_dd, "Light\nAC");
+        lv_dropdown_set_options(ui->device_type_dd, "灯光\n空调");
         lv_obj_set_size(ui->device_type_dd, lv_pct(78), compact ? 32 : 34);
         lv_obj_align(ui->device_type_dd,
                      LV_ALIGN_TOP_MID,
@@ -985,7 +1211,7 @@ static void open_device_editor(smart_home_lvgl_t *ui,
                                    0);
 
         btn = create_action_button(popup,
-                                   "Cancel",
+                                   "取消",
                                    SMART_HOME_UI_COLOR_BTN_SECONDARY,
                                    SMART_HOME_UI_COLOR_TEXT_PRIMARY);
         lv_obj_align(btn,
@@ -998,7 +1224,7 @@ static void open_device_editor(smart_home_lvgl_t *ui,
                             ui);
 
         btn = create_action_button(popup,
-                                   "Apply",
+                                   "保存",
                                    SMART_HOME_UI_COLOR_PRIMARY,
                                    lv_color_white());
         lv_obj_align(btn,
@@ -1020,13 +1246,19 @@ static void open_device_editor(smart_home_lvgl_t *ui,
     }
 
     ui->device_edit_id = is_edit ? device->id : 0;
+    room_dropdown_options(ui->device_state, rooms, sizeof(rooms), 0);
+    lv_dropdown_set_options(ui->device_room_dd, rooms);
     lv_label_set_text(ui->device_popup_title,
-                      is_edit ? "Edit Device" : "Add Device");
+                      is_edit ? "编辑设备" : "添加设备");
     lv_textarea_set_text(ui->device_name_input,
                          is_edit ? device->name : "");
-    lv_dropdown_set_selected(ui->device_room_dd,
-                             is_edit ? smart_home_room_to_index(device->room) :
-                                       0);
+    {
+        int room_index = is_edit ?
+            smart_home_room_index(ui->device_state, device->room) : 0;
+
+        lv_dropdown_set_selected(ui->device_room_dd,
+                                 room_index >= 0 ? room_index : 0);
+    }
     lv_dropdown_set_selected(
         ui->device_type_dd,
         is_edit ? smart_home_device_type_to_index(device->type) : 0);
@@ -1332,6 +1564,7 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
                  sensor_bottom -
                  sensor_h -
                  (compact ? 6 : 12);
+    char room_options[128];
 
     if (grid_h < (compact ? 84 : 120)) {
         grid_h = compact ? 84 : 120;
@@ -1354,7 +1587,9 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
                  SMART_HOME_TOPBAR_H + (compact ? 10 : 26));
 
     ui->panel_room_dd = lv_dropdown_create(screen);
-    lv_dropdown_set_options(ui->panel_room_dd, "全部\n客厅\n卧室");
+    room_dropdown_options(ui->device_state, room_options,
+                          sizeof(room_options), 1);
+    lv_dropdown_set_options(ui->panel_room_dd, room_options);
     /* Keep the existing selection contract as the source of truth while the
      * product page exposes it as touch-friendly room chips below. */
     lv_obj_set_size(ui->panel_room_dd, 1, 1);
@@ -1375,9 +1610,10 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
     lv_obj_set_flex_flow(filter_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(filter_row, LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    create_room_chip(filter_row, ui, "全部", 0);
-    create_room_chip(filter_row, ui, "客厅", 1);
-    create_room_chip(filter_row, ui, "卧室", 2);
+    lv_obj_set_scroll_dir(filter_row, LV_DIR_HOR);
+    lv_obj_set_scrollbar_mode(filter_row, LV_SCROLLBAR_MODE_OFF);
+    ui->panel_filter_row = filter_row;
+    rebuild_room_filters(ui);
 
     grid = lv_obj_create(screen);
     lv_obj_remove_style_all(grid);

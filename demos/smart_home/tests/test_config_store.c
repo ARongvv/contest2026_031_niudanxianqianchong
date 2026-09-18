@@ -206,6 +206,9 @@ static void test_state_default_from_device_init(void)
 
     /* 与 device_init 一致：序列化往返应还原状态 */
     smart_home_device_init(&state);
+    assert(smart_home_room_count(&state) == 2);
+    assert(smart_home_room_add(&state, "kitchen") == AGENT_OK);
+    assert(smart_home_room_count(&state) == 3);
     assert(smart_home_device_state_to_json(&state) != NULL);
     {
         cJSON *json = smart_home_device_state_to_json(&state);
@@ -214,6 +217,7 @@ static void test_state_default_from_device_init(void)
         cJSON_Delete(json);
     }
     assert(state2.devices[0].id == 1);
+    assert(smart_home_room_index(&state2, "kitchen") >= 0);
     assert(state2.env_temperature == 26);
 }
 

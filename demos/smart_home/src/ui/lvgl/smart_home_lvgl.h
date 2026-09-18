@@ -59,6 +59,7 @@ typedef struct {
     /* Panel: device cards */
     lv_obj_t *panel_grid;
     lv_obj_t *panel_room_dd;    /* room filter dropdown */
+    lv_obj_t *panel_filter_row;
     lv_obj_t *panel_sensor_bar;
     lv_obj_t *panel_title;
     lv_obj_t *panel_add_btn;
@@ -83,6 +84,7 @@ typedef struct {
     lv_obj_t *ctrl_switch;
     lv_obj_t *ctrl_mode_dd;
     lv_obj_t *ctrl_fan_dd;
+    lv_obj_t *ctrl_room_dd;
     lv_obj_t *ctrl_title;
     lv_obj_t *ctrl_value_label;
     int       ctrl_device_id;
@@ -90,6 +92,7 @@ typedef struct {
     int       ctrl_pending_val;
     int       ctrl_pending_mode;
     int       ctrl_pending_fan_speed;
+    int       ctrl_pending_room_index;
 
     /* Device add/edit popup */
     lv_obj_t *device_popup;
@@ -99,6 +102,12 @@ typedef struct {
     lv_obj_t *device_type_dd;
     lv_obj_t *device_keyboard;
     int       device_edit_id; /* 0 = add */
+
+    /* Room creator popup.  The preset picker adds a persistent room catalog
+     * entry; newly created rooms immediately appear in filters and editors. */
+    lv_obj_t *room_popup;
+    lv_obj_t *room_popup_title;
+    lv_obj_t *room_preset_dd;
 
     /* Environment simulation popup (sensor values, UI/device owned) */
     lv_obj_t *env_popup;
