@@ -5,8 +5,8 @@
 
 本文衔接[SDIO 枚举阶段记录](ESP32-P4X-C6-SDIO基础枚举阶段记录.md)，记录从 C6 的
 Function 1 可访问，到 ESP-Hosted 控制 RPC、STA 启动事件和 NuttX `wlan0` 数据面实现
-期间遇到的问题。本文只陈述已验证的事实；`wlan0` 的注册及管理状态切换、
-STA 配置和 AP 关联均已实板验证，但尚未取得 IP 或验证业务网络收发。
+期间遇到的问题。本文保留 2026-09-14 的分阶段记录；2026-09-18 的手机热点复测已把
+验证边界推进到 DHCP、DNS 与模型端 TCP 建连，详见本文末尾“手机热点复测”。
 
 ## 阶段结果
 
@@ -191,7 +191,9 @@ carrier 并回收排队帧。接收队列释放采用短临界区摘取队首、
 | `wlan0` 注册 | 已实板验证 | 显示 C6 MAC；关闭 NSH 默认静态地址初始化后，初始地址保持 `0.0.0.0`。 |
 | `ifup` 后 procfs/内核堆稳定性 | 已实板验证 | 修复 ProcFS 跨堆释放后，`DOWN → UP → DOWN` 和多次 `/proc/net/wlan0` 读取正常。 |
 | AP 关联 | 已实板验证 | 68 字节 SetConfig 请求、WifiConnect 响应均成功，随后收到 `Event_StaConnected`（775）。 |
-| carrier、DHCP、DNS、TLS | 待实现/验收 | 当前只记录 775，尚未调用 `esp_hosted_wlan_set_link(true)` 或启动 DHCP。 |
+| carrier、DHCP、IPv4、DNS | 已在手机热点实板验证 | `STA connected` 后 carrier 打开；DHCP `tx_dhcp=2/rx_dhcp=2`、无发送错误或接收丢弃，随后取得 IPv4/网关并完成 DNS 验证。 |
+| 模型 endpoint TCP | 已在手机热点实板验证 | 已连接 `api.deepseek.com:443`；不包含 TLS 握手或 HTTP 响应验收。 |
+| TLS、HTTP、模型调用 | 待验收 | 最新会话在 TCP 建连及 TLS 上下文建立后出现串口 `FATAL: read zero bytes from port`，缺少后续协议证据。 |
 
 
 ## STA 凭据与连接 RPC（已实板验收）
@@ -251,6 +253,46 @@ nsh> ifup wlan0
 nsh> ifconfig wlan0
 ```
 
-在当前版本，虽然已经下发 SSID/密码并收到关联事件，`wlan0` 的 carrier 仍未映射，
-链路关闭属于预期。只有完成关联事件到 carrier 的映射、DHCP 获取非零 IPv4、网关和 DNS 后，
-才可宣称 Wi-Fi 接入完成。
+> 上述“下一步”是 2026-09-14 时的历史状态。关联事件到 carrier 的映射和 DHCP/DNS
+> 已在 2026-09-18 的手机热点复测中完成；原先接入的 AP 仍要依其 DHCP 应答情况单独验收。
+
+## 2026-09-18 手机热点复测：DHCP、DNS 与模型 TCP 已打通
+
+为区分 C6 数据面问题与特定 AP 的 DHCP 行为，使用手机热点重新进行一次真实凭据配网。
+日志不记录 SSID 或密码，只保留字节数、结果码及网络状态。实板顺序如下：
+
+```text
+WifiSetStorage response result=0
+WifiSetConfig response result=0
+WifiConnect response result=0
+STA connected; wlan0 carrier on
+
+DHCP data: stage=complete tx_frames=2 tx_dhcp=2 tx_errors=0
+                           rx_frames=2 rx_dhcp=2 rx_dropped=0
+Network: DNS verify OK
+Network init-end: ip=<allocated> gateway=<gateway> online=1
+
+phase=dns resolved host=api.deepseek.com
+phase=tcp connected host=api.deepseek.com port=443
+```
+
+这组证据分别确认：C6 接受 STA 配置并关联；P4/C6 数据面能够发送和接收 DHCP 报文；
+NuttX 已取得 IPv4、默认网关并通过 DNS 解析；cAGENT 已能把模型服务 TCP 三次握手走通。
+它足以排除“ESP-Hosted WLAN 完全无法收发数据”这一结论。
+
+此前某 AP 的诊断为 DHCP Client 报文已发送、但 `rx_dhcp=0`。与手机热点的
+`rx_dhcp=2` 对照后，当前可确认该失败路径是“该 AP 的 DHCP 应答未进入当前链路”，
+下一步应检查该 AP 的 DHCP 地址池、MAC/接入策略、VLAN 或热点隔离；在未取得 AP 侧证据前，
+不把根因归为单一的路由器配置，也不修改 C6 SDIO/WLAN 数据面来规避。
+
+本次会话在 `api.deepseek.com:443` TCP 连接成功、TLS 上下文分配完成后，终端报告：
+
+```text
+FATAL: read zero bytes from port
+term_exitfunc: reset failed for dev UNKNOWN: Input/output error
+```
+
+该输出发生在本地串口/终端会话终止路径，当前日志没有 mbedTLS 握手完成、HTTP 状态或模型
+响应证据，不能直接定性为 TLS 失败，也不能宣称模型调用成功。下一轮应保留完整复位后的
+启动首屏和 cAGENT TLS 日志，确认设备是否重启、串口是否断开，以及失败发生在握手、HTTP
+发送还是终端传输层。

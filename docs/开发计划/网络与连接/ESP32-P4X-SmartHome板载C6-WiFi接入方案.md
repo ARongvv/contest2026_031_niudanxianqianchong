@@ -1,7 +1,9 @@
 # ESP32-P4X Smart Home 板载 C6 Wi-Fi 接入方案
 
-> 状态（2026-09-16）：已实板完成 SDIO 枚举、ESP-Hosted 控制面、`wlan0` 注册、
-> STA 配置和 AP 关联；尚未映射关联事件至 NuttX carrier，也未完成 DHCP、DNS、TLS。
+> 状态（2026-09-18）：在手机热点上已实板完成 SDIO 枚举、ESP-Hosted 控制面、`wlan0`
+> 注册、STA 配置与关联、carrier、DHCP、IPv4/网关、DNS，以及到模型服务 `443` 端口的
+> TCP 建连。原先接入的 AP 仍未观察到 DHCP 应答，需作为 AP/DHCP 策略问题单独排查。
+> 最新串口会话在 TCP 建连后异常中止，尚不能把 TLS 握手或模型 HTTP 响应标为已验收。
 > 阶段记录见[ESP-Hosted 控制面与 WLAN 数据面开发记录](../../开发日志/ESP32-P4X-C6-ESP-Hosted控制面与WLAN数据面开发记录.md)。
 >
 > 适用对象：ESP32-P4X-Function-EV-Board、板载 ESP32-C6-MINI-1、Smart Home。
@@ -64,7 +66,7 @@ flowchart LR
 - ESP-Hosted 数据面：收发以太网帧并注册 NuttX `wlan0`；
 - WPA2-PSK 为首个实板验收目标，后续按 C6 固件能力扩展 WPA3；
 - DHCP、DNS、TLS 与 Smart Home 云端模型闭环；
-- 长期凭据从 `/data/wifi.conf` 或等价的 LittleFS 私有配置读取，不编入 defconfig、
+- 长期凭据从 `/data/smart_home/secrets.json` 或等价的 LittleFS 私有配置读取，不编入 defconfig、
   源码或串口日志；在该服务完成前，板级仅提供一次性实板验证用的本地构建配置。
 
 本期不包含：
@@ -109,7 +111,7 @@ P4 GPIO 编号。
 `smart_home` 不拥有 `wlan0`。新增的网络配置服务只负责：
 
 1. 在启动时检查 Wi-Fi 服务已注册；
-2. 从 `/data/wifi.conf` 读取 SSID、认证方式和密码；
+2. 从 `/data/smart_home/secrets.json` 读取 SSID、认证方式和密码；
 3. 请求关联并等待受限超时；
 4. 对 `wlan0` 调用标准 DHCP 与 DNS 路径；
 5. 将脱敏的关联状态、IPv4、DNS 状态更新到 UI。
@@ -117,7 +119,7 @@ P4 GPIO 编号。
 应用不得保存或打印明文密码。模型 Tool 不应读取、修改或回显 Wi-Fi 凭据。
 
 若后续接入 QuickApp，QuickApp 也不是 `wlan0` 的所有者：它不得直接调用 socket、
-ESP-Hosted、Wi-Fi 配网接口或读取 `/data/wifi.conf`。原生 `SmartHome Native Service`
+ESP-Hosted、Wi-Fi 配网接口或读取 `/data/smart_home/secrets.json`。原生 `SmartHome Native Service`
 经标准网络栈访问网关、Home Assistant 或云端服务，再通过 `system.smarthome` Feature
 向页面发布脱敏的网络健康状态、设备状态和命令结果。C6 在此方案中仅提供网络链路，
 不承载快应用、cAGENT 或设备协议的 UI 语义。
@@ -130,7 +132,7 @@ ESP-Hosted、Wi-Fi 配网接口或读取 `/data/wifi.conf`。原生 `SmartHome N
 # 板级 C6 / ESP-Hosted 开关
 CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED=y
 
-# 仅用于首个 WifiSetConfig/WifiConnect 闭环；不得写入受跟踪 defconfig
+# 仅用于底层 bring-up 的一次性 WifiSetConfig/WifiConnect 验证；不得写入受跟踪 defconfig
 CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED_STA_SSID="<ssid>"
 CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED_STA_PASSWORD="<password>"
 
@@ -146,7 +148,7 @@ CONFIG_NETUTILS_DHCPC=y
 CONFIG_NETDB_DNSCLIENT=y
 ```
 
-首个连接 RPC 使用受 Git 忽略的同级配置目录，避免 `build.sh` 的 `savedefconfig`
+早期底层 bring-up 可使用受 Git 忽略的同级配置目录，避免 `build.sh` 的 `savedefconfig`
 回写真实凭据。用户在本地创建
 `board/esp32p4/esp32p4-function-ev-board/configs/smart_home_local/defconfig`：
 
@@ -157,8 +159,9 @@ CONFIG_ESP32P4_FUNCTION_EV_BOARD_ESP_HOSTED_STA_PASSWORD="<password>"
 ```
 
 该目录被 `.gitignore` 排除；使用 `smart_home_local` 构建时，`build.sh` 会检测到
-`#include` 并跳过 `savedefconfig` 回写。它只用于验证 C6 接收配置和发起关联。生产凭据
-仍应在存储挂载后由专用原生服务从私有文件读取，不能由 UI、模型 Tool 或串口日志访问。
+`#include` 并跳过 `savedefconfig` 回写。它只用于验证 C6 接收配置和发起关联。当前产品
+流程应由 LVGL 的“更多 → 网络设置”写入 `/data/smart_home/secrets.json`，并在下次启动时
+由原生服务读取；UI、模型 Tool 和串口日志都不能回显明文凭据。
 
 首期不要求 `wapi` 命令。待 `wlan0` 的 Wireless Extensions ioctl 映射经过实板验证后，
 再按需开启：
@@ -226,16 +229,26 @@ nsh> ifconfig wlan0
 通过条件是 `wlan0` 获得非零 IPv4、网关和 DNS。SSID 错误、密码错误、AP 不可见和
 DHCP 超时必须产生不同的错误码或可区分日志。
 
+2026-09-18 的手机热点实测已满足该通过条件：C6 关联后记录到 DHCP
+`tx_dhcp=2`、`rx_dhcp=2`、`tx_errors=0`、`rx_dropped=0`，随后获得 IPv4 与网关，DNS
+验证成功。此前某 AP 路径记录到 Client DHCP 发包而 `rx_dhcp=0`；这说明该 AP 的 DHCP
+应答没有进入当前链路，不能据此反向认定 P4↔C6 数据面不可用。
+
 ### W3：Smart Home 云端闭环
 
 关闭 `CONFIG_SMART_HOME_DEMO_OFFLINE_UI`，使应用使用标准网络模块。验收要求：
 
 - UI 显示 Wi-Fi 已关联、IP 和 DNS 状态；
 - DNS 解析模型 endpoint 成功；
+- 到模型 endpoint 的 TCP 建连成功；
 - 一条脱敏模型 Tool 调用成功；
 - 若启用 QuickApp，只验证原生服务经 `wlan0` 获得真实设备/网络状态，再由
   `system.smarthome` Feature 发布脱敏事件；不允许页面直接配置 C6 或发起设备协议请求；
-- 缺少 `/data/wifi.conf` 时仍可启动本地 UI，并明确显示网络未配置。
+- 缺少 `/data/smart_home/secrets.json` 时仍可启动本地 UI，并明确显示网络未配置。
+
+手机热点已验证到“TCP 建连成功”。该次串口会话在 TLS 上下文建立后出现
+`FATAL: read zero bytes from port`，没有 TLS 握手完成、HTTP 状态码或模型响应日志；因此
+最后两项仍是 W3 的待验收内容，并应优先保留复位原因和完整串口日志再定位。
 
 ### W4：与摄像头和 Ethernet 共存
 
@@ -256,7 +269,7 @@ DHCP 超时必须产生不同的错误码或可区分日志。
 | 没有 `wlan0` | 板级开关、C6 ready、SDIO 枚举、Hosted 版本协商 | 仅开启 WAPI 命令即可联网 |
 | 控制包超时 | C6 固件版本、SDIO 时钟/宽度、reset 时序、DMA/中断 | 归因于 DHCP 或模型 API |
 | 能扫描但不能关联 | 认证模式、密码、地区/信道、C6 事件码 | 伪报“Wi-Fi 已连接” |
-| 已关联却无 IP | DHCP、路由器 VLAN、NuttX UDP/DHCP 配置 | 修改 CSI 或显示代码 |
+| 已关联却无 IP | 先看 DHCP `tx_dhcp/rx_dhcp`、再查路由器/VLAN/DHCP 策略与 NuttX UDP 配置 | 修改 CSI 或显示代码，或直接认定 C6 数据面损坏 |
 | 有 IP 但模型不可用 | DNS、TLS 时间/证书、endpoint、密钥配置 | 重置 C6 作为首选动作 |
 | 摄像头开启后不稳定 | PSRAM 余量、DMA、线程优先级、SDIO/CSI 并发 | 把每次问题都归为 Wi-Fi 信号 |
 
@@ -267,8 +280,8 @@ DHCP 超时必须产生不同的错误码或可区分日志。
 | 提交阶段 | 最低验证 |
 | --- | --- |
 | W1 | P4 构建通过，实板 CMD0/CMD5/CMD52 与 C6 握手日志成功 |
-| W2 | `wlan0`、关联、DHCP 和 DNS 实板日志成功 |
-| W3 | Smart Home 脱敏模型 Tool 调用成功 |
+| W2 | `wlan0`、关联、DHCP 和 DNS 实板日志成功（手机热点已完成；其他 AP 仍须分别复测） |
+| W3 | TCP、TLS、HTTP 与 Smart Home 脱敏模型 Tool 调用成功（目前仅 TCP 已实测） |
 | W4 | `video_test 300` 与 Smart Home Wi-Fi 共存复测成功 |
 
 失败后的补丁不单独作为“尝试修复”提交；应在同一工作区继续定位，直到对应阶段有

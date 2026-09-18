@@ -101,6 +101,20 @@ LVGL 网络页（主 UI 线程）
 下次 `smart_home` 启动会优先读取该文件并尝试自动连接。资源镜像是完整 `/data`
 快照；若用不含当前 Wi-Fi 凭据的 `WITH_SECRETS=1` 镜像重刷资源，需要重新配网。
 
+### 3.1 2026-09-18 手机热点真机复测
+
+手机热点已完成一次真实闭环：C6 成功关联并打开 `wlan0` carrier，DHCP 统计为
+`tx_dhcp=2`、`rx_dhcp=2`、`tx_errors=0`、`rx_dropped=0`；随后 NuttX 获得 IPv4/网关，
+DNS 验证成功，cAGENT 已连接模型服务 `api.deepseek.com:443`。因此顶栏在该阶段显示
+在线 Wi-Fi 状态是有真实网络依据的，而非 UI 模拟状态。
+
+这不表示模型对话已完成验收：串口在 TCP 建连及 TLS 上下文建立后报告
+`FATAL: read zero bytes from port`，没有 TLS 完成、HTTP 状态或模型响应日志。该问题应与
+Wi-Fi 接入分开定位，并在下次测试中保留复位后的完整启动与 TLS 日志。
+
+此前某 AP 的失败日志为 DHCP Client 报文已发送但 `rx_dhcp=0`；与手机热点的有效 DHCP
+应答对照后，应优先检查该 AP 的 DHCP/接入策略，而不要将其误写成 C6 WLAN 数据面失效。
+
 当前不支持附近热点扫描：P4 现有的 C6 ESP-Hosted 接口未接入 scan 结果 RPC。后续
 扫描功能应以该 RPC 和异步结果列表为前提，不能从 UI 层伪造热点列表。
 
@@ -182,6 +196,8 @@ nsh> smart_home
 4. 输入真实 SSID/密码，确认连接后的图标与颜色按第 4.1 节变化；
 5. 重启并再次运行 `smart_home`，确认保存的凭据能自动使用；严禁用 `cat` 打印
    `secrets.json`。
+6. 若验证模型对话，须另外确认 TLS 握手、HTTP 状态和模型响应；仅看到
+   `tcp connected ...:443` 时，不得记录为模型调用成功。
 
 ## 7. 已完成的验证与边界
 
@@ -196,4 +212,5 @@ ctest --test-dir /tmp/smart-home-tests-network --output-on-failure
 
 结果：5/5 通过（`config_store`、`secrets`、`device_service`、
 `quickapp_provider`、`quickapp_ipc_server`）。这些测试覆盖配置、凭据和服务
-契约，不覆盖 LVGL 图层或 P4+C6 真机网络；固件构建及真机验收仍是后续必要步骤。
+契约，不覆盖 LVGL 图层或 P4+C6 真机网络。2026-09-18 已补充手机热点实板验收至 DHCP、DNS
+与模型端 TCP；TLS/HTTP/模型响应和其他 AP 兼容性仍是后续必要验收。
