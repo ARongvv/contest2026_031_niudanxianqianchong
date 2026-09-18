@@ -367,7 +367,6 @@ static void home_music_controls(lv_obj_t *card)
     static const char *const controls[] = {
         ICON_MEDIA_PREVIOUS,
         ICON_MEDIA_PLAY,
-        ICON_MEDIA_PAUSE,
         ICON_MEDIA_NEXT,
     };
     lv_obj_t *row;

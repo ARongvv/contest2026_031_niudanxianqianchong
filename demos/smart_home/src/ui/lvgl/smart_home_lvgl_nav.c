@@ -30,6 +30,7 @@ static int tab_for_screen(const smart_home_lvgl_t *ui, const lv_obj_t *screen)
 void smart_home_lvgl_load_tab(smart_home_lvgl_t *ui, int tab)
 {
     lv_obj_t *screen = NULL;
+    int previous_tab;
 
     if (!ui || tab < 0 || tab >= SMART_HOME_TAB_COUNT) {
         return;
@@ -43,8 +44,44 @@ void smart_home_lvgl_load_tab(smart_home_lvgl_t *ui, int tab)
     default: break;
     }
     if (!screen) return;
+
+    /* The P4 camera service is explicitly opt-in on the Security page. Do
+     * not retain CSI, ISP and PSRAM frame buffers while the user works in
+     * chat/settings or another product page. */
+    if (ui->active_tab == SMART_HOME_TAB_SECURITY &&
+        tab != SMART_HOME_TAB_SECURITY) {
+        smart_home_lvgl_security_camera_stop(ui);
+    }
+    previous_tab = ui->active_tab;
     ui->active_tab = tab;
-    lv_scr_load_anim(screen, LV_SCR_LOAD_ANIM_MOVE_LEFT, 180, 0, false);
+
+    /* Chat is entered from three independent product paths.  Load it
+     * directly rather than queuing another screen animation: on the P4
+     * target this makes the transition deterministic when a previous
+     * animation is still winding down after a touch event. */
+    if (tab == SMART_HOME_TAB_CHAT) {
+        lv_scr_load(screen);
+        return;
+    }
+
+    /* Waking from the screensaver is a state change, not a lateral
+     * navigation: fade in instead of sliding from a navigation side. */
+    if (lv_scr_act() == ui->screen_screensaver) {
+        lv_scr_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_IN, 220, 0, false);
+        return;
+    }
+
+    if (lv_scr_act() == screen) {
+        return;
+    }
+
+    /* Match the slide direction to the tab order: moving to a higher tab
+     * reads as forward (new screen enters from the right), a lower tab as
+     * going back (enters from the left). */
+    lv_scr_load_anim(screen,
+                     tab > previous_tab ? LV_SCR_LOAD_ANIM_MOVE_LEFT :
+                                          LV_SCR_LOAD_ANIM_MOVE_RIGHT,
+                     180, 0, false);
 }
 
 static void nav_btn_click(lv_event_t *event)

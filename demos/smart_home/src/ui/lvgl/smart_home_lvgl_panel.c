@@ -24,6 +24,7 @@ static void rebuild_device_cards(smart_home_lvgl_t *ui);
 static void update_popup_value(smart_home_lvgl_t *ui);
 static void open_device_editor(smart_home_lvgl_t *ui,
                                const smart_home_device_t *device);
+static void device_switch_refresh_cb(void *data);
 
 #ifdef CONFIG_SMART_HOME_NODE_GATEWAY
 static void remote_node_timer_cb(lv_timer_t *timer);
@@ -220,11 +221,70 @@ static int device_card_width(void)
     return (smart_home_lvgl_content_w() - gap * (columns - 1)) / columns;
 }
 
+static void device_card_switch_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+    lv_obj_t *sw = lv_event_get_current_target(event);
+    smart_home_device_t *device;
+    int slot;
+    int value;
+    int mode;
+    int fan_speed;
+    int on;
+
+    if (!ui || !sw) {
+        return;
+    }
+
+    /* A switch is an immediate control, never a request to open the card's
+     * fine-control sheet.  Stop the event before it can reach the card. */
+    lv_event_stop_bubbling(event);
+    if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED || !ui->app ||
+        !ui->device_state) {
+        return;
+    }
+
+    slot = (int)(intptr_t)lv_obj_get_user_data(sw);
+    device = smart_home_device_get_by_slot(ui->device_state, slot);
+    if (!device) {
+        return;
+    }
+
+    on = lv_obj_has_state(sw, LV_STATE_CHECKED) ? 1 : 0;
+    value = device->type == SMART_HOME_DEVICE_AC ? device->temperature :
+                                                   device->brightness;
+    if (on && device->type != SMART_HOME_DEVICE_AC && value == 0) {
+        /* The current state model stores an off light as brightness zero.
+         * Give a fast re-enable a useful default rather than an invisible
+         * "on at 0%" state. */
+        value = 70;
+    }
+    mode = device->type == SMART_HOME_DEVICE_AC ? device->ac_mode : 0;
+    fan_speed = device->type == SMART_HOME_DEVICE_AC ?
+                device->ac_fan_speed : 3;
+    if (smart_home_device_service_set_device_control(
+            &ui->app->device_service, device->id, on, value, mode,
+            fan_speed) != AGENT_OK) {
+        if (device->on) {
+            lv_obj_add_state(sw, LV_STATE_CHECKED);
+        } else {
+            lv_obj_remove_state(sw, LV_STATE_CHECKED);
+        }
+        return;
+    }
+
+    /* Rebuilding the grid deletes this switch, therefore postpone it until
+     * LVGL has finished dispatching the current value-change event. */
+    lv_async_call(device_switch_refresh_cb, ui);
+}
+
 static void set_card_content(lv_obj_t *card,
                              const char *icon_name,
                              const char *title,
                              const char *detail,
-                             int is_on)
+                             int is_on,
+                             smart_home_lvgl_t *ui,
+                             int slot)
 {
     lv_obj_t *badge;
     lv_obj_t *glyph;
@@ -251,15 +311,16 @@ static void set_card_content(lv_obj_t *card,
         lv_obj_center(glyph);
     }
 
-    sw = lv_switch_create(card);
-    lv_obj_set_size(sw, 40, 22);
-    lv_obj_align(sw, LV_ALIGN_RIGHT_MID, 0, 0);
-    if (is_on) {
-        lv_obj_add_state(sw, LV_STATE_CHECKED);
+    if (ui && slot >= 0) {
+        sw = lv_switch_create(card);
+        lv_obj_set_size(sw, 40, 22);
+        lv_obj_align(sw, LV_ALIGN_RIGHT_MID, 0, 0);
+        if (is_on) {
+            lv_obj_add_state(sw, LV_STATE_CHECKED);
+        }
+        lv_obj_set_user_data(sw, (void *)(intptr_t)slot);
+        lv_obj_add_event_cb(sw, device_card_switch_cb, LV_EVENT_ALL, ui);
     }
-    /* Card tap opens the native fine-control sheet; this switch is a state
-     * indicator until an immediate control action is explicitly designed. */
-    lv_obj_clear_flag(sw, LV_OBJ_FLAG_CLICKABLE);
 
     label = smart_home_lvgl_label_create(card, title,
                                          SMART_HOME_UI_COLOR_TEXT_PRIMARY, 16);
@@ -836,6 +897,11 @@ void smart_home_lvgl_refresh_cards(smart_home_lvgl_t *ui)
     smart_home_lvgl_refresh_home(ui);
 }
 
+static void device_switch_refresh_cb(void *data)
+{
+    smart_home_lvgl_refresh_cards((smart_home_lvgl_t *)data);
+}
+
 static void ensure_control_popup(smart_home_lvgl_t *ui)
 {
     lv_obj_t *popup;
@@ -1291,7 +1357,7 @@ static lv_obj_t *create_device_card(lv_obj_t *grid,
 
     format_device_card_text(device, text, sizeof(text));
     set_card_content(card, device_icon(device), device_display_name(device), text,
-                     device && device->on);
+                     device && device->on, ui, slot);
 
     return card;
 }
@@ -1305,7 +1371,8 @@ static lv_obj_t *create_add_card(lv_obj_t *grid, smart_home_lvgl_t *ui)
     lv_obj_set_size(card, card_w, card_h);
     smart_home_lvgl_card_style(card);
     lv_obj_add_event_cb(card, add_device_cb, LV_EVENT_CLICKED, ui);
-    set_card_content(card, ICON_ADD, "添加设备", "接入新的家庭设备", 0);
+    set_card_content(card, ICON_ADD, "添加设备", "接入新的家庭设备", 0,
+                     NULL, -1);
     smart_home_lvgl_set_bg(card, SMART_HOME_UI_COLOR_SURFACE_SOFT);
     return card;
 }
