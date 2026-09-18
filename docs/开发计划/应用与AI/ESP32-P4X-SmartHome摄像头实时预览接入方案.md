@@ -1,6 +1,6 @@
-# ESP32-P4X Smart Home 摄像头实时预览接入方案
+# ESP32-P4X Smart Home 安防页摄像头实时预览接入方案
 
-> 状态：设计完成，尚未开始实现与真机集成。
+> 状态：C1/C2 已开始实现，等待 `smart_home` 配置真机验证；本文以 2026-09-18 的 LVGL 安防页为 UI 基线。
 >
 > 适用硬件：ESP32-P4 Function EV Board、SC2336 摄像头、EK79007
 > 1024×600 MIPI-DSI 屏幕。
@@ -10,8 +10,16 @@
 
 ## 1. 目标与边界
 
-在 Smart Home 中枢增加**本地实时摄像头预览**：用户从设备面板进入摄像头页后，能在
-LVGL 页面中看到 SC2336 的持续画面，并可返回设备面板、聊天和设置页面。
+在 Smart Home 中枢增加**本地实时摄像头预览**：安防页的“客厅 · 实时预览”区域显示
+SC2336 的持续画面；用户可继续在安防、聊天、设备和设置页面间切换。首期不改变安防页
+既有的告警卡片和底部导航布局。
+
+“进入监控”在首期只负责启动/停止安防页内的预览。独立全屏监控页属于后续增强：它必须
+复用同一个 `camera_service`，不能重新打开 `/dev/video0`。
+
+首版摄像头默认关闭；用户通过安防页页脚的开关或“进入监控”显式启用。离开安防页时
+停止采集并释放 `/dev/video0`、CSI/ISP 工作链路和应用侧 PSRAM 缓冲，避免隐私与资源
+占用问题。
 
 首期目标是可靠预览，不将所有视觉能力一次性叠加进来：
 
@@ -19,7 +27,7 @@ LVGL 页面中看到 SC2336 的持续画面，并可返回设备面板、聊天�
 | --- | --- |
 | 本地 LVGL 摄像头预览 | JPEG/H.264 编码、录像、网络直播 |
 | `/dev/video0` 的 V4L2 采集、帧率与错误统计 | 将 30 fps 原始帧上传给 Agent 或云端 |
-| 缩略图入口与独立摄像头页 | 端侧检测、人脸/目标识别 |
+| 安防页内嵌预览与“进入监控”开关 | 独立全屏监控页、端侧检测、人脸/目标识别 |
 | 页面进入/退出后的可靠启停 | 摄像头后台常开和多消费者并行使用 |
 
 Agent 集成属于后续阶段，只提供低频的 `get_camera_status`、
@@ -49,7 +57,7 @@ SC2336 RAW8/BGGR
   → /dev/video0（RGB565，1024×600，30 fps）
   → Smart Home camera_service
   → 最新预览帧缓存
-  → LVGL 摄像头页面
+  → LVGL 安防页预览区域
 ```
 
 相机和屏幕同为 1024×600、RGB565，因此预览没有 Bayer 去马赛克或颜色空间转换的
@@ -94,10 +102,12 @@ int smart_home_camera_copy_latest(uint16_t *dst, size_t dst_bytes,
 
 LVGL 页面只在 UI 所在线程中进行以下工作：
 
-- 创建摄像头页、占位图、状态文字与“返回”控件；
-- 以 100～200 ms 的 `lv_timer` 轮询最新帧序号；
+- 在 `smart_home_lvgl_build_security_screen()` 中创建固定大小的预览图像对象、状态文字与
+  “进入监控”控件；
+- 以约 66 ms 的 `lv_timer` 轮询最新帧序号，UI 预览上限为 **15 FPS**；
 - 当序号变化时，将服务数据复制到 UI 持有的图像缓存，更新图像 source 并失效对象；
-- 页面进入时调用 `smart_home_camera_start()`，退出时调用 `smart_home_camera_stop()`；
+- 进入安防页或点击“进入监控”时调用 `smart_home_camera_start()`；离开安防页或手动停止时
+  调用 `smart_home_camera_stop()`；
 - 失败时保留 UI，显示具体错误码和“重试”入口。
 
 **禁止规则：**采集任务、V4L2 回调、ISR 和 Agent worker 都不得调用 LVGL API。
@@ -126,17 +136,17 @@ VSync 同步和严格的 buffer fence，适合后续全屏高帧率优化，不�
 
 ### 4.1 帧率策略
 
-相机侧保持 30 fps；UI 预览目标为 5～10 fps。用户可感知为实时画面，同时避免 30 次
-每秒的大图刷新抢占 LVGL、DSI、触摸、Wi-Fi 与 Agent。
+相机侧保持 30 fps；首版 UI 预览目标为 **15 fps**。服务只对每两个源帧执行一次缩放，
+避免 30 次每秒的大图刷新抢占 LVGL、DSI、触摸、Wi-Fi 与 Agent。
 
-推荐首版预览尺寸为 512×300 RGB565，源图每隔一个像素抽样一次：
+首版预览尺寸为 512×300 RGB565，适配安防页左侧卡片；采用整数最近邻抽样：
 
 ```text
-1024×600 RGB565  -- 2:1 最近邻缩小 -->  512×300 RGB565
+1024×600 RGB565  -- 最近邻缩小 -->  512×300 RGB565
 ```
 
-该比例不需要浮点运算；画面布局也与屏幕比例一致。后续可按 UI 卡片大小采用
-320×188 缩略图，但不能在采集路径中执行昂贵的通用缩放算法。
+实现不使用浮点运算；后续可按 UI 卡片大小采用 320×188 缩略图，但不能在采集路径中
+执行昂贵的通用缩放算法。
 
 ### 4.2 常驻内存
 
@@ -144,8 +154,8 @@ VSync 同步和严格的 buffer fence，适合后续全屏高帧率优化，不�
 | --- | ---: |
 | V4L2 用户态 3 帧 | `3 × 1024 × 600 × 2` = 3.52 MiB |
 | CSI/ISP/GDMA 底层三缓冲 | 约 3.52 MiB |
-| 512×300 服务预览帧 | 300 KiB |
-| 512×300 UI 图像缓存（建议与服务缓冲分离） | 300 KiB |
+| 512×300 服务双预览帧 | 约 600 KiB |
+| 512×300 UI 图像缓存（与服务缓冲分离） | 约 300 KiB |
 | DSI 双 framebuffer（既有） | 2.34 MiB |
 
 视频部分已约 7 MiB，再叠加显示与 Smart Home 的字体、资源、Agent 栈和网络缓冲，
@@ -156,14 +166,8 @@ VSync 同步和严格的 buffer fence，适合后续全屏高帧率优化，不�
 
 ### 5.1 独立配置
 
-不直接污染已验收的 `smart_home` 或 `video` 配置。新增：
-
-```text
-board/esp32p4/esp32p4-function-ev-board/configs/smart_home_camera_local/
-└── defconfig
-```
-
-它以 `smart_home_local` 为基础，合入 `video` 已验证的相机能力，至少包括：
+首轮集成按当前决策直接在 `configs/smart_home/defconfig` 验证，合入 `video` 已验证的
+相机能力，至少包括：
 
 ```text
 CONFIG_ESP32P4_FUNCTION_EV_BOARD_CAMERA=y
@@ -171,9 +175,10 @@ CONFIG_ESP32P4_FUNCTION_EV_BOARD_CAMERA_SC2336=y
 CONFIG_ESP32P4_FUNCTION_EV_BOARD_CAMERA_SC2336_VIDEO=y
 ```
 
-实际 defconfig 还需要与 `configs/video/defconfig` 对比，确认 V4L2、capture、ISP、
-PSRAM 用户堆和 DMA 依赖全部存在。Wi-Fi 凭据仍只保留在本地配置或 LittleFS 私密资源，
-不得进入共享 defconfig 或提交。
+同时启用 `CONFIG_SMART_HOME_CAMERA_PREVIEW=y`。实际 defconfig 仍需与
+`configs/video/defconfig` 对比，确认 V4L2、capture、ISP、PSRAM 用户堆和 DMA 依赖
+全部存在。Wi-Fi 凭据仍只保留在本地配置或 LittleFS 私密资源，不得进入共享 defconfig
+或提交。
 
 `video_test` 仅在相机底座回归阶段启用；它不是 Smart Home 的运行时依赖。系统运行时
 不得同时执行 `video_test`、`csi_probe` 与 Smart Home 摄像头服务。
@@ -183,12 +188,13 @@ PSRAM 用户堆和 DMA 依赖全部存在。Wi-Fi 凭据仍只保留在本地配
 | 位置 | 改动 |
 | --- | --- |
 | `demos/smart_home/src/camera/smart_home_camera_service.c/.h` | V4L2 采集、缓冲管理、状态统计、启停接口；不含 LVGL。 |
-| `demos/smart_home/src/ui/lvgl/smart_home_lvgl_camera.c/.h` | 摄像头页、预览图、帧率/错误状态、页面生命周期。 |
-| `demos/smart_home/src/ui/lvgl/smart_home_lvgl.h` | 增加摄像头页面对象与导航状态。 |
-| `demos/smart_home/src/ui/lvgl/smart_home_lvgl_nav.c` | 首页卡片与独立摄像头页之间的导航。 |
+| `demos/smart_home/src/ui/lvgl/smart_home_lvgl_pages.c` | 在安防页替换“实时预览占位”，接入预览图、状态与启停/重试控件。 |
+| `demos/smart_home/src/ui/lvgl/smart_home_lvgl.h` | 增加安防预览图、timer 与页面生命周期状态。 |
+| `demos/smart_home/src/ui/lvgl/smart_home_lvgl.c` | 在安防页切换与 UI 反初始化时停止服务、释放预览资源。 |
+| `demos/smart_home/src/ui/lvgl/smart_home_lvgl_camera.c/.h` | 可选的 UI 适配层：集中管理帧序号轮询、图像缓存和状态文字，不新增独立页面。 |
 | `demos/smart_home/Kconfig` | `SMART_HOME_CAMERA_PREVIEW`，依赖板级 SC2336 VIDEO 和 LVGL。 |
 | `demos/smart_home/Makefile`、`CMakeLists.txt` | 条件登记 camera service 与 LVGL 页面源文件。 |
-| `configs/smart_home_camera_local/defconfig` | 独立集成配置。 |
+| `configs/smart_home/defconfig` | 首轮真机集成：启用 SC2336 VIDEO、I2C 和 `SMART_HOME_CAMERA_PREVIEW`。 |
 
 不修改 P4 通用 CSI/GDMA 驱动、SC2336 mode table 或 DSI framebuffer 驱动，除非编译、
 `video_test` 回归或真机日志证明其存在独立缺陷。
@@ -208,22 +214,22 @@ PSRAM 用户堆和 DMA 依赖全部存在。Wi-Fi 凭据仍只保留在本地配
 
 1. 实现 V4L2 生命周期与三缓冲队列；
 2. 固定协商 RGB565、1024×600、30 fps，遇到格式不符立即停止；
-3. 实现 512×300 最近邻缩放、双预览缓冲或锁保护的最新帧缓存；
+3. 实现 512×300 最近邻缩放、双预览缓冲和锁保护的最新帧缓存；
 4. 输出采集 fps、`sequence_gaps`、成功帧数、丢帧数与最近 errno；
 5. 完成 20 次 start/stop 循环，确保每次均能重新 STREAMON。
 
 **通过条件：**不启动 LVGL 时连续采集至少 300 帧，且停止后无未释放的文件描述符、
 队列和任务。
 
-### C2：LVGL 摄像头页
+### C2：LVGL 安防页预览
 
-1. 首页新增“摄像头”缩略卡与状态；
-2. 点击后进入独立预览页，而不是把 512×300 画面硬塞进现有设备网格；
-3. UI timer 以 5～10 fps 更新固定图像对象，不在每帧创建/销毁对象；
-4. 离开页面停止服务、释放预览资源；
+1. 保留现有首页摄像头卡片作为安防入口，安防页替换“实时预览占位”为固定预览对象；
+2. 预览对象适配安防页左侧卡片，保持 16:9 或传感器原始 1024:600 比例，不拉伸；
+3. UI timer 以 15 fps 上限更新固定图像对象，不在每帧创建/销毁对象；
+4. 仅在安防页可见或用户明确开启监控时保持采集；离开页面停止服务、释放预览资源；
 5. 对未注册 `/dev/video0`、格式错误、超时、内存不足分别给出可读提示。
 
-**通过条件：**连续预览 10 分钟，触摸返回、进入聊天/设置及 UI 刷新保持可用，画面无
+**通过条件：**连续预览 10 分钟，切换聊天/设备/设置及 UI 刷新保持可用，画面无
 明显花屏或长期冻结。
 
 ### C3：稳定性与性能验收
@@ -279,7 +285,7 @@ free_all_buffers();
 | V4L2 缓冲生命周期错误 | 花屏、停帧、QBUF 失败 | 严格先复制再 QBUF，不对 UI 暴露 USERPTR 原始指针。 |
 | LVGL 跨线程访问 | 随机崩溃、触摸卡死、页面损坏 | 采集线程仅发布数据；全部 LVGL 操作移至 UI timer。 |
 | PSRAM 不足或碎片化 | `memalign` 失败、最大连续块不足 | 暂停集成，先检查配置、常驻缓冲与资源占用。 |
-| UI 刷新过重 | 触摸延迟、DSI 撕裂、preview fps 抖动 | 限制 UI 至 5～10 fps，固定图像对象与预览尺寸。 |
+| UI 刷新过重 | 触摸延迟、DSI 撕裂、preview fps 抖动 | 限制 UI 至 15 fps，固定图像对象与预览尺寸。 |
 | 网络/Agent 干扰预览 | 预览时聊天延迟或堆压力增大 | 分开记录指标；先保持抓拍能力脱离实时 Agent 流。 |
 
 ## 9. 真机验收清单
@@ -288,9 +294,9 @@ free_all_buffers();
 # C0：视频底座
 nsh> video_test 300
 
-# C2：Smart Home 预览
+# C2：Smart Home 安防页预览
 nsh> smart_home
-# 在 UI 中：进入摄像头 → 观察 10 分钟 → 返回 → 重复 20 次
+# 在 UI 中：进入安防 → 开启监控 → 观察 10 分钟 → 切换页面并返回 → 重复 20 次
 ```
 
 验收记录至少应包含：
