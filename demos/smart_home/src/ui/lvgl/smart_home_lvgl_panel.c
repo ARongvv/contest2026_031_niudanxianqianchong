@@ -3,6 +3,9 @@
  */
 
 #include "smart_home_lvgl_internal.h"
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+#include "../../miloco/smart_home_miloco.h"
+#endif
 #include "images/smart_home_icons.h"
 
 #include <stdio.h>
@@ -1520,6 +1523,158 @@ static void remote_node_timer_cb(lv_timer_t *timer)
 }
 #endif
 
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+/* 米家（Miloco 网关）远程设备卡：电源开关提交异步控制，实际状态
+ * 以 worker 轮询回读为准（revision 变化触发整卡重建）。 */
+static void miloco_switch_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+    lv_obj_t *sw = lv_event_get_current_target(event);
+    const char *did = lv_obj_get_user_data(sw);
+
+    if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED || !ui ||
+        !ui->app || !ui->app->miloco || !did) {
+        return;
+    }
+    if (smart_home_miloco_submit_power(ui->app->miloco, did,
+                                       lv_obj_has_state(sw,
+                                                        LV_STATE_CHECKED))
+            != AGENT_OK) {
+        /* 提交失败：回读当前缓存状态以恢复开关视觉。 */
+        lv_obj_remove_state(sw, LV_STATE_CHECKED);
+    }
+}
+
+static lv_obj_t *create_miloco_card(smart_home_lvgl_t *ui,
+                                    const smart_home_miloco_device_t *device)
+{
+    int compact = smart_home_lvgl_compact();
+    int card_w = device_card_width();
+    int card_h = compact ? 104 : 112;
+    int font_size = compact ? 10 : 11;
+    const char *icon = ICON_DEVICE_GENERIC;
+    lv_obj_t *card;
+    lv_obj_t *content;
+    lv_obj_t *label;
+    lv_obj_t *sw;
+    char room_text[48];
+
+    switch (device->category) {
+    case SMART_HOME_MILOCO_CATEGORY_LIGHT:
+        icon = ICON_DEVICE_LIGHT;
+        break;
+    case SMART_HOME_MILOCO_CATEGORY_AC:
+        icon = ICON_DEVICE_AC;
+        break;
+    default:
+        icon = ICON_DEVICE_GENERIC;
+        break;
+    }
+
+    card = lv_obj_create(ui->panel_grid);
+    lv_obj_set_size(card, card_w, card_h);
+    smart_home_lvgl_card_style(card);
+    smart_home_lvgl_set_bg(card, SMART_HOME_UI_COLOR_SURFACE_SOFT);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
+
+    content = lv_obj_create(card);
+    lv_obj_remove_style_all(content);
+    lv_obj_set_size(content, lv_pct(100), lv_pct(100));
+    lv_obj_clear_flag(content, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(content,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(content, compact ? 2 : 4, 0);
+    lv_obj_set_style_pad_left(content, 6, 0);
+    lv_obj_set_style_pad_right(content, 6, 0);
+
+    smart_home_lvgl_icon_create(content, icon, compact ? 18 : 22,
+                                compact ? 18 : 22);
+    label = smart_home_lvgl_label_create(content, device->name,
+                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY,
+                                         font_size + 1);
+    lv_obj_set_width(label, lv_pct(100));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+
+    if (device->room[0]) {
+        snprintf(room_text, sizeof(room_text), "%s · 米家",
+                 device->room);
+    } else {
+        snprintf(room_text, sizeof(room_text), "米家");
+    }
+    label = smart_home_lvgl_label_create(content, room_text,
+                                         SMART_HOME_UI_COLOR_TEXT_SECONDARY,
+                                         font_size);
+    label = smart_home_lvgl_label_create(
+        content, device->online ? "Online" : "Offline",
+        device->online ? SMART_HOME_UI_COLOR_SUCCESS :
+                         SMART_HOME_UI_COLOR_TEXT_MUTED,
+        font_size);
+
+    if (device->controllable) {
+        sw = lv_switch_create(content);
+        lv_obj_set_size(sw, 40, 22);
+        if (device->power_on) {
+            lv_obj_add_state(sw, LV_STATE_CHECKED);
+        }
+        /* did 字符串由设备缓存长期持有，卡片生命周期内有效。 */
+        lv_obj_set_user_data(sw, (void *)device->did);
+        lv_obj_add_event_cb(sw, miloco_switch_cb, LV_EVENT_VALUE_CHANGED, ui);
+    }
+    return card;
+}
+
+static void append_miloco_cards(smart_home_lvgl_t *ui)
+{
+    smart_home_miloco_device_t devices[SMART_HOME_MILOCO_MAX_DEVICES];
+    size_t count;
+    size_t i;
+
+    if (!ui || !ui->app || !ui->app->miloco) {
+        ui->miloco_revision = 0;
+        return;
+    }
+    count = smart_home_miloco_list(ui->app->miloco, devices,
+                                   SMART_HOME_MILOCO_MAX_DEVICES,
+                                   &ui->miloco_revision);
+    for (i = 0; i < count; i++) {
+        create_miloco_card(ui, &devices[i]);
+    }
+}
+
+static void miloco_timer_cb(lv_timer_t *timer)
+{
+    smart_home_lvgl_t *ui = lv_timer_get_user_data(timer);
+    uint32_t revision = 0;
+
+    if (!ui || !ui->app || !ui->app->miloco) {
+        return;
+    }
+    (void)smart_home_miloco_list(ui->app->miloco, NULL, 0, &revision);
+    if (revision != ui->miloco_revision) {
+        smart_home_lvgl_refresh_cards(ui);
+    }
+}
+
+/* 设备页可见时启动轮询、离开时停止（与安防页摄像头同一门控模式）。 */
+void smart_home_lvgl_miloco_poll_set_enabled(smart_home_lvgl_t *ui, int enable)
+{
+    if (!ui) {
+        return;
+    }
+    if (enable && !ui->miloco_timer) {
+        ui->miloco_timer = lv_timer_create(miloco_timer_cb, 1000, ui);
+    } else if (!enable && ui->miloco_timer) {
+        lv_timer_delete(ui->miloco_timer);
+        ui->miloco_timer = NULL;
+    }
+}
+#endif
+
 static void rebuild_device_cards(smart_home_lvgl_t *ui)
 {
     int slot;
@@ -1549,6 +1704,9 @@ static void rebuild_device_cards(smart_home_lvgl_t *ui)
 
 #ifdef CONFIG_SMART_HOME_NODE_GATEWAY
     append_online_remote_node_cards(ui);
+#endif
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    append_miloco_cards(ui);
 #endif
 }
 

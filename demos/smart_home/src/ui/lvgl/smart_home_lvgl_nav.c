@@ -52,6 +52,11 @@ void smart_home_lvgl_load_tab(smart_home_lvgl_t *ui, int tab)
         tab != SMART_HOME_TAB_SECURITY) {
         smart_home_lvgl_security_camera_stop(ui);
     }
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    /* 米家轮询仅在设备页可见时运行，离开即停。 */
+    smart_home_lvgl_miloco_poll_set_enabled(
+        ui, tab == SMART_HOME_TAB_DEVICES);
+#endif
     previous_tab = ui->active_tab;
     ui->active_tab = tab;
 
@@ -137,7 +142,7 @@ lv_obj_t *smart_home_lvgl_build_nav_bar(lv_obj_t *screen,
 
     for (int i = 0; i < SMART_HOME_TAB_COUNT; i++) {
         lv_obj_t *button = lv_btn_create(bar);
-        lv_obj_t *content;
+        lv_obj_t *button_content;
         lv_color_t color = i == active ? SMART_HOME_UI_COLOR_PRIMARY_DARK :
                                          SMART_HOME_UI_COLOR_TEXT_MUTED;
         lv_obj_remove_style_all(button);
@@ -147,16 +152,16 @@ lv_obj_t *smart_home_lvgl_build_nav_bar(lv_obj_t *screen,
         lv_obj_add_event_cb(button, nav_btn_click, LV_EVENT_CLICKED, ui);
         if (i == active) smart_home_lvgl_set_bg(button, SMART_HOME_UI_COLOR_SURFACE_ON);
         else lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, 0);
-        content = smart_home_lvgl_icon_with_text(button, g_nav_icons[i],
+        button_content = smart_home_lvgl_icon_with_text(button, g_nav_icons[i],
                                                   20, 20, g_nav_titles[i],
                                                   color, 11);
         /* The icon/text container is the actual hit target on some LVGL
          * input paths. Give it the same handler as its button so tapping
          * the Chat glyph or label always changes screen. */
-        lv_obj_add_flag(content, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_user_data(content, (void *)(intptr_t)i);
-        lv_obj_add_event_cb(content, nav_btn_click, LV_EVENT_CLICKED, ui);
-        lv_obj_center(content);
+        lv_obj_add_flag(button_content, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_user_data(button_content, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(button_content, nav_btn_click, LV_EVENT_CLICKED, ui);
+        lv_obj_center(button_content);
     }
     return bar;
 }

@@ -169,6 +169,13 @@ typedef struct {
     lv_obj_t *settings_max_tokens_input;
     lv_obj_t *settings_status_label;
     lv_obj_t *settings_mcp_discover_btn;
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    lv_obj_t *settings_miloco_host_input;
+    lv_obj_t *settings_miloco_port_input;
+    lv_obj_t *settings_miloco_token_input;
+    lv_obj_t *settings_miloco_status_label;
+#endif
+
 
     /* More / network setup: credentials are kept out of settings.json. */
     lv_obj_t *network_ssid_input;
@@ -177,6 +184,10 @@ typedef struct {
     lv_obj_t *network_keyboard;
     lv_obj_t *topbar_wifi_icons[10];
     lv_timer_t *network_status_timer;
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    lv_timer_t *miloco_timer;
+    uint32_t miloco_revision;
+#endif
     pthread_t network_worker;
     void *network_worker_stack_alloc;
     void *network_worker_stack;

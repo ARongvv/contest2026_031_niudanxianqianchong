@@ -147,6 +147,12 @@ void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
         lv_timer_delete(ui->remote_node_timer);
         ui->remote_node_timer = NULL;
     }
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    if (ui->miloco_timer) {
+        lv_timer_delete(ui->miloco_timer);
+        ui->miloco_timer = NULL;
+    }
+#endif
     if (ui->screen_screensaver) {
         lv_obj_del(ui->screen_screensaver);
     }
