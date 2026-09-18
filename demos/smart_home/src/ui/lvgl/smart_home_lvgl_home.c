@@ -8,6 +8,7 @@
 
 #include "smart_home_lvgl_internal.h"
 #include "images/smart_home_icons.h"
+#include "icons/smart_home_lvgl_png_icons.h"
 
 #include <stdio.h>
 
@@ -37,6 +38,18 @@ static lv_color_t topbar_network_color(const smart_home_lvgl_t *ui)
     return SMART_HOME_UI_COLOR_TEXT_MUTED;
 }
 
+static const char *topbar_network_icon(const smart_home_lvgl_t *ui)
+{
+    const smart_home_network_status_t *status;
+
+    if (!ui || !ui->app) {
+        return ICON_STATUS_WIFI_OFF;
+    }
+    status = &ui->app->system_status.network_status;
+    return status->online || status->ip_status == SMART_HOME_NETWORK_OK ?
+        ICON_STATUS_WIFI : ICON_STATUS_WIFI_OFF;
+}
+
 void smart_home_lvgl_refresh_network_indicators(smart_home_lvgl_t *ui)
 {
     lv_color_t color;
@@ -51,6 +64,14 @@ void smart_home_lvgl_refresh_network_indicators(smart_home_lvgl_t *ui)
 
         if (!icon) {
             continue;
+        }
+        {
+            const lv_image_dsc_t *asset = smart_home_lvgl_png_icon_get(
+                topbar_network_icon(ui), 20);
+
+            if (asset) {
+                lv_image_set_src(icon, asset);
+            }
         }
         lv_obj_set_style_text_color(icon, color, 0);
         lv_obj_set_style_image_recolor(icon, color, 0);
@@ -129,7 +150,10 @@ void smart_home_lvgl_build_top_bar(lv_obj_t *screen, smart_home_lvgl_t *ui,
     lv_obj_clear_flag(status_row, LV_OBJ_FLAG_CLICKABLE);
 
     for (i = 0; i < (int)(sizeof(status_icons) / sizeof(status_icons[0])); i++) {
-        icon = smart_home_lvgl_icon_create(status_row, status_icons[i], 20, 20);
+        const char *icon_name = i == 3 ? topbar_network_icon(ui) :
+                                         status_icons[i];
+
+        icon = smart_home_lvgl_icon_create(status_row, icon_name, 20, 20);
         if (!icon) {
             continue;
         }

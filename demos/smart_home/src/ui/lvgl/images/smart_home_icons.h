@@ -31,6 +31,7 @@ extern "C" {
 #define ICON_STATUS_CAMERA     "asset:camera"
 #define ICON_STATUS_DND        "asset:moon"
 #define ICON_STATUS_WIFI       "asset:wifi"
+#define ICON_STATUS_WIFI_OFF   "asset:wifi-off"
 
 /* ── Device type indicators ────────────────────────────────── */
 #define ICON_DEVICE_LIGHT    "asset:bulb"
