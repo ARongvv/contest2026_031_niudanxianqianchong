@@ -52,6 +52,29 @@ int esp_hosted_wlan_initialize(FAR struct esp_hosted_transport_s *transport);
 void esp_hosted_wlan_set_link(bool up);
 
 /****************************************************************************
+ * Name: esp_hosted_wlan_dhcp_diagnostics_begin
+ *
+ * Description:
+ *   Reset the per-attempt, payload-free ESP-Hosted DHCP data-plane counters.
+ *   The counters distinguish whether a NuttX DHCP exchange reaches the C6
+ *   transport and whether a reply returns.  They contain no packet payload,
+ *   SSID, password, or address information.
+ *
+ ****************************************************************************/
+
+void esp_hosted_wlan_dhcp_diagnostics_begin(void);
+
+/****************************************************************************
+ * Name: esp_hosted_wlan_dhcp_diagnostics_log
+ *
+ * Description:
+ *   Write the current per-attempt DHCP frame and drop counters to syslog.
+ *
+ ****************************************************************************/
+
+void esp_hosted_wlan_dhcp_diagnostics_log(FAR const char *stage);
+
+/****************************************************************************
  * Name: esp_hosted_wlan_deinitialize
  *
  * Description:

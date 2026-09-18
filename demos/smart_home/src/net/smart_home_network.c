@@ -7,10 +7,14 @@
 #include <nuttx/config.h>
 
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <netdb.h>
+#include <net/if.h>
+#include <unistd.h>
+#include <errno.h>
 
 #include <arpa/inet.h>
 #include <syslog.h>
@@ -25,6 +29,7 @@
 #include "smart_home_wifi.h"
 #else
 #include <arch/board/board.h>
+#include <arch/chip/esp_hosted_wlan.h>
 #endif
 
 /****************************************************************************
@@ -34,6 +39,14 @@
 #define SMART_HOME_ETH_IFNAME     "eth0"
 #define SMART_HOME_WIFI_IFNAME    "wlan0"
 #define SMART_HOME_DNS_HOSTNAME   "api.deepseek.com"
+
+/* ESP-Hosted association timing: WifiConnect returning OK only means the
+ * C6 accepted the request.  The association completes asynchronously and
+ * flips the wlan0 carrier (IFF_RUNNING), typically within a few seconds. */
+
+#define SMART_HOME_NETWORK_LINK_POLL_MS    200
+#define SMART_HOME_NETWORK_ASSOC_TIMEOUT_MS 15000
+#define SMART_HOME_NETWORK_LINK_GRACE_MS   2000
 
 /****************************************************************************
  * Private Functions
@@ -73,6 +86,51 @@ static bool smart_home_network_has_ip(FAR const char *ifname)
   memset(&addr, 0, sizeof(addr));
   netlib_get_ipv4addr(ifname, &addr);
   return addr.s_addr != 0;
+}
+
+static bool smart_home_network_link_up(FAR const char *ifname)
+{
+  struct ifreq ifr;
+  int sockfd;
+  bool up = false;
+
+  if (ifname == NULL)
+    {
+      return false;
+    }
+
+  sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (sockfd < 0)
+    {
+      return false;
+    }
+
+  memset(&ifr, 0, sizeof(ifr));
+  strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+  if (ioctl(sockfd, SIOCGIFFLAGS, &ifr) == 0)
+    {
+      up = (ifr.ifr_flags & IFF_RUNNING) != 0;
+    }
+
+  close(sockfd);
+  return up;
+}
+
+static int smart_home_network_wait_link(FAR const char *ifname,
+                                        int timeout_ms)
+{
+  while (timeout_ms > 0)
+    {
+      if (smart_home_network_link_up(ifname))
+        {
+          return OK;
+        }
+
+      usleep(SMART_HOME_NETWORK_LINK_POLL_MS * 1000);
+      timeout_ms -= SMART_HOME_NETWORK_LINK_POLL_MS;
+    }
+
+  return smart_home_network_link_up(ifname) ? OK : -ETIMEDOUT;
 }
 
 static void smart_home_network_log_link_state(FAR const char *phase,
@@ -195,9 +253,22 @@ static int smart_home_network_init_wifi(FAR smart_home_network_status_t *status)
                  status->ifname, ret);
         }
 
+      /* A DHCP request issued while the carrier is still down fails
+       * immediately, so give an in-flight association a short grace
+       * window before requesting a lease. */
+      if (!smart_home_network_has_ip(status->ifname) &&
+          !smart_home_network_link_up(status->ifname))
+        {
+          smart_home_network_wait_link(status->ifname,
+                                       SMART_HOME_NETWORK_LINK_GRACE_MS);
+        }
+
       if (!smart_home_network_has_ip(status->ifname))
         {
+          esp_hosted_wlan_dhcp_diagnostics_begin();
           ret = netlib_obtain_ipv4addr(status->ifname);
+          esp_hosted_wlan_dhcp_diagnostics_log(ret < 0 ? "failed" :
+                                                "complete");
           status->ip_status = ret < 0 ? SMART_HOME_NETWORK_ERR_DHCP :
                                         SMART_HOME_NETWORK_OK;
           if (ret < 0)
@@ -338,6 +409,19 @@ int smart_home_network_connect_credentials(
       status->ifname = SMART_HOME_WIFI_IFNAME;
       status->init_status = SMART_HOME_NETWORK_ERR_IFUP;
       return ret;
+    }
+
+  /* WifiConnect returning OK only means the C6 accepted the request.  Wait
+   * for the asynchronous association to flip the wlan0 carrier before
+   * smart_home_network_init() starts DHCP; otherwise the lease request
+   * races the association and fails instantly. */
+  ret = smart_home_network_wait_link(SMART_HOME_WIFI_IFNAME,
+                                     SMART_HOME_NETWORK_ASSOC_TIMEOUT_MS);
+  if (ret < 0)
+    {
+      syslog(LOG_WARNING,
+             "Network: association on %s did not complete in %d ms\n",
+             SMART_HOME_WIFI_IFNAME, SMART_HOME_NETWORK_ASSOC_TIMEOUT_MS);
     }
 
   ret = smart_home_network_init(status);

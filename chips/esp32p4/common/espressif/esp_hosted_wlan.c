@@ -16,7 +16,9 @@
 #ifdef CONFIG_ESPRESSIF_HOSTED_WLAN
 
 #include <errno.h>
+#include <inttypes.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 #include <syslog.h>
 
@@ -52,6 +54,12 @@ struct esp_hosted_wlan_s
   bool initialized;
   bool ifup;
   bool link_up;
+  uint32_t dhcp_tx_frames;
+  uint32_t dhcp_tx_packets;
+  uint32_t dhcp_tx_errors;
+  uint32_t dhcp_rx_frames;
+  uint32_t dhcp_rx_packets;
+  uint32_t dhcp_rx_dropped;
   uint8_t tx_buffer[CONFIG_NET_ETH_PKTSIZE];
 };
 
@@ -117,6 +125,92 @@ static void esp_hosted_wlan_log_kheap(FAR const char *stage)
          stage, info.arena, info.uordblks, info.fordblks, info.mxordblk);
 }
 
+static bool esp_hosted_wlan_is_dhcp_packet(FAR const uint8_t *data,
+                                            size_t length)
+{
+  size_t ip_offset = 14;
+  size_t udp_offset;
+  unsigned int ihl;
+  uint16_t ethertype;
+  uint16_t source_port;
+  uint16_t dest_port;
+
+  if (length < ip_offset)
+    {
+      return false;
+    }
+
+  ethertype = ((uint16_t)data[12] << 8) | data[13];
+  if (ethertype == 0x8100 || ethertype == 0x88a8)
+    {
+      if (length < 18)
+        {
+          return false;
+        }
+
+      ethertype = ((uint16_t)data[16] << 8) | data[17];
+      ip_offset = 18;
+    }
+
+  if (ethertype != 0x0800 || length < ip_offset + 20 ||
+      (data[ip_offset] >> 4) != 4 || data[ip_offset + 9] != 17)
+    {
+      return false;
+    }
+
+  ihl = (data[ip_offset] & 0x0f) * 4;
+  udp_offset = ip_offset + ihl;
+  if (ihl < 20 || length < udp_offset + 8)
+    {
+      return false;
+    }
+
+  source_port = ((uint16_t)data[udp_offset] << 8) |
+                data[udp_offset + 1];
+  dest_port = ((uint16_t)data[udp_offset + 2] << 8) |
+              data[udp_offset + 3];
+  return (source_port == 67 || source_port == 68 ||
+          dest_port == 67 || dest_port == 68);
+}
+
+static void esp_hosted_wlan_note_dhcp_tx(FAR struct esp_hosted_wlan_s *priv,
+                                          bool dhcp, bool error)
+{
+  irqstate_t flags = spin_lock_irqsave(&priv->rx_lock);
+
+  priv->dhcp_tx_frames++;
+  if (dhcp)
+    {
+      priv->dhcp_tx_packets++;
+    }
+
+  if (error)
+    {
+      priv->dhcp_tx_errors++;
+    }
+
+  spin_unlock_irqrestore(&priv->rx_lock, flags);
+}
+
+static void esp_hosted_wlan_note_dhcp_rx(FAR struct esp_hosted_wlan_s *priv,
+                                          bool dhcp, bool dropped)
+{
+  irqstate_t flags = spin_lock_irqsave(&priv->rx_lock);
+
+  priv->dhcp_rx_frames++;
+  if (dhcp)
+    {
+      priv->dhcp_rx_packets++;
+    }
+
+  if (dropped)
+    {
+      priv->dhcp_rx_dropped++;
+    }
+
+  spin_unlock_irqrestore(&priv->rx_lock, flags);
+}
+
 static int esp_hosted_wlan_ifup(FAR struct netdev_lowerhalf_s *dev)
 {
   FAR struct esp_hosted_wlan_s *priv =
@@ -167,6 +261,7 @@ static int esp_hosted_wlan_transmit(FAR struct netdev_lowerhalf_s *dev,
   unsigned int length;
   irqstate_t flags;
   bool link_up;
+  bool dhcp;
   int ret;
 
   flags = spin_lock_irqsave(&priv->rx_lock);
@@ -189,8 +284,10 @@ static int esp_hosted_wlan_transmit(FAR struct netdev_lowerhalf_s *dev,
       return ret;
     }
 
+  dhcp = esp_hosted_wlan_is_dhcp_packet(priv->tx_buffer, length);
   ret = esp_hosted_transport_send_wlan(priv->transport, priv->tx_buffer,
                                         length);
+  esp_hosted_wlan_note_dhcp_tx(priv, dhcp, ret < 0);
   if (ret < 0)
     {
       return ret;
@@ -226,6 +323,7 @@ static int esp_hosted_wlan_rx(FAR void *arg, FAR const uint8_t *data,
   FAR struct esp_hosted_wlan_s *priv = arg;
   FAR netpkt_t *pkt;
   irqstate_t flags;
+  bool dhcp;
   int ret;
 
   if (length < 14 || length > CONFIG_NET_ETH_PKTSIZE)
@@ -237,11 +335,13 @@ static int esp_hosted_wlan_rx(FAR void *arg, FAR const uint8_t *data,
       return OK;
     }
 
+  dhcp = esp_hosted_wlan_is_dhcp_packet(data, length);
   flags = spin_lock_irqsave(&priv->rx_lock);
   if (!priv->ifup || !priv->link_up)
     {
       spin_unlock_irqrestore(&priv->rx_lock, flags);
       NETDEV_RXDROPPED(&priv->dev.netdev);
+      esp_hosted_wlan_note_dhcp_rx(priv, dhcp, true);
       return OK;
     }
 
@@ -251,6 +351,7 @@ static int esp_hosted_wlan_rx(FAR void *arg, FAR const uint8_t *data,
     {
       syslog(LOG_WARNING, "WARNING: ESP-Hosted C6 RX: no packet buffer\n");
       NETDEV_RXDROPPED(&priv->dev.netdev);
+      esp_hosted_wlan_note_dhcp_rx(priv, dhcp, true);
       return OK;
     }
 
@@ -259,6 +360,7 @@ static int esp_hosted_wlan_rx(FAR void *arg, FAR const uint8_t *data,
     {
       netpkt_free(&priv->dev, pkt, NETPKT_RX);
       NETDEV_RXDROPPED(&priv->dev.netdev);
+      esp_hosted_wlan_note_dhcp_rx(priv, dhcp, true);
       return OK;
     }
 
@@ -267,6 +369,7 @@ static int esp_hosted_wlan_rx(FAR void *arg, FAR const uint8_t *data,
     {
       spin_unlock_irqrestore(&priv->rx_lock, flags);
       netpkt_free(&priv->dev, pkt, NETPKT_RX);
+      esp_hosted_wlan_note_dhcp_rx(priv, dhcp, true);
       return OK;
     }
 
@@ -276,9 +379,11 @@ static int esp_hosted_wlan_rx(FAR void *arg, FAR const uint8_t *data,
     {
       netpkt_free(&priv->dev, pkt, NETPKT_RX);
       NETDEV_RXDROPPED(&priv->dev.netdev);
+      esp_hosted_wlan_note_dhcp_rx(priv, dhcp, true);
       return OK;
     }
 
+  esp_hosted_wlan_note_dhcp_rx(priv, dhcp, false);
   netdev_lower_rxready(&priv->dev);
   return OK;
 }
@@ -371,6 +476,60 @@ void esp_hosted_wlan_set_link(bool up)
       netdev_lower_carrier_off(&priv->dev);
       esp_hosted_wlan_free_rx_queue(priv);
     }
+}
+
+void esp_hosted_wlan_dhcp_diagnostics_begin(void)
+{
+  FAR struct esp_hosted_wlan_s *priv = &g_esp_hosted_wlan;
+  irqstate_t flags;
+
+  if (!priv->initialized)
+    {
+      return;
+    }
+
+  flags = spin_lock_irqsave(&priv->rx_lock);
+  priv->dhcp_tx_frames = 0;
+  priv->dhcp_tx_packets = 0;
+  priv->dhcp_tx_errors = 0;
+  priv->dhcp_rx_frames = 0;
+  priv->dhcp_rx_packets = 0;
+  priv->dhcp_rx_dropped = 0;
+  spin_unlock_irqrestore(&priv->rx_lock, flags);
+}
+
+void esp_hosted_wlan_dhcp_diagnostics_log(FAR const char *stage)
+{
+  FAR struct esp_hosted_wlan_s *priv = &g_esp_hosted_wlan;
+  irqstate_t flags;
+  uint32_t tx_frames;
+  uint32_t tx_packets;
+  uint32_t tx_errors;
+  uint32_t rx_frames;
+  uint32_t rx_packets;
+  uint32_t rx_dropped;
+
+  if (!priv->initialized)
+    {
+      return;
+    }
+
+  flags = spin_lock_irqsave(&priv->rx_lock);
+  tx_frames = priv->dhcp_tx_frames;
+  tx_packets = priv->dhcp_tx_packets;
+  tx_errors = priv->dhcp_tx_errors;
+  rx_frames = priv->dhcp_rx_frames;
+  rx_packets = priv->dhcp_rx_packets;
+  rx_dropped = priv->dhcp_rx_dropped;
+  spin_unlock_irqrestore(&priv->rx_lock, flags);
+
+  syslog(LOG_INFO,
+         "INFO: ESP-Hosted C6 DHCP data: stage=%s tx_frames=%" PRIu32
+         " tx_dhcp=%" PRIu32 " tx_errors=%" PRIu32
+         " rx_frames=%" PRIu32 " rx_dhcp=%" PRIu32
+         " rx_dropped=%" PRIu32 "\n",
+         stage ? stage : "unknown", tx_frames, tx_packets, tx_errors,
+         rx_frames, rx_packets, rx_dropped);
 }
 
 int esp_hosted_wlan_deinitialize(void)
