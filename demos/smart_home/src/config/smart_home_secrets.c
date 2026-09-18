@@ -8,6 +8,7 @@
 #include <cagent/types.h>
 
 #include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -352,6 +353,174 @@ int smart_home_secrets_set_wifi_credentials(const char *ssid,
         return AGENT_ERROR;
     }
     secure_clear(serialized, strlen(serialized));
+    free(serialized);
+    return AGENT_OK;
+}
+
+/*
+ * 读取或更新 secrets.json 的 miloco 段（家庭服务器地址/端口/token）。
+ * token 允许为空（Miloco 未配置鉴权时使用）。port 缺省按 1810 处理。
+ */
+int smart_home_secrets_get_miloco(char *host, size_t host_size,
+                                  uint16_t *port,
+                                  char *token, size_t token_size)
+{
+    char *text = NULL;
+    size_t text_size = 0u;
+    cJSON *root = NULL;
+    cJSON *version;
+    cJSON *miloco;
+    const cJSON *stored_host;
+    const cJSON *stored_port;
+    const cJSON *stored_token;
+    uint16_t resolved_port = SMART_HOME_MILOCO_DEFAULT_PORT_SECRET;
+    int ret;
+
+    if (!host || host_size == 0u || !port || !token || token_size == 0u) {
+        return AGENT_ERROR_INVALID;
+    }
+    host[0] = '\0';
+    token[0] = '\0';
+    *port = resolved_port;
+    ret = read_secrets_file(&text, &text_size);
+    if (ret != AGENT_OK) {
+        return ret;
+    }
+    root = cJSON_ParseWithLength(text, text_size);
+    secure_clear(text, text_size + 1u);
+    free(text);
+    if (!root || !cJSON_IsObject(root)) {
+        cJSON_Delete(root);
+        return AGENT_ERROR_PARSE;
+    }
+    version = cJSON_GetObjectItemCaseSensitive(root, "version");
+    miloco = cJSON_GetObjectItemCaseSensitive(root, "miloco");
+    if (!cJSON_IsNumber(version) ||
+        version->valueint != SMART_HOME_SECRETS_VERSION ||
+        !cJSON_IsObject(miloco)) {
+        cJSON_Delete(root);
+        return AGENT_ERROR_NOTFOUND;
+    }
+    stored_host = cJSON_GetObjectItemCaseSensitive(miloco, "host");
+    stored_port = cJSON_GetObjectItemCaseSensitive(miloco, "port");
+    stored_token = cJSON_GetObjectItemCaseSensitive(miloco, "token");
+    if (!cJSON_IsString(stored_host) || !stored_host->valuestring[0] ||
+        strlen(stored_host->valuestring) >= host_size ||
+        contains_control(stored_host->valuestring)) {
+        cJSON_Delete(root);
+        return AGENT_ERROR_NOTFOUND;
+    }
+    if (cJSON_IsNumber(stored_port) && stored_port->valueint > 0 &&
+        stored_port->valueint <= 65535) {
+        resolved_port = (uint16_t)stored_port->valueint;
+    }
+    if (cJSON_IsString(stored_token) &&
+        strlen(stored_token->valuestring) < token_size &&
+        !contains_control(stored_token->valuestring)) {
+        memcpy(token, stored_token->valuestring,
+               strlen(stored_token->valuestring) + 1u);
+    }
+    memcpy(host, stored_host->valuestring,
+           strlen(stored_host->valuestring) + 1u);
+    *port = resolved_port;
+    cJSON_Delete(root);
+    return AGENT_OK;
+}
+
+int smart_home_secrets_set_miloco(const char *host, uint16_t port,
+                                  const char *token)
+{
+    char *text = NULL;
+    size_t text_size = 0u;
+    cJSON *root = NULL;
+    cJSON *miloco;
+    cJSON *version;
+    char *serialized = NULL;
+    char temp_path[192];
+    FILE *file = NULL;
+    int ret;
+
+    if (!host || !host[0] || strlen(host) > 63u || port == 0u ||
+        (token && strlen(token) > 63u) || contains_control(host) ||
+        (token && contains_control(token))) {
+        return AGENT_ERROR_INVALID;
+    }
+    ret = read_secrets_file(&text, &text_size);
+    if (ret == AGENT_ERROR_NOTFOUND) {
+        root = cJSON_CreateObject();
+        if (!root || !cJSON_AddNumberToObject(root, "version",
+                                               SMART_HOME_SECRETS_VERSION) ||
+            !cJSON_AddObjectToObject(root, "model_api_keys")) {
+            cJSON_Delete(root);
+            return AGENT_ERROR_NOMEM;
+        }
+    } else {
+        if (ret != AGENT_OK) {
+            return ret;
+        }
+        root = cJSON_ParseWithLength(text, text_size);
+        secure_clear(text, text_size + 1u);
+        free(text);
+        if (!root || !cJSON_IsObject(root)) {
+            cJSON_Delete(root);
+            return AGENT_ERROR_PARSE;
+        }
+        version = cJSON_GetObjectItemCaseSensitive(root, "version");
+        if (!cJSON_IsNumber(version) ||
+            version->valueint != SMART_HOME_SECRETS_VERSION) {
+            cJSON_Delete(root);
+            return AGENT_ERROR_PARSE;
+        }
+    }
+    miloco = cJSON_GetObjectItemCaseSensitive(root, "miloco");
+    if (!cJSON_IsObject(miloco)) {
+        miloco = cJSON_AddObjectToObject(root, "miloco");
+    }
+    if (!miloco) {
+        cJSON_Delete(root);
+        return AGENT_ERROR_NOMEM;
+    }
+    cJSON_DeleteItemFromObjectCaseSensitive(miloco, "host");
+    cJSON_DeleteItemFromObjectCaseSensitive(miloco, "port");
+    cJSON_DeleteItemFromObjectCaseSensitive(miloco, "token");
+    if (!cJSON_AddStringToObject(miloco, "host", host) ||
+        !cJSON_AddNumberToObject(miloco, "port", (double)port) ||
+        !cJSON_AddStringToObject(miloco, "token", token ? token : "")) {
+        cJSON_Delete(root);
+        return AGENT_ERROR_NOMEM;
+    }
+    serialized = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!serialized) {
+        return AGENT_ERROR_NOMEM;
+    }
+    if (snprintf(temp_path, sizeof(temp_path), "%s.tmp",
+                 CONFIG_SMART_HOME_MODEL_SECRETS_PATH) >= (int)sizeof(temp_path)) {
+        free(serialized);
+        return AGENT_ERROR_LIMIT;
+    }
+    file = fopen(temp_path, "wb");
+    if (!file) {
+        free(serialized);
+        return AGENT_ERROR;
+    }
+    if (fwrite(serialized, 1u, strlen(serialized), file) != strlen(serialized) ||
+        fflush(file) != 0) {
+        fclose(file);
+        unlink(temp_path);
+        free(serialized);
+        return AGENT_ERROR;
+    }
+    if (fclose(file) != 0) {
+        unlink(temp_path);
+        free(serialized);
+        return AGENT_ERROR;
+    }
+    if (rename(temp_path, CONFIG_SMART_HOME_MODEL_SECRETS_PATH) != 0) {
+        unlink(temp_path);
+        free(serialized);
+        return AGENT_ERROR;
+    }
     free(serialized);
     return AGENT_OK;
 }

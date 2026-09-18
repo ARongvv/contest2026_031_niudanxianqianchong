@@ -47,6 +47,16 @@ int smart_home_secrets_get_wifi_credentials(char *ssid, size_t ssid_size,
 int smart_home_secrets_set_wifi_credentials(const char *ssid,
                                             const char *password);
 
+/* Miloco 米家网关（家庭服务器）配置。token 可为空表示无鉴权。 */
+#ifndef SMART_HOME_MILOCO_DEFAULT_PORT_SECRET
+#define SMART_HOME_MILOCO_DEFAULT_PORT_SECRET 1810
+#endif
+int smart_home_secrets_get_miloco(char *host, size_t host_size,
+                                  uint16_t *port,
+                                  char *token, size_t token_size);
+int smart_home_secrets_set_miloco(const char *host, uint16_t port,
+                                  const char *token);
+
 #ifdef __cplusplus
 }
 #endif

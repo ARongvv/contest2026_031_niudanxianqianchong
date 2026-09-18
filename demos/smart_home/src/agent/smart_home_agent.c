@@ -9,6 +9,9 @@
 #ifdef CONFIG_SMART_HOME_MCP_BRIDGE
 #include "../addons/smart_home_mcp_bridge.h"
 #endif
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+#include "../miloco/smart_home_miloco.h"
+#endif
 
 #include "../config/smart_home_backends.h"
 #include "../config/smart_home_config.h"
@@ -494,6 +497,13 @@ int smart_home_agent_app_init(smart_home_agent_app_t *app)
         smart_home_status_error(app, "Tools", ret);
     }
 
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    ret = smart_home_miloco_tools_register(app->agent, app);
+    if (ret != AGENT_OK) {
+        smart_home_status_error(app, "Miloco tools", ret);
+    }
+#endif
+
     smart_home_init_trace("policy-bind-begin", AGENT_OK);
     ret = agent_set_policy_callback(app->agent,
                                     smart_home_local_tool_policy,
@@ -610,6 +620,9 @@ void smart_home_agent_app_deinit(smart_home_agent_app_t *app)
 #endif
 #ifdef CONFIG_SMART_HOME_NODE_GATEWAY
     smart_home_node_gateway_stop(&app->node_gateway);
+#endif
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    smart_home_miloco_stop(&app->miloco);
 #endif
 #ifdef CONFIG_SMART_HOME_APP_BRIDGE_CHAT
     smart_home_agent_run_service_stop(&app->run_service);

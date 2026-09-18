@@ -3,6 +3,9 @@
 #include "../config/smart_home_secrets.h"
 #include "../smart_home_cpu_debug.h"
 #include "../ui/smart_home_ui.h"
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+#include "../miloco/smart_home_miloco.h"
+#endif
 #include <cagent/runtime_openvela.h>
 #ifdef CONFIG_SMART_HOME_APP_BRIDGE
 #include "../addons/smart_home_app_bridge.h"
@@ -91,6 +94,26 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
     smart_home_agent_app_set_network_status(&app, &network_status);
+
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    {
+        smart_home_miloco_config_t miloco_config;
+
+        /* 配置过 Miloco 网关就常驻启动；网络未就绪时 worker 按周期
+         * 重试，不需要与 Wi-Fi 连接时序耦合。 */
+        miloco_config.port = SMART_HOME_MILOCO_DEFAULT_PORT;
+        miloco_config.token[0] = '\0';
+        if (smart_home_secrets_get_miloco(miloco_config.host,
+                                          sizeof(miloco_config.host),
+                                          &miloco_config.port,
+                                          miloco_config.token,
+                                          sizeof(miloco_config.token))
+                == AGENT_OK &&
+            smart_home_miloco_start(&app.miloco, &miloco_config) != AGENT_OK) {
+            fprintf(stderr, "miloco gateway start failed\n");
+        }
+    }
+#endif
 #ifdef CONFIG_SMART_HOME_APP_BRIDGE
     ret = smart_home_app_bridge_start(&app.app_bridge, &app);
     if (ret != AGENT_OK) {

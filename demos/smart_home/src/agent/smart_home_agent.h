@@ -88,6 +88,9 @@ typedef struct smart_home_agent_app {
 #ifdef CONFIG_SMART_HOME_NODE_GATEWAY
     smart_home_node_gateway_t *node_gateway;
 #endif
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    struct smart_home_miloco *miloco;
+#endif
 #ifdef CONFIG_SMART_HOME_MCP_BRIDGE
     smart_home_mcp_bridge_t *mcp_bridge;
 #endif
@@ -96,6 +99,11 @@ typedef struct smart_home_agent_app {
     smart_home_agent_run_service_t *run_service;
 #endif
 } smart_home_agent_app_t;
+
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+int smart_home_miloco_tools_register(agent_t *agent,
+                                     smart_home_agent_app_t *app);
+#endif
 
 int smart_home_agent_app_init(smart_home_agent_app_t *app);
 void smart_home_agent_app_deinit(smart_home_agent_app_t *app);

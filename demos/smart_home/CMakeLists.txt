@@ -52,6 +52,12 @@ if(CONFIG_SMART_HOME_DEMO)
     list(APPEND SMART_HOME_SRCS src/camera/smart_home_camera_service.c)
   endif()
 
+  if(CONFIG_SMART_HOME_MILOCO_BRIDGE)
+    list(APPEND SMART_HOME_SRCS src/miloco/smart_home_miloco_client.c)
+    list(APPEND SMART_HOME_SRCS src/miloco/smart_home_miloco_service.c)
+    list(APPEND SMART_HOME_SRCS src/miloco/smart_home_miloco_tools.c)
+  endif()
+
   if(CONFIG_SMART_HOME_NODE_GATEWAY OR CONFIG_SMART_HOME_MCP_BRIDGE OR CONFIG_SMART_HOME_APP_BRIDGE)
     list(APPEND SMART_HOME_DEPS cagent_addons)
   endif()

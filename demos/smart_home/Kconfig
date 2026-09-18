@@ -336,6 +336,18 @@ config SMART_HOME_CAMERA_PREVIEW
       512x300 preview to the LVGL security page at a maximum of 15 FPS.
       It is intentionally independent of cAGENT and network services.
 
+config SMART_HOME_MILOCO_BRIDGE
+    bool "Enable Xiaomi Miloco gateway bridge"
+    depends on SMART_HOME_DEMO_UI_LVGL
+    default n
+    help
+      Bridge remote Mi Home devices through a Xiaomi Miloco backend that
+      runs on a home server. Devices are polled over plain LAN HTTP
+      (default port 1810) and displayed as remote cards on the device
+      panel; power control is issued via the /miot REST API from a
+      dedicated worker thread. Gateway host/port/token are stored in
+      secrets.json and configured from the settings page.
+
 config SMART_HOME_DEMO_STATIC_LVGL_HOME
     bool "P4X static LVGL home screen"
     depends on ARCH_BOARD_ESP32P4_FUNCTION_EV_BOARD
