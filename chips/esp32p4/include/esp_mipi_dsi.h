@@ -15,6 +15,7 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/irq.h>
 #include <nuttx/video/mipi_dsi.h>
 
 #include <stdbool.h>
@@ -109,6 +110,18 @@ struct esp_mipi_dsi_video_dma_config_s
 
 typedef void (*esp_mipi_dsi_video_dma_frame_done_t)(FAR void *arg);
 
+/*
+ * The P4 has one DW-GDMA interrupt source for all channels.  The DSI
+ * scanout owns that source first during board bring-up; a concurrent CSI
+ * capture may register one channel-specific client which is dispatched from
+ * the DSI ISR.  The client must be ISR-safe and must only access its own DMA
+ * channel.
+ */
+
+typedef int (*esp_mipi_dsi_video_dma_irq_client_t)(int irq,
+                                                    FAR void *context,
+                                                    FAR void *arg);
+
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
@@ -190,6 +203,34 @@ int esp_mipi_dsi_video_dma_queue_frame_buffer(
 int esp_mipi_dsi_video_dma_set_frame_done_callback(
   FAR struct mipi_dsi_host *host,
   esp_mipi_dsi_video_dma_frame_done_t callback, FAR void *arg);
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_dma_is_active
+ *
+ * Description:
+ *   Return true when DPI scanout owns the DW-GDMA controller and its shared
+ *   interrupt source.  A second P4 media path must then use a separate DMA
+ *   channel and leave controller-wide reset and teardown untouched.
+ *
+ ****************************************************************************/
+
+bool esp_mipi_dsi_video_dma_is_active(void);
+
+/****************************************************************************
+ * Name: esp_mipi_dsi_video_dma_register_irq_client
+ *
+ * Description:
+ *   Register the sole secondary DW-GDMA channel client while DSI scanout is
+ *   active.  Returns -ENODEV when scanout is inactive and -EBUSY when a
+ *   client is already registered.
+ *
+ ****************************************************************************/
+
+int esp_mipi_dsi_video_dma_register_irq_client(
+  esp_mipi_dsi_video_dma_irq_client_t client, FAR void *arg);
+
+void esp_mipi_dsi_video_dma_unregister_irq_client(
+  esp_mipi_dsi_video_dma_irq_client_t client, FAR void *arg);
 
 /****************************************************************************
  * Name: esp_mipi_dsi_video_dma_dump_status

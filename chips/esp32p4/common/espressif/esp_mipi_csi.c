@@ -41,13 +41,19 @@
 
 #include <arch/chip/esp_mipi_csi.h>
 
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+#  include <arch/chip/esp_mipi_dsi.h>
+#endif
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
 #define ESP_MIPI_CSI_MIN_RATE_MBPS             90
 #define ESP_MIPI_CSI_MAX_RATE_MBPS            1500
-#define ESP_MIPI_CSI_DMA_CHANNEL                 0
+/* Keep channel 0 for DSI scanout.  CSI runs concurrently on channel 1. */
+
+#define ESP_MIPI_CSI_DMA_CHANNEL                 1
 #define ESP_MIPI_CSI_DMA_WIDTH_BYTES             8
 #define ESP_MIPI_CSI_CACHE_LINE_BYTES            64
 #define ESP_MIPI_CSI_DMA_BURST_WORDS           512
@@ -120,6 +126,7 @@ struct esp_mipi_csi_s
   struct esp_mipi_csi_stats_s stats;
   int                         dma_cpuint;
   int                         bridge_cpuint;
+  bool                        dma_irq_shared;
   bool                        phy_clock_enabled;
   bool                        isp_clock_enabled;
   struct esp_isp_s            isp;
@@ -671,7 +678,15 @@ static void esp_mipi_csi_disable_interrupts(FAR struct esp_mipi_csi_s *priv)
       priv->bridge_cpuint = -1;
     }
 
-  if (priv->dma_cpuint >= 0)
+  if (priv->dma_irq_shared)
+    {
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+      esp_mipi_dsi_video_dma_unregister_irq_client(
+        esp_mipi_csi_dma_interrupt, priv);
+#endif
+      priv->dma_irq_shared = false;
+    }
+  else if (priv->dma_cpuint >= 0)
     {
       up_disable_irq(ESP_SOURCE2IRQ(ETS_DW_GDMA_INTR_SOURCE));
       esp_teardown_irq(ETS_DW_GDMA_INTR_SOURCE, priv->dma_cpuint);
@@ -682,6 +697,7 @@ static void esp_mipi_csi_disable_interrupts(FAR struct esp_mipi_csi_s *priv)
 static void esp_mipi_csi_release_dma(FAR struct esp_mipi_csi_s *priv)
 {
   irqstate_t flags;
+  bool shared_irq = priv->dma_irq_shared;
 
   esp_mipi_csi_disable_interrupts(priv);
 
@@ -693,12 +709,15 @@ static void esp_mipi_csi_release_dma(FAR struct esp_mipi_csi_s *priv)
         priv->dma_dev, ESP_MIPI_CSI_DMA_CHANNEL, UINT32_MAX, false);
       dw_gdma_ll_channel_enable_intr_propagation(
         priv->dma_dev, ESP_MIPI_CSI_DMA_CHANNEL, UINT32_MAX, false);
-      dw_gdma_ll_enable_intr_global(priv->dma_dev, false);
-      dw_gdma_ll_enable_controller(priv->dma_dev, false);
-
-      PERIPH_RCC_ATOMIC()
+      if (!shared_irq)
         {
-          dw_gdma_ll_enable_bus_clock(ESP_MIPI_CSI_BUS0, false);
+          dw_gdma_ll_enable_intr_global(priv->dma_dev, false);
+          dw_gdma_ll_enable_controller(priv->dma_dev, false);
+
+          PERIPH_RCC_ATOMIC()
+            {
+              dw_gdma_ll_enable_bus_clock(ESP_MIPI_CSI_BUS0, false);
+            }
         }
 
       priv->dma_dev = NULL;
@@ -729,6 +748,7 @@ static int esp_mipi_csi_prepare_dma(FAR struct esp_mipi_csi_s *priv,
   FAR dw_gdma_dev_t *dma_dev;
   FAR dw_gdma_link_list_item_t *lli;
   FAR const char *stage;
+  bool dsi_dma_active = false;
   int ret;
 
   stage = "validate";
@@ -742,12 +762,19 @@ static int esp_mipi_csi_prepare_dma(FAR struct esp_mipi_csi_s *priv,
       return -EINVAL;
     }
 
-  stage = "dma_clock_reset";
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+  dsi_dma_active = esp_mipi_dsi_video_dma_is_active();
+#endif
+
+  stage = dsi_dma_active ? "dma_clock_share" : "dma_clock_reset";
   syslog(LOG_INFO, "INFO: MIPI-CSI DMA prepare: stage=%s\n", stage);
   PERIPH_RCC_ATOMIC()
     {
       dw_gdma_ll_enable_bus_clock(ESP_MIPI_CSI_BUS0, true);
-      dw_gdma_ll_reset_register(ESP_MIPI_CSI_BUS0);
+      if (!dsi_dma_active)
+        {
+          dw_gdma_ll_reset_register(ESP_MIPI_CSI_BUS0);
+        }
     }
 
   syslog(LOG_INFO,
@@ -766,9 +793,12 @@ static int esp_mipi_csi_prepare_dma(FAR struct esp_mipi_csi_s *priv,
 
   stage = "dma_channel_configure";
   syslog(LOG_INFO, "INFO: MIPI-CSI DMA prepare: stage=%s\n", stage);
-  dw_gdma_ll_reset(dma_dev);
-  dw_gdma_ll_enable_controller(dma_dev, true);
-  dw_gdma_ll_enable_intr_global(dma_dev, false);
+  if (!dsi_dma_active)
+    {
+      dw_gdma_ll_reset(dma_dev);
+      dw_gdma_ll_enable_controller(dma_dev, true);
+      dw_gdma_ll_enable_intr_global(dma_dev, false);
+    }
   dw_gdma_ll_channel_set_trans_flow(
     dma_dev, ESP_MIPI_CSI_DMA_CHANNEL, DW_GDMA_ROLE_PERIPH_CSI,
     DW_GDMA_ROLE_MEM, DW_GDMA_FLOW_CTRL_SRC);
@@ -840,20 +870,40 @@ static int esp_mipi_csi_prepare_dma(FAR struct esp_mipi_csi_s *priv,
 
   stage = "dma_irq_setup";
   syslog(LOG_INFO, "INFO: MIPI-CSI DMA prepare: stage=%s\n", stage);
-  priv->dma_cpuint = esp_setup_irq(ETS_DW_GDMA_INTR_SOURCE,
-                                    ESP_IRQ_PRIORITY_DEFAULT,
-                                    ESP_IRQ_TRIGGER_LEVEL,
-                                    esp_mipi_csi_dma_interrupt, priv);
-  if (priv->dma_cpuint < 0)
+  if (dsi_dma_active)
     {
-      ret = priv->dma_cpuint;
-      priv->dma_cpuint = -1;
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+      ret = esp_mipi_dsi_video_dma_register_irq_client(
+        esp_mipi_csi_dma_interrupt, priv);
+      if (ret < 0)
+        {
+          goto errout;
+        }
+
+      priv->dma_irq_shared = true;
+#else
+      ret = -ENODEV;
       goto errout;
+#endif
+    }
+  else
+    {
+      priv->dma_cpuint = esp_setup_irq(ETS_DW_GDMA_INTR_SOURCE,
+                                       ESP_IRQ_PRIORITY_DEFAULT,
+                                       ESP_IRQ_TRIGGER_LEVEL,
+                                       esp_mipi_csi_dma_interrupt, priv);
+      if (priv->dma_cpuint < 0)
+        {
+          ret = priv->dma_cpuint;
+          priv->dma_cpuint = -1;
+          goto errout;
+        }
     }
 
   syslog(LOG_INFO,
-         "INFO: MIPI-CSI DMA prepare: stage=%s result=%d cpuint=%d\n",
-         stage, OK, priv->dma_cpuint);
+         "INFO: MIPI-CSI DMA prepare: stage=%s result=%d mode=%s cpuint=%d\n",
+         stage, OK, priv->dma_irq_shared ? "shared-dsi" : "exclusive",
+         priv->dma_cpuint);
 
   /* Current ESP32-P4 dynamic IRQ allocation does not return from its second
    * allocation, regardless of whether CSI Bridge or GDMA is registered
@@ -871,8 +921,11 @@ static int esp_mipi_csi_prepare_dma(FAR struct esp_mipi_csi_s *priv,
 
   stage = "irq_enable";
   syslog(LOG_INFO, "INFO: MIPI-CSI DMA prepare: stage=%s\n", stage);
-  dw_gdma_ll_enable_intr_global(dma_dev, true);
-  up_enable_irq(ESP_SOURCE2IRQ(ETS_DW_GDMA_INTR_SOURCE));
+  if (!priv->dma_irq_shared)
+    {
+      dw_gdma_ll_enable_intr_global(dma_dev, true);
+      up_enable_irq(ESP_SOURCE2IRQ(ETS_DW_GDMA_INTR_SOURCE));
+    }
   syslog(LOG_INFO,
          "INFO: MIPI-CSI DMA prepare: stage=complete result=%d\n", OK);
   return OK;

@@ -74,7 +74,12 @@ static const struct esp_mipi_dsi_host_config_s g_board_mipi_dsi_config =
     {
       .channel_id  = BOARD_MIPI_DSI_PHY_LDO_CHANNEL,
       .voltage_mv  = ESP_MIPI_DSI_DPHY_VOLTAGE_MV,
-      .adjustable  = true,
+      /*
+       * MIPI-DSI and MIPI-CSI share the board's 2.5 V D-PHY LDO.  Keep
+       * this consumer non-adjustable so CSI can acquire a second reference
+       * at the same fixed voltage after the display has been initialized.
+       */
+      .adjustable  = false,
       .owned_by_hw = false,
     },
 };

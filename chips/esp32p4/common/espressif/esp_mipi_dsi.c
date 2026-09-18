@@ -165,6 +165,8 @@ struct esp_mipi_dsi_s
   volatile uint32_t          dma_error_events;
   int                        dma_cpuint;
   spinlock_t                 dma_irq_lock;
+  esp_mipi_dsi_video_dma_irq_client_t dma_irq_client;
+  FAR void                   *dma_irq_client_arg;
   esp_mipi_dsi_video_dma_frame_done_t dma_frame_done;
   FAR void                   *dma_frame_done_arg;
   int                        bridge_cpuint;
@@ -219,6 +221,81 @@ static struct esp_mipi_dsi_s g_esp_mipi_dsi =
   .bridge_irq_lock = SP_UNLOCKED,
 #endif
 };
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+bool esp_mipi_dsi_video_dma_is_active(void)
+{
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+  FAR struct esp_mipi_dsi_s *priv = &g_esp_mipi_dsi;
+
+  return priv->video_running && priv->dma_dev != NULL &&
+         priv->dma_cpuint >= 0;
+#else
+  return false;
+#endif
+}
+
+int esp_mipi_dsi_video_dma_register_irq_client(
+  esp_mipi_dsi_video_dma_irq_client_t client, FAR void *arg)
+{
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+  FAR struct esp_mipi_dsi_s *priv = &g_esp_mipi_dsi;
+  irqstate_t flags;
+  int ret = OK;
+
+  if (client == NULL)
+    {
+      return -EINVAL;
+    }
+
+  flags = spin_lock_irqsave(&priv->dma_irq_lock);
+  if (!priv->video_running || priv->dma_dev == NULL ||
+      priv->dma_cpuint < 0)
+    {
+      ret = -ENODEV;
+    }
+  else if (priv->dma_irq_client != NULL)
+    {
+      ret = -EBUSY;
+    }
+  else
+    {
+      priv->dma_irq_client = client;
+      priv->dma_irq_client_arg = arg;
+    }
+
+  spin_unlock_irqrestore(&priv->dma_irq_lock, flags);
+  return ret;
+#else
+  UNUSED(client);
+  UNUSED(arg);
+  return -ENODEV;
+#endif
+}
+
+void esp_mipi_dsi_video_dma_unregister_irq_client(
+  esp_mipi_dsi_video_dma_irq_client_t client, FAR void *arg)
+{
+#ifdef CONFIG_ESPRESSIF_MIPI_DSI_VIDEO_DMA
+  FAR struct esp_mipi_dsi_s *priv = &g_esp_mipi_dsi;
+  irqstate_t flags;
+
+  flags = spin_lock_irqsave(&priv->dma_irq_lock);
+  if (priv->dma_irq_client == client && priv->dma_irq_client_arg == arg)
+    {
+      priv->dma_irq_client = NULL;
+      priv->dma_irq_client_arg = NULL;
+    }
+
+  spin_unlock_irqrestore(&priv->dma_irq_lock, flags);
+#else
+  UNUSED(client);
+  UNUSED(arg);
+#endif
+}
 
 /****************************************************************************
  * Private Functions
@@ -1005,15 +1082,27 @@ static int esp_mipi_dsi_dma_interrupt(int irq, FAR void *context,
   esp_mipi_dsi_video_dma_frame_done_t frame_done;
   FAR const void *pending_frame_buffer;
   FAR void *frame_done_arg;
+  esp_mipi_dsi_video_dma_irq_client_t irq_client;
+  FAR void *irq_client_arg;
   irqstate_t flags;
   uint32_t status;
 
   (void)irq;
   (void)context;
 
-  if (priv == NULL || !priv->video_running || priv->dma_dev == NULL)
+  if (priv == NULL)
     {
       return OK;
+    }
+
+  flags = spin_lock_irqsave(&priv->dma_irq_lock);
+  irq_client = priv->dma_irq_client;
+  irq_client_arg = priv->dma_irq_client_arg;
+  spin_unlock_irqrestore(&priv->dma_irq_lock, flags);
+
+  if (!priv->video_running || priv->dma_dev == NULL)
+    {
+      goto dispatch_client;
     }
 
   dma_dev = priv->dma_dev;
@@ -1021,7 +1110,7 @@ static int esp_mipi_dsi_dma_interrupt(int irq, FAR void *context,
     dma_dev, ESP_MIPI_DSI_DMA_CHANNEL);
   if (status == 0)
     {
-      return OK;
+      goto dispatch_client;
     }
 
   dw_gdma_ll_channel_clear_intr(dma_dev, ESP_MIPI_DSI_DMA_CHANNEL, status);
@@ -1029,7 +1118,7 @@ static int esp_mipi_dsi_dma_interrupt(int irq, FAR void *context,
   if ((status & ESP_MIPI_DSI_DMA_ERROR_EVENTS) != 0)
     {
       priv->dma_error_events |= status & ESP_MIPI_DSI_DMA_ERROR_EVENTS;
-      return OK;
+      goto dispatch_client;
     }
 
   if ((status & ESP_MIPI_DSI_DMA_DONE_EVENTS) != 0)
@@ -1074,6 +1163,12 @@ static int esp_mipi_dsi_dma_interrupt(int irq, FAR void *context,
         {
           frame_done(frame_done_arg);
         }
+    }
+
+dispatch_client:
+  if (irq_client != NULL)
+    {
+      return irq_client(irq, context, irq_client_arg);
     }
 
   return OK;
