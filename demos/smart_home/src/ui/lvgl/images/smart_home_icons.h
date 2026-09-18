@@ -1,7 +1,7 @@
 /**
  * smart_home icon constants.
  *
- * Source: quickapp/smart_home_ui/prototype-web/assets/icons/*.png
+ * Source: quickapp/smart_home_ui/prototype-web/assets/icons/（全部 PNG 文件）
  * Build:  scripts/generate_smart_home_lvgl_icons.py -> LVGL A8 C images
  *
  * Product icons use stable `asset:<png-stem>` names. The icon factory maps
