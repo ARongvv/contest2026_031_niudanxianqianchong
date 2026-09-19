@@ -649,6 +649,13 @@ static void network_connect_cb(lv_event_t *event)
     smart_home_lvgl_refresh_network_screen(ui);
 }
 
+/* ── 网络设置页 ───────────────────────────────────────────── */
+
+/* 演示环境 Wi-Fi 默认值：secrets 无已存凭据时预填输入框；已保存的
+ * 凭据始终优先。 */
+#define NETWORK_DEMO_DEFAULT_SSID     "123"
+#define NETWORK_DEMO_DEFAULT_PASSWORD "888888888"
+
 void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui)
 {
     lv_obj_t *screen;
@@ -674,7 +681,27 @@ void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui)
         card, "", SMART_HOME_UI_COLOR_TEXT_SECONDARY, 13);
     lv_obj_align(ui->network_status_label, LV_ALIGN_TOP_LEFT, 0, 54);
 
-    ui->network_ssid_input = lv_textarea_create(card);
+    /* 已保存凭据优先；否则预填演示默认值，连接只需一键。 */
+    {
+        char saved_ssid[33];
+        char saved_password[65];
+
+        saved_ssid[0] = '\0';
+        saved_password[0] = '\0';
+        if (ui->app &&
+            smart_home_secrets_get_wifi_credentials(saved_ssid,
+                                                    sizeof(saved_ssid),
+                                                    saved_password,
+                                                    sizeof(saved_password))
+                != AGENT_OK) {
+            snprintf(saved_ssid, sizeof(saved_ssid), "%s",
+                     NETWORK_DEMO_DEFAULT_SSID);
+            snprintf(saved_password, sizeof(saved_password), "%s",
+                     NETWORK_DEMO_DEFAULT_PASSWORD);
+        }
+        ui->network_ssid_input = lv_textarea_create(card);
+        lv_textarea_set_text(ui->network_ssid_input, saved_ssid);
+    }
     lv_textarea_set_placeholder_text(ui->network_ssid_input, "Wi-Fi 名称（SSID）");
     lv_textarea_set_one_line(ui->network_ssid_input, true);
     lv_obj_set_style_text_font(ui->network_ssid_input,
@@ -684,7 +711,24 @@ void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui)
     lv_obj_add_event_cb(ui->network_ssid_input, network_keyboard_input_cb,
                         LV_EVENT_ALL, ui);
 
-    ui->network_password_input = lv_textarea_create(card);
+    {
+        char saved_ssid[33];
+        char saved_password[65];
+
+        saved_ssid[0] = '\0';
+        saved_password[0] = '\0';
+        if (ui->app &&
+            smart_home_secrets_get_wifi_credentials(saved_ssid,
+                                                    sizeof(saved_ssid),
+                                                    saved_password,
+                                                    sizeof(saved_password))
+                != AGENT_OK) {
+            snprintf(saved_password, sizeof(saved_password), "%s",
+                     NETWORK_DEMO_DEFAULT_PASSWORD);
+        }
+        ui->network_password_input = lv_textarea_create(card);
+        lv_textarea_set_text(ui->network_password_input, saved_password);
+    }
     lv_textarea_set_placeholder_text(ui->network_password_input, "密码（开放网络可留空）");
     lv_textarea_set_one_line(ui->network_password_input, true);
     lv_textarea_set_password_mode(ui->network_password_input, true);
@@ -695,10 +739,12 @@ void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui)
     lv_obj_add_event_cb(ui->network_password_input, network_keyboard_input_cb,
                         LV_EVENT_ALL, ui);
 
+    /* 连接按钮放卡片头部右侧：键盘弹出时覆盖卡片下半区（约 y>232），
+     * 底部布局的按钮会被键盘遮住导致不可见不可点（米家页同款结论）。 */
     button = page_outline_button(card, "连接", 112);
     smart_home_lvgl_set_bg(button, SMART_HOME_UI_COLOR_PRIMARY);
     lv_obj_set_style_text_color(lv_obj_get_child(button, 0), lv_color_white(), 0);
-    lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, compact ? -12 : -18);
+    lv_obj_align(button, LV_ALIGN_TOP_RIGHT, 0, 0);
     lv_obj_add_event_cb(button, network_connect_cb, LV_EVENT_CLICKED, ui);
 
     ui->network_keyboard = lv_keyboard_create(screen);
