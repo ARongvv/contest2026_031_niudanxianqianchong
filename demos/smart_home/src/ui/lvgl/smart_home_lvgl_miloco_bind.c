@@ -24,6 +24,10 @@
 
 static uint8_t s_qr_matrix[SMART_HOME_MILOCO_QR_MAX_MODULES *
                             SMART_HOME_MILOCO_QR_MAX_MODULES];
+/* QR 卡容器与已渲染的 host：绑定页可能在 worker 就绪前构建（占位），
+ * 配置就绪后由 bind_timer 惰性重绘。 */
+static lv_obj_t *s_qr_card;
+static char s_qr_drawn_host[64];
 
 /* QR 渲染：白底卡片上按模块画黑块。一次性构建，不参与后续刷新。 */
 static void bind_render_qr(lv_obj_t *parent, smart_home_lvgl_t *ui)
@@ -40,6 +44,9 @@ static void bind_render_qr(lv_obj_t *parent, smart_home_lvgl_t *ui)
 
     host[0] = '\0';
     token[0] = '\0';
+    /* 幂等重绘：清掉旧 QR/占位再画。 */
+    lv_obj_clean(parent);
+    s_qr_drawn_host[0] = '\0';
     /* 运行态配置优先（挥发型模式下 secrets 为空）；回落 secrets。 */
     if (ui && ui->app && ui->app->miloco &&
         smart_home_miloco_get_config(ui->app->miloco, &qr_config)) {
@@ -56,6 +63,7 @@ static void bind_render_qr(lv_obj_t *parent, smart_home_lvgl_t *ui)
         return;
     }
     snprintf(url, sizeof(url), "http://%s:%u/", host, (unsigned)port);
+    snprintf(s_qr_drawn_host, sizeof(s_qr_drawn_host), "%s", host);
 
     if (smart_home_miloco_qr_encode(url, s_qr_matrix, &modules) != 0) {
         lv_obj_t *label = smart_home_lvgl_label_create(
@@ -120,6 +128,17 @@ static void bind_timer_cb(lv_timer_t *timer)
         return;
     }
 
+    /* 惰性重绘：配置在页面构建后才就绪（挥发型保存）或已变化。 */
+    {
+        smart_home_miloco_config_t cfg;
+
+        if (s_qr_card && ui->app->miloco &&
+            smart_home_miloco_get_config(ui->app->miloco, &cfg) &&
+            strcmp(cfg.host, s_qr_drawn_host) != 0) {
+            bind_render_qr(s_qr_card, ui);
+        }
+    }
+
     if (smart_home_miloco_bound(ui->app->miloco)) {
         if (jump_countdown == 0) {
             size_t count = smart_home_miloco_list(ui->app->miloco, NULL, 0,
@@ -162,6 +181,7 @@ void smart_home_lvgl_build_miloco_bind_screen(smart_home_lvgl_t *ui)
     card = page_card(screen, x, y, BIND_QR_TARGET_PX + 56,
                      BIND_QR_TARGET_PX + 56);
     smart_home_lvgl_set_bg(card, lv_color_white());
+    s_qr_card = card;
     bind_render_qr(card, ui);
 
     /* 右侧：步骤说明与状态。 */
