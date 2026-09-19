@@ -2231,9 +2231,19 @@ int esp_mipi_dsi_video_dma_start(
   mipi_dsi_host_ll_enable_video_mode(priv->hal.host, true);
   mipi_dsi_brg_ll_enable_dpi_output(priv->hal.bridge, true);
   mipi_dsi_brg_ll_update_dpi_config(priv->hal.bridge);
+  /* Underrun IRQ stays DISABLED.  Flash erase stalls the shared MSPI, which
+   * starves DSI scanout DMA and raises an underrun storm precisely while a
+   * flash operation is in flight.  The handler lives in XIP/irom and calls
+   * work_queue, neither of which is safe during flash ops: instruction
+   * fetch wedges the CPU and the system hard-freezes (reproduced by the
+   * miloco secrets write).  The IRQ was diagnostic-only; a few dropped
+   * frames during flash writes are the acceptable cost.  Re-enabling it
+   * requires the whole handler chain to be IRAM_ATTR and flash-op aware. */
   mipi_dsi_brg_ll_enable_interrupt(
-    priv->hal.bridge, MIPI_DSI_BRG_LL_EVENT_UNDERRUN, true);
-  syslog(LOG_INFO, "INFO: MIPI-DSI Bridge underrun interrupt enabled\n");
+    priv->hal.bridge, MIPI_DSI_BRG_LL_EVENT_UNDERRUN, false);
+  syslog(LOG_INFO,
+         "INFO: MIPI-DSI Bridge underrun interrupt disabled "
+         "(flash-erase safety)\n");
 
   priv->video_running = true;
   esp_mipi_dsi_dump_video_state(priv, "dma-started");
