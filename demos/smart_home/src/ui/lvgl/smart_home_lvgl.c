@@ -83,6 +83,11 @@ smart_home_lvgl_t *smart_home_lvgl_init(smart_home_agent_app_t *app)
     smart_home_lvgl_log_build_stage("network", "begin");
     smart_home_lvgl_build_network_screen(ui);
     smart_home_lvgl_log_build_stage("network", "done");
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    smart_home_lvgl_log_build_stage("miloco", "begin");
+    smart_home_lvgl_build_miloco_screen(ui);
+    smart_home_lvgl_log_build_stage("miloco", "done");
+#endif
 
     smart_home_lvgl_log_build_stage("chat", "begin");
     smart_home_lvgl_build_chat_screen(ui);

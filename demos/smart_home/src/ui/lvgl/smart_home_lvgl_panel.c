@@ -1653,7 +1653,7 @@ static void create_miloco_placeholder_card(smart_home_lvgl_t *ui)
                                          smart_home_lvgl_compact() ? 11 : 12);
     lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 0);
     label = smart_home_lvgl_label_create(
-        card, "网关未连接\n在系统设置中配置\n米家网关后显示",
+        card, "网关未连接\n在更多页配置\n米家网关后显示",
         SMART_HOME_UI_COLOR_TEXT_SECONDARY,
         smart_home_lvgl_compact() ? 10 : 11);
     lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 24);
@@ -1687,7 +1687,11 @@ static void miloco_timer_cb(lv_timer_t *timer)
     }
     (void)smart_home_miloco_list(ui->app->miloco, NULL, 0, &revision);
     if (revision != ui->miloco_revision) {
-        smart_home_lvgl_refresh_cards(ui);
+        if (ui->active_tab == SMART_HOME_TAB_HOME) {
+            smart_home_lvgl_refresh_home(ui);
+        } else {
+            smart_home_lvgl_refresh_cards(ui);
+        }
     }
 }
 

@@ -5,6 +5,10 @@
 
 #include "../../net/smart_home_network.h"
 #include "../../smart_home_memory.h"
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+#include "../../miloco/smart_home_miloco.h"
+#include "../../config/smart_home_secrets.h"
+#endif
 
 #include <errno.h>
 #include <nuttx/sched.h>
@@ -18,6 +22,7 @@ enum page_action_e {
     PAGE_ACTION_AGENT = 1,
     PAGE_ACTION_SETTINGS,
     PAGE_ACTION_NETWORK,
+    PAGE_ACTION_MILOCO,
 };
 
 /* DHCP and DNS use substantially more stack than the 2 KiB pthread default.
@@ -113,6 +118,10 @@ static void page_click_cb(lv_event_t *event)
     } else if (action == PAGE_ACTION_NETWORK && ui->screen_network) {
         smart_home_lvgl_refresh_network_screen(ui);
         lv_scr_load_anim(ui->screen_network, LV_SCR_LOAD_ANIM_MOVE_LEFT,
+                         180, 0, false);
+    } else if (action == PAGE_ACTION_MILOCO && ui->screen_miloco) {
+        smart_home_lvgl_refresh_miloco_screen(ui);
+        lv_scr_load_anim(ui->screen_miloco, LV_SCR_LOAD_ANIM_MOVE_LEFT,
                          180, 0, false);
     }
 }
@@ -415,6 +424,12 @@ void smart_home_lvgl_build_more_screen(smart_home_lvgl_t *ui)
     page_icon_badge(card, ICON_STATUS_WIFI, lv_color_hex(0xEAF7F1));
     page_title(card, "网络设置", "连接家庭 Wi-Fi");
     page_action(card, ui, PAGE_ACTION_NETWORK);
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    card = page_card(screen, x + (w + gap) * 3, y + 154, w, 140);
+    page_icon_badge(card, ICON_MIJIA, lv_color_hex(0xFFF8F4));
+    page_title(card, "米家网关", "Miloco 服务器与设备");
+    page_action(card, ui, PAGE_ACTION_MILOCO);
+#endif
 
     card = page_card(screen, x, y + 154, w, 140);
     page_icon_badge(card, ICON_NAV_SETTINGS, lv_color_hex(0xEDF8F3));
@@ -694,3 +709,241 @@ void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui)
     smart_home_lvgl_build_nav_bar(screen, ui);
     layout_network_keyboard(ui, 0);
 }
+
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+/* ── 米家网关设置页（与网络设置同款布局与键盘避让） ─────────── */
+
+static void layout_miloco_keyboard(smart_home_lvgl_t *ui, int visible)
+{
+    if (!ui || !ui->miloco_keyboard) {
+        return;
+    }
+    lv_obj_set_size(ui->miloco_keyboard, smart_home_lvgl_disp_w(),
+                    smart_home_lvgl_keyboard_h());
+    lv_obj_align(ui->miloco_keyboard, LV_ALIGN_BOTTOM_MID, 0,
+                 -SMART_HOME_NAV_H - SMART_HOME_NAV_BOTTOM_PAD - 8);
+    if (visible) {
+        lv_obj_clear_flag(ui->miloco_keyboard, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(ui->miloco_keyboard);
+    } else {
+        lv_obj_add_flag(ui->miloco_keyboard, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void miloco_keyboard_input_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+    lv_event_code_t code = lv_event_get_code(event);
+
+    if (!ui || !ui->miloco_keyboard) {
+        return;
+    }
+    if (code == LV_EVENT_FOCUSED) {
+        lv_keyboard_set_textarea(ui->miloco_keyboard,
+                                 lv_event_get_current_target(event));
+        layout_miloco_keyboard(ui, 1);
+    } else if (code == LV_EVENT_CANCEL || code == LV_EVENT_READY ||
+               code == LV_EVENT_DEFOCUSED) {
+        layout_miloco_keyboard(ui, 0);
+    }
+}
+
+static void miloco_keyboard_event_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+    lv_event_code_t code = lv_event_get_code(event);
+
+    if (ui && (code == LV_EVENT_CANCEL || code == LV_EVENT_READY)) {
+        layout_miloco_keyboard(ui, 0);
+    }
+}
+
+static lv_obj_t *miloco_input_create(lv_obj_t *parent, smart_home_lvgl_t *ui,
+                                     const char *placeholder,
+                                     const char *value,
+                                     uint32_t max_length, int password, int y)
+{
+    lv_obj_t *input = lv_textarea_create(parent);
+
+    lv_textarea_set_placeholder_text(input, placeholder);
+    lv_textarea_set_one_line(input, true);
+    lv_textarea_set_text(input, value ? value : "");
+    lv_textarea_set_max_length(input, max_length);
+    if (password) {
+        lv_textarea_set_password_mode(input, true);
+    }
+    lv_obj_set_style_text_font(input, smart_home_lvgl_font(14), 0);
+    lv_obj_set_size(input, lv_pct(88), 38);
+    lv_obj_align(input, LV_ALIGN_TOP_MID, 0, y);
+    lv_obj_add_event_cb(input, miloco_keyboard_input_cb, LV_EVENT_ALL, ui);
+    return input;
+}
+
+static void copy_textarea_text(char *dst, size_t dst_size, lv_obj_t *textarea)
+{
+    const char *text;
+
+    if (!dst || dst_size == 0u) {
+        return;
+    }
+    dst[0] = '\0';
+    if (!textarea) {
+        return;
+    }
+    text = lv_textarea_get_text(textarea);
+    if (text) {
+        strncpy(dst, text, dst_size - 1u);
+        dst[dst_size - 1u] = '\0';
+    }
+}
+
+void smart_home_lvgl_refresh_miloco_screen(smart_home_lvgl_t *ui)
+{
+    char text_buffer[48];
+    const char *text;
+    lv_color_t color;
+
+    if (!ui || !ui->miloco_status_label) {
+        return;
+    }
+    if (ui->app && ui->app->miloco &&
+        smart_home_miloco_reachable(ui->app->miloco)) {
+        smart_home_miloco_device_t devices[SMART_HOME_MILOCO_MAX_DEVICES];
+        size_t count = smart_home_miloco_list(ui->app->miloco, devices,
+                                              SMART_HOME_MILOCO_MAX_DEVICES,
+                                              NULL);
+
+        snprintf(text_buffer, sizeof(text_buffer),
+                 "网关在线 · %u 台设备", (unsigned)count);
+        text = text_buffer;
+        color = SMART_HOME_UI_COLOR_SUCCESS;
+    } else if (ui->app && ui->app->miloco) {
+        text = "已配置 · 等待连接…";
+        color = SMART_HOME_UI_COLOR_WARNING;
+    } else {
+        text = "未配置";
+        color = SMART_HOME_UI_COLOR_TEXT_MUTED;
+    }
+    lv_label_set_text(ui->miloco_status_label, text);
+    lv_obj_set_style_text_color(ui->miloco_status_label, color, 0);
+}
+
+static void miloco_save_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+    smart_home_miloco_config_t config;
+    char port_text[8];
+    long port_value;
+    int ret;
+
+    if (!ui || !ui->app || !ui->miloco_host_input) {
+        return;
+    }
+    copy_textarea_text(config.host, sizeof(config.host),
+                       ui->miloco_host_input);
+    copy_textarea_text(port_text, sizeof(port_text),
+                       ui->miloco_port_input);
+    copy_textarea_text(config.token, sizeof(config.token),
+                       ui->miloco_token_input);
+
+    port_value = atol(port_text);
+    if (port_value <= 0 || port_value > 65535) {
+        port_value = SMART_HOME_MILOCO_DEFAULT_PORT;
+    }
+    config.port = (uint16_t)port_value;
+
+    if (!smart_home_miloco_config_valid(&config)) {
+        lv_label_set_text(ui->miloco_status_label, "地址不能为空");
+        lv_obj_set_style_text_color(ui->miloco_status_label,
+                                    SMART_HOME_UI_COLOR_DANGER, 0);
+        return;
+    }
+    ret = smart_home_secrets_set_miloco(config.host, config.port,
+                                        config.token);
+    if (ret != AGENT_OK) {
+        lv_label_set_text(ui->miloco_status_label, "保存失败");
+        lv_obj_set_style_text_color(ui->miloco_status_label,
+                                    SMART_HOME_UI_COLOR_DANGER, 0);
+        return;
+    }
+
+    /* 重启 worker 使新配置立即生效（stop 容忍 NULL，幂等）。 */
+    smart_home_miloco_stop(&ui->app->miloco);
+    ret = smart_home_miloco_start(&ui->app->miloco, &config);
+    if (ret != AGENT_OK) {
+        lv_label_set_text(ui->miloco_status_label, "网关启动失败");
+        lv_obj_set_style_text_color(ui->miloco_status_label,
+                                    SMART_HOME_UI_COLOR_DANGER, 0);
+        return;
+    }
+    layout_miloco_keyboard(ui, 0);
+    lv_label_set_text(ui->miloco_status_label, "已保存 · 正在连接…");
+    lv_obj_set_style_text_color(ui->miloco_status_label,
+                                SMART_HOME_UI_COLOR_WARNING, 0);
+}
+
+void smart_home_lvgl_build_miloco_screen(smart_home_lvgl_t *ui)
+{
+    lv_obj_t *screen;
+    lv_obj_t *card;
+    lv_obj_t *label;
+    lv_obj_t *button;
+    int x = smart_home_lvgl_pad_x();
+    int y = SMART_HOME_TOPBAR_H + 78;
+    char host[64];
+    char token[64];
+    uint16_t port = SMART_HOME_MILOCO_DEFAULT_PORT;
+    char port_text[8];
+    bool configured;
+
+    if (!ui) {
+        return;
+    }
+    screen = page_screen(ui);
+    ui->screen_miloco = screen;
+    page_heading(screen, "米家网关");
+
+    card = page_card(screen, x, y, smart_home_lvgl_content_w(),
+                     smart_home_lvgl_compact() ? 320 : 360);
+    page_icon_badge(card, ICON_MIJIA, lv_color_hex(0xFFF8F4));
+
+    host[0] = '\0';
+    token[0] = '\0';
+    configured = smart_home_secrets_get_miloco(host, sizeof(host), &port,
+                                               token, sizeof(token))
+                 == AGENT_OK;
+    snprintf(port_text, sizeof(port_text), "%u", (unsigned)port);
+
+    label = smart_home_lvgl_label_create(card, "Xiaomi Miloco 家庭服务器",
+                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY, 18);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 56, 4);
+    ui->miloco_status_label = smart_home_lvgl_label_create(
+        card, "", SMART_HOME_UI_COLOR_TEXT_SECONDARY, 13);
+    lv_obj_align(ui->miloco_status_label, LV_ALIGN_TOP_LEFT, 0, 54);
+
+    ui->miloco_host_input = miloco_input_create(
+        card, ui, "服务器地址（IP 或主机名）",
+        configured ? host : "", sizeof(host) - 1u, 0, 88);
+    ui->miloco_port_input = miloco_input_create(
+        card, ui, "端口（默认 1810）",
+        configured ? port_text : "1810", sizeof(port_text) - 1u, 0, 138);
+    ui->miloco_token_input = miloco_input_create(
+        card, ui, "服务 Token（未启用鉴权可留空）",
+        "", sizeof(token) - 1u, 1, 188);
+
+    button = page_outline_button(card, "保存并连接", 132);
+    smart_home_lvgl_set_bg(button, SMART_HOME_UI_COLOR_PRIMARY);
+    lv_obj_set_style_text_color(lv_obj_get_child(button, 0), lv_color_white(), 0);
+    lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -14);
+    lv_obj_add_event_cb(button, miloco_save_cb, LV_EVENT_CLICKED, ui);
+
+    ui->miloco_keyboard = lv_keyboard_create(screen);
+    smart_home_lvgl_style_keyboard(ui->miloco_keyboard);
+    lv_obj_add_event_cb(ui->miloco_keyboard, miloco_keyboard_event_cb,
+                        LV_EVENT_ALL, ui);
+    smart_home_lvgl_refresh_miloco_screen(ui);
+    smart_home_lvgl_build_nav_bar(screen, ui);
+    layout_miloco_keyboard(ui, 0);
+}
+#endif
+

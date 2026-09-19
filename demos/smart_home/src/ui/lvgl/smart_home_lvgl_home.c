@@ -419,6 +419,16 @@ static void home_action_cb(lv_event_t *event)
         smart_home_lvgl_load_tab(ui, SMART_HOME_TAB_DEVICES);
         break;
     case HOME_ACTION_MIHOME:
+        /* 未连接时优先引导进入米家网关设置页完成配置。 */
+        if (!ui->app || !ui->app->miloco ||
+            !smart_home_miloco_reachable(ui->app->miloco)) {
+            if (ui->screen_miloco) {
+                smart_home_lvgl_refresh_miloco_screen(ui);
+                lv_scr_load_anim(ui->screen_miloco, LV_SCR_LOAD_ANIM_MOVE_LEFT,
+                                 180, 0, false);
+                break;
+            }
+        }
         if (ui->panel_title) {
             lv_label_set_text(ui->panel_title, "米家设备管理");
         }
@@ -487,7 +497,10 @@ void smart_home_lvgl_refresh_home(smart_home_lvgl_t *ui)
         size_t online_count = 0;
 
         if (reachable) {
-            smart_home_miloco_device_t devices[SMART_HOME_MILOCO_MAX_DEVICES];
+            /* 快照数组静态化：本函数在 build_home_screen 深调用链上执行，
+             * 避免大数组占用主线程栈；仅 LVGL 线程调用，线程安全。 */
+            static smart_home_miloco_device_t
+                devices[SMART_HOME_MILOCO_MAX_DEVICES];
             size_t i;
 
             miloco_count = smart_home_miloco_list(

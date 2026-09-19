@@ -21,7 +21,11 @@ static int tab_for_screen(const smart_home_lvgl_t *ui, const lv_obj_t *screen)
     if (screen == ui->screen_chat) return SMART_HOME_TAB_CHAT;
     if (screen == ui->screen_security) return SMART_HOME_TAB_SECURITY;
     if (screen == ui->screen_more || screen == ui->screen_settings ||
-        screen == ui->screen_network) {
+        screen == ui->screen_network
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+        || screen == ui->screen_miloco
+#endif
+    ) {
         return SMART_HOME_TAB_MORE;
     }
     return SMART_HOME_TAB_HOME;
@@ -53,9 +57,9 @@ void smart_home_lvgl_load_tab(smart_home_lvgl_t *ui, int tab)
         smart_home_lvgl_security_camera_stop(ui);
     }
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
-    /* 米家轮询仅在设备页可见时运行，离开即停。 */
+    /* 米家轮询在设备页/首页可见时运行，其余页面停止。 */
     smart_home_lvgl_miloco_poll_set_enabled(
-        ui, tab == SMART_HOME_TAB_DEVICES);
+        ui, tab == SMART_HOME_TAB_DEVICES || tab == SMART_HOME_TAB_HOME);
 #endif
     previous_tab = ui->active_tab;
     ui->active_tab = tab;

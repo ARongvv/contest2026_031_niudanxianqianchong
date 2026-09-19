@@ -102,6 +102,8 @@ void smart_home_lvgl_security_camera_stop(smart_home_lvgl_t *ui);
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
 void smart_home_lvgl_miloco_poll_set_enabled(smart_home_lvgl_t *ui,
                                              int enable);
+void smart_home_lvgl_build_miloco_screen(smart_home_lvgl_t *ui);
+void smart_home_lvgl_refresh_miloco_screen(smart_home_lvgl_t *ui);
 #endif
 void smart_home_lvgl_build_more_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui);

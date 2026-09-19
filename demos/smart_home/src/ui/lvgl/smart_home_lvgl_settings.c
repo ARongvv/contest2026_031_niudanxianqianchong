@@ -9,9 +9,6 @@
 #include "../../config/smart_home_secrets.h"
 #include "../../net/smart_home_network.h"
 #include "../../net/smart_home_wifi.h"
-#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
-#include "../../miloco/smart_home_miloco.h"
-#endif
 #ifdef CONFIG_SMART_HOME_MCP_BRIDGE
 #include "../../addons/smart_home_mcp_bridge.h"
 #endif
@@ -736,117 +733,6 @@ void smart_home_lvgl_refresh_tool_directory(smart_home_lvgl_t *ui)
 
 
 
-
-#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
-/* 米家网关（Miloco）：家庭服务器地址保存在 secrets.json，保存即重启
- * 网关 worker。token 留空表示 Miloco 未启用服务鉴权。 */
-static void miloco_save_cb(lv_event_t *event)
-{
-    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
-    smart_home_miloco_config_t config;
-    char port_text[8];
-    long port_value;
-    int ret;
-
-    if (!ui || !ui->app || !ui->settings_miloco_host_input) {
-        return;
-    }
-    copy_textarea(config.host, sizeof(config.host),
-                  ui->settings_miloco_host_input);
-    copy_textarea(port_text, sizeof(port_text),
-                  ui->settings_miloco_port_input);
-    copy_textarea(config.token, sizeof(config.token),
-                  ui->settings_miloco_token_input);
-
-    port_value = atol(port_text);
-    if (port_value <= 0 || port_value > 65535) {
-        port_value = SMART_HOME_MILOCO_DEFAULT_PORT;
-    }
-    config.port = (uint16_t)port_value;
-
-    if (!smart_home_miloco_config_valid(&config)) {
-        set_settings_status(ui, "米家网关：地址不能为空",
-                            SMART_HOME_UI_COLOR_WARNING);
-        return;
-    }
-    ret = smart_home_secrets_set_miloco(config.host, config.port,
-                                        config.token);
-    if (ret != AGENT_OK) {
-        set_settings_status(ui, "米家网关：保存失败",
-                            SMART_HOME_UI_COLOR_DANGER);
-        return;
-    }
-
-    /* 重启 worker 使新配置立即生效（幂等：stop 容忍 NULL）。 */
-    smart_home_miloco_stop(&ui->app->miloco);
-    ret = smart_home_miloco_start(&ui->app->miloco, &config);
-    if (ret != AGENT_OK) {
-        set_settings_status(ui, "米家网关：启动失败",
-                            SMART_HOME_UI_COLOR_DANGER);
-        return;
-    }
-    set_settings_status(ui, "米家网关：已保存并连接",
-                        SMART_HOME_UI_COLOR_SUCCESS);
-    if (ui->settings_miloco_status_label) {
-        lv_label_set_text(ui->settings_miloco_status_label,
-                          "正在连接家庭服务器…");
-    }
-}
-
-static void create_miloco_card(lv_obj_t *content, smart_home_lvgl_t *ui)
-{
-    lv_obj_t *card;
-    lv_obj_t *label;
-    lv_obj_t *button;
-    char host[64];
-    char token[64];
-    uint16_t port = SMART_HOME_MILOCO_DEFAULT_PORT;
-    char port_text[8];
-    bool configured;
-
-    card = lv_obj_create(content);
-    lv_obj_set_size(card, lv_pct(100), LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(card, 6, 0);
-    smart_home_lvgl_card_style(card);
-
-    smart_home_lvgl_icon_create(card, ICON_STATUS_WIFI, 18, 18);
-    label = smart_home_lvgl_label_create(card, "米家网关（Miloco）",
-                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY, 14);
-
-    host[0] = '\0';
-    token[0] = '\0';
-    configured = smart_home_secrets_get_miloco(host, sizeof(host), &port,
-                                               token, sizeof(token))
-                 == AGENT_OK;
-    snprintf(port_text, sizeof(port_text), "%u", (unsigned)port);
-
-    ui->settings_miloco_host_input = create_settings_input(
-        card, ui, "服务器地址（IP 或主机名）",
-        configured ? host : "", sizeof(host) - 1u, 0);
-    ui->settings_miloco_port_input = create_settings_input(
-        card, ui, "端口（默认 1810）",
-        configured ? port_text : "1810", sizeof(port_text) - 1u, 0);
-    ui->settings_miloco_token_input = create_settings_input(
-        card, ui, "服务 Token（未启用鉴权可留空）",
-        "", sizeof(token) - 1u, 1);
-
-    button = lv_btn_create(card);
-    lv_obj_set_size(button, 120, 34);
-    label = smart_home_lvgl_label_create(button, "保存并连接",
-                                         lv_color_white(), 13);
-    lv_obj_center(label);
-    lv_obj_add_event_cb(button, miloco_save_cb, LV_EVENT_CLICKED, ui);
-
-    ui->settings_miloco_status_label = smart_home_lvgl_label_create(
-        card,
-        configured ? (ui->app && smart_home_miloco_reachable(ui->app->miloco)
-                          ? "网关在线" : "已配置，等待连接…")
-                   : "未配置",
-        SMART_HOME_UI_COLOR_TEXT_SECONDARY, 12);
-    lv_obj_set_width(ui->settings_miloco_status_label, lv_pct(100));
-}
-#endif
 
 static void create_tool_directory_card(lv_obj_t *content,
                                        smart_home_lvgl_t *ui)
@@ -1728,9 +1614,6 @@ void smart_home_lvgl_build_settings_screen(smart_home_lvgl_t *ui)
     create_tool_directory_card(content, ui);
 
     create_system_status_card(content, ui);
-#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
-    create_miloco_card(content, ui);
-#endif
 
     ui->settings_keyboard = lv_keyboard_create(screen);
     smart_home_lvgl_style_keyboard(ui->settings_keyboard);
