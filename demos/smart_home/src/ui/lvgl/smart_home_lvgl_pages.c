@@ -713,6 +713,11 @@ void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui)
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
 /* ── 米家网关设置页（与网络设置同款布局与键盘避让） ─────────── */
 
+/* 演示环境默认值：secrets 未配置时预填，免触屏手输；已保存的配置
+ * 始终优先于默认值。 */
+#define MILOCO_DEMO_DEFAULT_HOST  "192.168.251.47"
+#define MILOCO_DEMO_DEFAULT_TOKEN "p4x-miloco"
+
 static void layout_miloco_keyboard(smart_home_lvgl_t *ui, int visible)
 {
     if (!ui || !ui->miloco_keyboard) {
@@ -928,6 +933,11 @@ void smart_home_lvgl_build_miloco_screen(smart_home_lvgl_t *ui)
     configured = smart_home_secrets_get_miloco(host, sizeof(host), &port,
                                                token, sizeof(token))
                  == AGENT_OK;
+    if (!configured) {
+        snprintf(host, sizeof(host), "%s", MILOCO_DEMO_DEFAULT_HOST);
+        snprintf(token, sizeof(token), "%s", MILOCO_DEMO_DEFAULT_TOKEN);
+        port = SMART_HOME_MILOCO_DEFAULT_PORT;
+    }
     snprintf(port_text, sizeof(port_text), "%u", (unsigned)port);
 
     label = smart_home_lvgl_label_create(card, "Xiaomi Miloco 家庭服务器",
@@ -939,10 +949,10 @@ void smart_home_lvgl_build_miloco_screen(smart_home_lvgl_t *ui)
 
     ui->miloco_host_input = miloco_input_create(
         card, ui, "服务器地址（IP 或主机名）",
-        configured ? host : "", sizeof(host) - 1u, 0, 88);
+        host, sizeof(host) - 1u, 0, 88);
     ui->miloco_port_input = miloco_input_create(
         card, ui, "端口（默认 1810）",
-        configured ? port_text : "1810", sizeof(port_text) - 1u, 0, 138);
+        port_text, sizeof(port_text) - 1u, 0, 138);
     ui->miloco_token_input = miloco_input_create(
         card, ui, "服务 Token（未启用鉴权可留空）",
         "", sizeof(token) - 1u, 1, 188);
