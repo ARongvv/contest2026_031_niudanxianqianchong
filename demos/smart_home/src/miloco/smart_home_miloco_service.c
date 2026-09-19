@@ -362,7 +362,7 @@ static int fetch_spec_for(smart_home_miloco_t *service, const char *did,
     int http_status = 0;
     int ret;
 
-    snprintf(path, sizeof(path), "/api/miot/devices/%s/spec", did);
+    snprintf(path, sizeof(path), "/api/miot/devices/%.23s/spec", did);
     ret = smart_home_miloco_http_get(&service->client_config, path,
                                      body, body_size, &http_status);
     if (ret < 0) {
@@ -381,7 +381,7 @@ static int refresh_power_status(smart_home_miloco_t *service, const char *did,
     int http_status = 0;
     int ret;
 
-    snprintf(path, sizeof(path), "/api/miot/devices/%s/status?iid=prop.2.1", did);
+    snprintf(path, sizeof(path), "/api/miot/devices/%.23s/status?iid=prop.2.1", did);
     ret = smart_home_miloco_http_get(&service->client_config, path,
                                      body, body_size, &http_status);
     if (ret < 0) {
@@ -502,7 +502,7 @@ static int execute_control(smart_home_miloco_t *service,
     int http_status = 0;
     int ret;
 
-    snprintf(path, sizeof(path), "/api/miot/devices/%s/control", request->did);
+    snprintf(path, sizeof(path), "/api/miot/devices/%.23s/control", request->did);
     snprintf(request_body, sizeof(request_body),
              "{\"type\":\"set_property\",\"iid\":\"prop.2.1\",\"value\":%s}",
              request->on ? "true" : "false");

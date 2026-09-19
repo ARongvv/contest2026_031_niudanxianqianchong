@@ -182,6 +182,9 @@ typedef struct {
     lv_timer_t *miloco_timer;
     uint32_t miloco_revision;
     lv_obj_t *home_miloco_sub_label;
+    lv_obj_t *screen_miloco_bind;
+    lv_obj_t *bind_status_label;
+    lv_timer_t *bind_timer;
     lv_obj_t *screen_miloco;
     lv_obj_t *miloco_host_input;
     lv_obj_t *miloco_port_input;

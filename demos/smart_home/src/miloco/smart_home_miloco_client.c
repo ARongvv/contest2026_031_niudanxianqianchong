@@ -36,7 +36,6 @@ static int http_request(const smart_home_miloco_client_config_t *config,
     int http_status = 0;
     size_t sent = 0;
     size_t request_len;
-    size_t body_offset = 0;
     bool header_done = false;
     bool have_status = false;
     int ret;

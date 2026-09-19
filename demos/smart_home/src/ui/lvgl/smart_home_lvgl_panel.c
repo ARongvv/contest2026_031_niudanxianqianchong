@@ -85,6 +85,7 @@ static void device_keyboard_cb(lv_event_t *event)
     }
 }
 
+#ifndef CONFIG_SMART_HOME_MILOCO_BRIDGE
 static const char *device_icon(const smart_home_device_t *device)
 {
     if (!device) {
@@ -94,6 +95,7 @@ static const char *device_icon(const smart_home_device_t *device)
     return device->type == SMART_HOME_DEVICE_AC ?
         ICON_DEVICE_AC : ICON_DEVICE_LIGHT;
 }
+#endif
 
 static const char *device_room_name(const char *room)
 {
@@ -187,6 +189,7 @@ static int device_matches_filter(smart_home_lvgl_t *ui,
 }
 #endif
 
+#ifndef CONFIG_SMART_HOME_MILOCO_BRIDGE
 static void format_device_card_text(const smart_home_device_t *device,
                                     char *buffer,
                                     size_t buffer_size)
@@ -217,6 +220,7 @@ static void format_device_card_text(const smart_home_device_t *device,
                  device_room_name(device->room));
     }
 }
+#endif
 
 static int device_card_width(void)
 {
@@ -283,6 +287,7 @@ static void device_card_switch_cb(lv_event_t *event)
     lv_async_call(device_switch_refresh_cb, ui);
 }
 
+#ifndef CONFIG_SMART_HOME_MILOCO_BRIDGE
 static void set_card_content(lv_obj_t *card,
                              const char *icon_name,
                              const char *title,
@@ -334,6 +339,7 @@ static void set_card_content(lv_obj_t *card,
                                          SMART_HOME_UI_COLOR_TEXT_SECONDARY, 12);
     lv_obj_align(label, LV_ALIGN_LEFT_MID, 62, 14);
 }
+#endif
 
 static lv_obj_t *create_action_button(lv_obj_t *parent,
                                       const char *text,
@@ -823,12 +829,14 @@ static void rebuild_room_filters(smart_home_lvgl_t *ui)
     }
 }
 
+#ifndef CONFIG_SMART_HOME_MILOCO_BRIDGE
 static void add_device_cb(lv_event_t *event)
 {
     smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
 
     open_device_editor(ui, NULL);
 }
+#endif
 
 static void update_popup_value(smart_home_lvgl_t *ui)
 {
@@ -1049,6 +1057,7 @@ static void ensure_control_popup(smart_home_lvgl_t *ui)
     lv_obj_add_event_cb(btn, ctrl_confirm_cb, LV_EVENT_CLICKED, ui);
 }
 
+#ifndef CONFIG_SMART_HOME_MILOCO_BRIDGE
 static void card_click_cb(lv_event_t *event)
 {
     smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
@@ -1113,6 +1122,7 @@ static void card_click_cb(lv_event_t *event)
     }
     lv_obj_clear_flag(ui->ctrl_popup, LV_OBJ_FLAG_HIDDEN);
 }
+#endif
 
 static void env_click_cb(lv_event_t *event)
 {

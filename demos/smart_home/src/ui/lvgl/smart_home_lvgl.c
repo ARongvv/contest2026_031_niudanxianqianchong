@@ -87,6 +87,9 @@ smart_home_lvgl_t *smart_home_lvgl_init(smart_home_agent_app_t *app)
     smart_home_lvgl_log_build_stage("miloco", "begin");
     smart_home_lvgl_build_miloco_screen(ui);
     smart_home_lvgl_log_build_stage("miloco", "done");
+    smart_home_lvgl_log_build_stage("miloco-bind", "begin");
+    smart_home_lvgl_build_miloco_bind_screen(ui);
+    smart_home_lvgl_log_build_stage("miloco-bind", "done");
 #endif
 
     smart_home_lvgl_log_build_stage("chat", "begin");
@@ -156,6 +159,10 @@ void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
     if (ui->miloco_timer) {
         lv_timer_delete(ui->miloco_timer);
         ui->miloco_timer = NULL;
+    }
+    if (ui->bind_timer) {
+        lv_timer_delete(ui->bind_timer);
+        ui->bind_timer = NULL;
     }
 #endif
     if (ui->screen_screensaver) {

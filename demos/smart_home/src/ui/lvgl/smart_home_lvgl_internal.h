@@ -104,6 +104,13 @@ void smart_home_lvgl_miloco_poll_set_enabled(smart_home_lvgl_t *ui,
                                              int enable);
 void smart_home_lvgl_build_miloco_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_refresh_miloco_screen(smart_home_lvgl_t *ui);
+void smart_home_lvgl_build_miloco_bind_screen(smart_home_lvgl_t *ui);
+
+/* 页面公共 helper（pages.c 定义，多页复用）。 */
+lv_obj_t *page_screen(smart_home_lvgl_t *ui);
+lv_obj_t *page_card(lv_obj_t *screen, int x, int y, int w, int h);
+void page_heading(lv_obj_t *screen, const char *title);
+void page_icon_badge(lv_obj_t *card, const char *icon, lv_color_t bg);
 #endif
 void smart_home_lvgl_build_more_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui);

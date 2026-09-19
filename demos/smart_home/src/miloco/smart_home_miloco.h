@@ -77,6 +77,10 @@ size_t smart_home_miloco_list(const smart_home_miloco_t *service,
 /* 网关最近一次轮询是否成功；未启动返回 false。 */
 bool smart_home_miloco_reachable(const smart_home_miloco_t *service);
 
+/* 小米账号是否已在网关侧完成绑定（GET /api/miot/status 的 is_bound）。
+ * 网关不可达或未启动时返回 false。 */
+bool smart_home_miloco_bound(const smart_home_miloco_t *service);
+
 /*
  * 提交一次电源控制（异步）：worker 醒来后 POST set_property。
  * 队列已满时返回 AGENT_ERROR_LIMIT；参数非法返回 AGENT_ERROR_INVALID。

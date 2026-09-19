@@ -167,3 +167,9 @@ libpng:
 
   libpng is distributed under the libpng license, a permissive license. See
   the libpng source distribution for the full license text.
+
+## qrcodegen (third_party/qrcodegen)
+
+- Project: https://github.com/nayuki/QR-Code-generator
+- Files: qrcodegen.c, qrcodegen.h (unmodified upstream C sources)
+- License: MIT License (Copyright (c) Project Nayuki)

@@ -30,7 +30,7 @@ enum page_action_e {
  * worker does; the connection worker is always serialized. */
 #define SMART_HOME_NETWORK_WORKER_STACK_SIZE 8192u
 
-static lv_obj_t *page_card(lv_obj_t *screen, int x, int y, int w, int h)
+lv_obj_t *page_card(lv_obj_t *screen, int x, int y, int w, int h)
 {
     lv_obj_t *card = lv_obj_create(screen);
 
@@ -52,7 +52,7 @@ static void page_title(lv_obj_t *card, const char *title, const char *body)
     lv_obj_align(label, LV_ALIGN_BOTTOM_LEFT, 0, 0);
 }
 
-static void page_heading(lv_obj_t *screen, const char *text)
+void page_heading(lv_obj_t *screen, const char *text)
 {
     lv_obj_t *label = smart_home_lvgl_label_create(
         screen, text, SMART_HOME_UI_COLOR_TEXT_PRIMARY, 28);
@@ -61,7 +61,7 @@ static void page_heading(lv_obj_t *screen, const char *text)
                  SMART_HOME_TOPBAR_H + 26);
 }
 
-static void page_icon_badge(lv_obj_t *card, const char *icon,
+void page_icon_badge(lv_obj_t *card, const char *icon,
                             lv_color_t background)
 {
     lv_obj_t *badge = lv_obj_create(card);
@@ -267,7 +267,7 @@ static void page_action(lv_obj_t *card, smart_home_lvgl_t *ui,
     lv_obj_add_event_cb(card, page_click_cb, LV_EVENT_CLICKED, ui);
 }
 
-static lv_obj_t *page_screen(smart_home_lvgl_t *ui)
+lv_obj_t *page_screen(smart_home_lvgl_t *ui)
 {
     lv_obj_t *screen = lv_obj_create(NULL);
 
@@ -882,6 +882,18 @@ static void miloco_save_cb(lv_event_t *event)
                                 SMART_HOME_UI_COLOR_WARNING, 0);
 }
 
+static void miloco_bind_entry_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED || !ui ||
+        !ui->screen_miloco_bind) {
+        return;
+    }
+    lv_scr_load_anim(ui->screen_miloco_bind, LV_SCR_LOAD_ANIM_MOVE_LEFT,
+                     180, 0, false);
+}
+
 void smart_home_lvgl_build_miloco_screen(smart_home_lvgl_t *ui)
 {
     lv_obj_t *screen;
@@ -936,6 +948,12 @@ void smart_home_lvgl_build_miloco_screen(smart_home_lvgl_t *ui)
     lv_obj_set_style_text_color(lv_obj_get_child(button, 0), lv_color_white(), 0);
     lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -14);
     lv_obj_add_event_cb(button, miloco_save_cb, LV_EVENT_CLICKED, ui);
+
+    /* 绑定入口：网关配置好之后，账号绑定由独立页扫码完成。
+     * 放在状态行下方、输入区上方的空档，避免与保存按钮重叠。 */
+    button = page_outline_button(card, "扫码绑定米家账号", 150);
+    lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -60);
+    lv_obj_add_event_cb(button, miloco_bind_entry_cb, LV_EVENT_CLICKED, ui);
 
     ui->miloco_keyboard = lv_keyboard_create(screen);
     smart_home_lvgl_style_keyboard(ui->miloco_keyboard);

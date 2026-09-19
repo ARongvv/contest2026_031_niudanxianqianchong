@@ -52,6 +52,9 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
     CSRCS   += src/miloco/smart_home_miloco_client.c
     CSRCS   += src/miloco/smart_home_miloco_service.c
     CSRCS   += src/miloco/smart_home_miloco_tools.c
+    CSRCS   += src/miloco/smart_home_miloco_qr.c
+    CSRCS   += third_party/qrcodegen/qrcodegen.c
+    CSRCS   += src/ui/lvgl/smart_home_lvgl_miloco_bind.c
   endif
   ifneq ($(CONFIG_SMART_HOME_DEMO_UI_LVGL),)
     CSRCS   += src/ui/lvgl/smart_home_lvgl.c
@@ -84,6 +87,7 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/agent
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/camera
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/miloco
+  CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/third_party/qrcodegen
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/config
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/device
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/net

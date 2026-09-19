@@ -419,7 +419,8 @@ static void home_action_cb(lv_event_t *event)
         smart_home_lvgl_load_tab(ui, SMART_HOME_TAB_DEVICES);
         break;
     case HOME_ACTION_MIHOME:
-        /* 未连接时优先引导进入米家网关设置页完成配置。 */
+        /* 引导链：未连网关 → 网关设置页；未绑定账号 → 扫码绑定页；
+         * 一切就绪 → 设备页。 */
         if (!ui->app || !ui->app->miloco ||
             !smart_home_miloco_reachable(ui->app->miloco)) {
             if (ui->screen_miloco) {
@@ -428,6 +429,11 @@ static void home_action_cb(lv_event_t *event)
                                  180, 0, false);
                 break;
             }
+        } else if (!smart_home_miloco_bound(ui->app->miloco) &&
+                   ui->screen_miloco_bind) {
+            lv_scr_load_anim(ui->screen_miloco_bind,
+                             LV_SCR_LOAD_ANIM_MOVE_LEFT, 180, 0, false);
+            break;
         }
         if (ui->panel_title) {
             lv_label_set_text(ui->panel_title, "米家设备管理");
@@ -511,22 +517,32 @@ void smart_home_lvgl_refresh_home(smart_home_lvgl_t *ui)
                 }
             }
         }
-        if (ui->home_miloco_sub_label) {
-            lv_label_set_text(ui->home_miloco_sub_label,
-                              reachable ? "已连接 · Miloco 网关" :
-                              configured ? "未连接 · 等待网关" :
-                                           "未配置 · 系统设置中配置");
-        }
-        if (ui->home_ac_label) {
-            if (reachable) {
-                snprintf(text, sizeof(text),
-                         "%u 台米家设备\n点击进入设备管理",
-                         (unsigned)miloco_count);
-            } else {
-                snprintf(text, sizeof(text),
-                         "米家网关未连接\n系统设置中配置后显示");
+        {
+            bool bound = reachable &&
+                         smart_home_miloco_bound(ui->app->miloco);
+
+            if (ui->home_miloco_sub_label) {
+                lv_label_set_text(ui->home_miloco_sub_label,
+                                  !reachable ? (configured ?
+                                                "未连接 · 等待网关" :
+                                                "未配置 · 系统设置中配置") :
+                                  bound ? "已连接 · 米家已绑定" :
+                                          "已连接 · 待绑定账号");
             }
-            lv_label_set_text(ui->home_ac_label, text);
+            if (ui->home_ac_label) {
+                if (!reachable) {
+                    snprintf(text, sizeof(text),
+                             "米家网关未连接\n系统设置中配置后显示");
+                } else if (!bound) {
+                    snprintf(text, sizeof(text),
+                             "米家账号未绑定\n点击扫码绑定");
+                } else {
+                    snprintf(text, sizeof(text),
+                             "%u 台米家设备\n点击进入设备管理",
+                             (unsigned)miloco_count);
+                }
+                lv_label_set_text(ui->home_ac_label, text);
+            }
         }
         if (ui->home_status_label) {
             if (reachable) {
