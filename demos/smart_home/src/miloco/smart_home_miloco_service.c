@@ -1011,6 +1011,13 @@ static void *miloco_worker(void *argument)
         bool has_control = false;
         miloco_control_request_t control;
 
+        /* 天气拉取：首次立即拉取，此后每 120 轮（10 分钟）一次。 */
+        service->weather_poll_count++;
+        if (service->weather_poll_count >= 120) {
+            poll_weather(service, body, MILOCO_RESPONSE_BYTES);
+            service->weather_poll_count = 0;
+        }
+
         if (poll_due) {
             syslog(LOG_INFO, "[milo] worker: poll begin\n");
             if (poll_bind_status(service, body, MILOCO_RESPONSE_BYTES)

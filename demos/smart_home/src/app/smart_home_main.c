@@ -97,6 +97,7 @@ int main(int argc, char *argv[])
 
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
     {
+        extern smart_home_miloco_t *g_weather_miloco_service;
         smart_home_miloco_config_t miloco_config;
 
         /* 配置过 Miloco 网关就常驻启动；网络未就绪时 worker 按周期
@@ -112,6 +113,8 @@ int main(int argc, char *argv[])
             smart_home_miloco_start(&app.miloco, &miloco_config) != AGENT_OK) {
             fprintf(stderr, "miloco gateway start failed\n");
         }
+        /* 全局桥接：weather_tool 经此指针读 wttr.in 快照。 */
+        g_weather_miloco_service = app.miloco;
     }
 #endif
 #ifdef CONFIG_SMART_HOME_APP_BRIDGE

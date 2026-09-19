@@ -399,6 +399,9 @@ static int indoor_environment_tool(const agent_tool_call_t *call,
 
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
 #include "../miloco/smart_home_miloco.h"
+/* 由 smart_home_agent init 设置——tools 层拿不到 agent_app 指针，
+ * 用全局单例桥接。 */
+smart_home_miloco_t *g_weather_miloco_service;
 #endif
 
 static int weather_tool(const agent_tool_call_t *call,
@@ -424,13 +427,12 @@ static int weather_tool(const agent_tool_call_t *call,
     json_escape_string(location, escaped_location, sizeof(escaped_location));
 
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
-    /* 真实天气：读 miloco worker 的 wttr.in 快照。 */
+    /* 真实天气：通过 smart_home_agent.h 的 app 单例取 miloco 服务。 */
     {
-        smart_home_agent_app_t *app = user_data;
         smart_home_miloco_weather_t wx;
 
-        if (app && app->miloco &&
-            smart_home_miloco_get_weather(app->miloco, &wx)) {
+        if (g_weather_miloco_service &&
+            smart_home_miloco_get_weather(g_weather_miloco_service, &wx)) {
             snprintf(output, sizeof(output),
                      "{\"ok\":true,\"source\":\"wttr.in\""
                      ",\"location\":\"%s\",\"condition\":\"%s\""
