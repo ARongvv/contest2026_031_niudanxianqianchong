@@ -865,24 +865,26 @@ static void miloco_save_cb(lv_event_t *event)
                                     SMART_HOME_UI_COLOR_DANGER, 0);
         return;
     }
-    ret = smart_home_secrets_set_miloco(config.host, config.port,
-                                        config.token);
-    syslog(LOG_INFO, "[milo] save: secrets ret=%d\n", ret);
+
+    /* secrets 文件写入与配置应用全部由 worker 线程执行：LVGL/主线程
+     * 上的 LittleFS 写入会挂死系统。首次配置先创建 worker。 */
+    if (!ui->app->miloco) {
+        ret = smart_home_miloco_start(&ui->app->miloco, &config);
+        if (ret != AGENT_OK) {
+            lv_label_set_text(ui->miloco_status_label, "网关启动失败");
+            lv_obj_set_style_text_color(ui->miloco_status_label,
+                                        SMART_HOME_UI_COLOR_DANGER, 0);
+            return;
+        }
+    }
+    ret = smart_home_miloco_request_save(ui->app->miloco, &config);
+    syslog(LOG_INFO, "[milo] save: request ret=%d\n", ret);
     if (ret != AGENT_OK) {
-        lv_label_set_text(ui->miloco_status_label, "保存失败");
+        lv_label_set_text(ui->miloco_status_label, "保存请求失败");
         lv_obj_set_style_text_color(ui->miloco_status_label,
                                     SMART_HOME_UI_COLOR_DANGER, 0);
         return;
     }
-
-    /* 已有 worker 时原子切换配置（无 join、无线程重建，UI 秒回）；
-     * 首次配置才创建 worker。 */
-    if (ui->app->miloco) {
-        ret = smart_home_miloco_reconfigure(ui->app->miloco, &config);
-    } else {
-        ret = smart_home_miloco_start(&ui->app->miloco, &config);
-    }
-    syslog(LOG_INFO, "[milo] save: start ret=%d\n", ret);
     if (ret != AGENT_OK) {
         lv_label_set_text(ui->miloco_status_label, "网关启动失败");
         lv_obj_set_style_text_color(ui->miloco_status_label,

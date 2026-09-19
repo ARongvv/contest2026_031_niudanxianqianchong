@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <syslog.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -317,6 +318,7 @@ int smart_home_secrets_set_wifi_credentials(const char *ssid,
     }
     serialized = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
+    syslog(LOG_INFO, "[milo] sec: serialized\n");
     if (!serialized) {
         return AGENT_ERROR_NOMEM;
     }
@@ -445,7 +447,9 @@ int smart_home_secrets_set_miloco(const char *host, uint16_t port,
         (token && contains_control(token))) {
         return AGENT_ERROR_INVALID;
     }
+    syslog(LOG_INFO, "[milo] sec: read begin\n");
     ret = read_secrets_file(&text, &text_size);
+    syslog(LOG_INFO, "[milo] sec: read ret=%d\n", ret);
     if (ret == AGENT_ERROR_NOTFOUND) {
         root = cJSON_CreateObject();
         if (!root || !cJSON_AddNumberToObject(root, "version",
@@ -500,6 +504,7 @@ int smart_home_secrets_set_miloco(const char *host, uint16_t port,
         return AGENT_ERROR_LIMIT;
     }
     file = fopen(temp_path, "wb");
+    syslog(LOG_INFO, "[milo] sec: fopen ret=%d\n", file ? 0 : -1);
     if (!file) {
         free(serialized);
         return AGENT_ERROR;
@@ -511,16 +516,19 @@ int smart_home_secrets_set_miloco(const char *host, uint16_t port,
         free(serialized);
         return AGENT_ERROR;
     }
+    syslog(LOG_INFO, "[milo] sec: fwrite done\n");
     if (fclose(file) != 0) {
         unlink(temp_path);
         free(serialized);
         return AGENT_ERROR;
     }
+    syslog(LOG_INFO, "[milo] sec: fclose done\n");
     if (rename(temp_path, CONFIG_SMART_HOME_MODEL_SECRETS_PATH) != 0) {
         unlink(temp_path);
         free(serialized);
         return AGENT_ERROR;
     }
+    syslog(LOG_INFO, "[milo] sec: rename done\n");
     free(serialized);
     return AGENT_OK;
 }

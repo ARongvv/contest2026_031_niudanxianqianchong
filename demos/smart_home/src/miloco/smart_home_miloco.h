@@ -67,6 +67,12 @@ int smart_home_miloco_start(smart_home_miloco_t **service,
 int smart_home_miloco_reconfigure(smart_home_miloco_t *service,
                                   const smart_home_miloco_config_t *config);
 
+/* 提交保存请求：secrets.json 的文件写入由 worker 线程执行（LVGL/
+ * 主线程上的 LittleFS 写入会挂死系统，见开发日志），worker 完成后
+ * 应用配置并立即轮询。返回 AGENT_OK 仅表示请求已入队。 */
+int smart_home_miloco_request_save(smart_home_miloco_t *service,
+                                   const smart_home_miloco_config_t *config);
+
 /* 停止 worker、等待退出并释放全部资源。容忍 NULL 与重复调用。 */
 void smart_home_miloco_stop(smart_home_miloco_t **service);
 

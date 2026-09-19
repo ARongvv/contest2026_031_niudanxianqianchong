@@ -16,6 +16,7 @@
 
 #include "../smart_home_memory.h"
 #include "../config/cjson_compat.h"
+#include "../config/smart_home_secrets.h"
 
 #include <cagent/types.h>
 
@@ -51,6 +52,9 @@ struct smart_home_miloco {
      * 永不 join、永不重建线程。 */
     smart_home_miloco_client_config_t pending_config;
     bool config_dirty;
+    /* 保存请求：worker 代写 secrets.json 后应用配置。 */
+    smart_home_miloco_config_t save_config;
+    bool save_pending;
 
     pthread_mutex_t lock;
     sem_t wake;
@@ -196,6 +200,28 @@ int smart_home_miloco_reconfigure(smart_home_miloco_t *service,
     } else {
         service->pending_config = client_config;
         service->config_dirty = true;
+    }
+    unlock_state(service);
+    if (ret == AGENT_OK) {
+        sem_post(&service->wake);
+    }
+    return ret;
+}
+
+int smart_home_miloco_request_save(smart_home_miloco_t *service,
+                                   const smart_home_miloco_config_t *config)
+{
+    int ret = AGENT_OK;
+
+    if (!service || !smart_home_miloco_config_valid(config)) {
+        return AGENT_ERROR_INVALID;
+    }
+    lock_state(service);
+    if (service->stop_requested) {
+        ret = AGENT_ERROR_INVALID;
+    } else {
+        service->save_config = *config;
+        service->save_pending = true;
     }
     unlock_state(service);
     if (ret == AGENT_OK) {
@@ -593,6 +619,31 @@ static void *miloco_worker(void *argument)
 
         lock_state(service);
         stop = service->stop_requested;
+        if (service->save_pending) {
+            smart_home_miloco_config_t save = service->save_config;
+            smart_home_miloco_client_config_t client_config;
+            int save_ret;
+
+            service->save_pending = false;
+            snprintf(client_config.host, sizeof(client_config.host), "%s",
+                     save.host);
+            client_config.port = save.port;
+            snprintf(client_config.token, sizeof(client_config.token), "%s",
+                     save.token);
+            unlock_state(service);
+            syslog(LOG_INFO, "[milo] worker: saving secrets\n");
+            save_ret = smart_home_secrets_set_miloco(save.host, save.port,
+                                                     save.token);
+            syslog(LOG_INFO, "[milo] worker: secrets save ret=%d\n",
+                   save_ret);
+            lock_state(service);
+            if (save_ret == AGENT_OK) {
+                service->client_config = client_config;
+                service->reachable = false;
+                service->revision++;
+            }
+            poll_due = true;
+        }
         if (service->config_dirty) {
             service->client_config = service->pending_config;
             service->config_dirty = false;
