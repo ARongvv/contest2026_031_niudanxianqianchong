@@ -165,6 +165,7 @@ static const char *device_display_name(const smart_home_device_t *device)
     return device->name;
 }
 
+#ifndef CONFIG_SMART_HOME_MILOCO_BRIDGE
 static int device_matches_filter(smart_home_lvgl_t *ui,
                                  const smart_home_device_t *device)
 {
@@ -184,6 +185,7 @@ static int device_matches_filter(smart_home_lvgl_t *ui,
         return room && strcmp(device->room, room) == 0;
     }
 }
+#endif
 
 static void format_device_card_text(const smart_home_device_t *device,
                                     char *buffer,
@@ -1343,6 +1345,7 @@ static void open_device_editor(smart_home_lvgl_t *ui,
     lv_obj_clear_flag(ui->device_popup, LV_OBJ_FLAG_HIDDEN);
 }
 
+#ifndef CONFIG_SMART_HOME_MILOCO_BRIDGE
 static lv_obj_t *create_device_card(lv_obj_t *grid,
                                     smart_home_lvgl_t *ui,
                                     int slot,
@@ -1364,7 +1367,9 @@ static lv_obj_t *create_device_card(lv_obj_t *grid,
 
     return card;
 }
+#endif
 
+#ifndef CONFIG_SMART_HOME_MILOCO_BRIDGE
 static lv_obj_t *create_add_card(lv_obj_t *grid, smart_home_lvgl_t *ui)
 {
     int card_w = device_card_width();
@@ -1379,6 +1384,7 @@ static lv_obj_t *create_add_card(lv_obj_t *grid, smart_home_lvgl_t *ui)
     smart_home_lvgl_set_bg(card, SMART_HOME_UI_COLOR_SURFACE_SOFT);
     return card;
 }
+#endif
 
 #ifdef CONFIG_SMART_HOME_NODE_GATEWAY
 static void format_remote_command_text(const caddons_node_info_t *node,
@@ -1628,6 +1634,31 @@ static lv_obj_t *create_miloco_card(smart_home_lvgl_t *ui,
     return card;
 }
 
+/* 网关未连接时设备页的主体提示：真实设备在网关连接后出现。 */
+static void create_miloco_placeholder_card(smart_home_lvgl_t *ui)
+{
+    lv_obj_t *card;
+    lv_obj_t *label;
+    int card_w = device_card_width();
+    int card_h = smart_home_lvgl_compact() ? 104 : 112;
+
+    card = lv_obj_create(ui->panel_grid);
+    lv_obj_set_size(card, card_w, card_h);
+    smart_home_lvgl_card_style(card);
+    smart_home_lvgl_set_bg(card, SMART_HOME_UI_COLOR_SURFACE_SOFT);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
+
+    label = smart_home_lvgl_label_create(card, "米家设备",
+                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY,
+                                         smart_home_lvgl_compact() ? 11 : 12);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 0);
+    label = smart_home_lvgl_label_create(
+        card, "网关未连接\n在系统设置中配置\n米家网关后显示",
+        SMART_HOME_UI_COLOR_TEXT_SECONDARY,
+        smart_home_lvgl_compact() ? 10 : 11);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 24);
+}
+
 static void append_miloco_cards(smart_home_lvgl_t *ui)
 {
     smart_home_miloco_device_t devices[SMART_HOME_MILOCO_MAX_DEVICES];
@@ -1684,6 +1715,18 @@ static void rebuild_device_cards(smart_home_lvgl_t *ui)
     }
 
     lv_obj_clean(ui->panel_grid);
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    /* 米家桥接模式下设备页只呈现真实设备（米家 + Node）；本地虚拟
+     * 设备不上屏，仅保留给 Agent 本地工具与场景使用。 */
+    for (slot = 0; slot < SMART_HOME_MAX_DEVICES; slot++) {
+        ui->device_cards[slot] = NULL;
+    }
+    ui->panel_add_btn = NULL;
+    if (!ui->app || !ui->app->miloco ||
+        !smart_home_miloco_reachable(ui->app->miloco)) {
+        create_miloco_placeholder_card(ui);
+    }
+#else
     for (slot = 0; slot < SMART_HOME_MAX_DEVICES; slot++) {
         smart_home_device_t *device;
 
@@ -1701,6 +1744,7 @@ static void rebuild_device_cards(smart_home_lvgl_t *ui)
     }
 
     ui->panel_add_btn = create_add_card(ui->panel_grid, ui);
+#endif
 
 #ifdef CONFIG_SMART_HOME_NODE_GATEWAY
     append_online_remote_node_cards(ui);
