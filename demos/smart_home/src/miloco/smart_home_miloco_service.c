@@ -54,6 +54,7 @@ struct smart_home_miloco {
     size_t device_count;
     uint32_t revision;
     bool reachable;
+    bool xiaomi_bound;
 };
 
 static void lock_state(smart_home_miloco_t *service)
@@ -108,6 +109,18 @@ size_t smart_home_miloco_list(const smart_home_miloco_t *service,
     }
     unlock_state((smart_home_miloco_t *)service);
     return count;
+}
+
+bool smart_home_miloco_bound(const smart_home_miloco_t *service)
+{
+    bool bound = false;
+
+    if (service) {
+        lock_state((smart_home_miloco_t *)service);
+        bound = service->reachable && service->xiaomi_bound;
+        unlock_state((smart_home_miloco_t *)service);
+    }
+    return bound;
 }
 
 bool smart_home_miloco_reachable(const smart_home_miloco_t *service)
@@ -349,7 +362,7 @@ static int fetch_spec_for(smart_home_miloco_t *service, const char *did,
     int http_status = 0;
     int ret;
 
-    snprintf(path, sizeof(path), "/miot/devices/%s/spec", did);
+    snprintf(path, sizeof(path), "/api/miot/devices/%s/spec", did);
     ret = smart_home_miloco_http_get(&service->client_config, path,
                                      body, body_size, &http_status);
     if (ret < 0) {
@@ -368,7 +381,7 @@ static int refresh_power_status(smart_home_miloco_t *service, const char *did,
     int http_status = 0;
     int ret;
 
-    snprintf(path, sizeof(path), "/miot/devices/%s/status?iid=prop.2.1", did);
+    snprintf(path, sizeof(path), "/api/miot/devices/%s/status?iid=prop.2.1", did);
     ret = smart_home_miloco_http_get(&service->client_config, path,
                                      body, body_size, &http_status);
     if (ret < 0) {
@@ -378,6 +391,57 @@ static int refresh_power_status(smart_home_miloco_t *service, const char *did,
         return -EIO;
     }
     return parse_power_status(service, did, body);
+}
+
+/* GET /api/miot/status 解析 data.is_bound。绑定状态翻转时递增 revision
+ * 触发 UI 刷新；未绑定时设备列表清空。 */
+static int poll_bind_status(smart_home_miloco_t *service,
+                            char *body, size_t body_size)
+{
+    cJSON *root;
+    cJSON *data;
+    const cJSON *is_bound;
+    bool bound = false;
+    int http_status = 0;
+    int ret;
+
+    ret = smart_home_miloco_http_get(&service->client_config,
+                                     "/api/miot/status", body, body_size,
+                                     &http_status);
+    if (ret < 0) {
+        lock_state(service);
+        if (service->reachable) {
+            service->reachable = false;
+            service->revision++;
+        }
+        unlock_state(service);
+        return ret;
+    }
+    if (http_status != 200) {
+        return -EIO;
+    }
+    root = cJSON_Parse(body);
+    if (!root) {
+        return AGENT_ERROR_PARSE;
+    }
+    data = cJSON_GetObjectItemCaseSensitive(root, "data");
+    is_bound = cJSON_IsObject(data)
+        ? cJSON_GetObjectItemCaseSensitive(data, "is_bound") : NULL;
+    bound = cJSON_IsTrue(is_bound);
+    cJSON_Delete(root);
+
+    lock_state(service);
+    if (!service->reachable || service->xiaomi_bound != bound) {
+        service->revision++;
+    }
+    service->reachable = true;
+    service->xiaomi_bound = bound;
+    if (!bound && service->device_count > 0) {
+        service->device_count = 0;
+        service->revision++;
+    }
+    unlock_state(service);
+    return bound ? AGENT_OK : AGENT_ERROR_NOTFOUND;
 }
 
 static int poll_device_list(smart_home_miloco_t *service,
@@ -390,7 +454,7 @@ static int poll_device_list(smart_home_miloco_t *service,
     size_t i;
 
     ret = smart_home_miloco_http_get(&service->client_config,
-                                     "/miot/device_list", body, body_size,
+                                     "/api/miot/device_list", body, body_size,
                                      &http_status);
     if (ret < 0) {
         lock_state(service);
@@ -438,7 +502,7 @@ static int execute_control(smart_home_miloco_t *service,
     int http_status = 0;
     int ret;
 
-    snprintf(path, sizeof(path), "/miot/devices/%s/control", request->did);
+    snprintf(path, sizeof(path), "/api/miot/devices/%s/control", request->did);
     snprintf(request_body, sizeof(request_body),
              "{\"type\":\"set_property\",\"iid\":\"prop.2.1\",\"value\":%s}",
              request->on ? "true" : "false");
@@ -474,7 +538,11 @@ static void *miloco_worker(void *argument)
         miloco_control_request_t control;
 
         if (poll_due) {
-            poll_device_list(service, body, MILOCO_RESPONSE_BYTES);
+            if (poll_bind_status(service, body, MILOCO_RESPONSE_BYTES)
+                    == AGENT_OK) {
+                /* 已绑定才轮询设备；未绑定时绑定页只需要 is_bound。 */
+                poll_device_list(service, body, MILOCO_RESPONSE_BYTES);
+            }
             poll_due = false;
         }
 
