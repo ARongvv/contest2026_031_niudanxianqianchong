@@ -1483,23 +1483,7 @@ static lv_obj_t *create_remote_node_card(lv_obj_t *grid,
     lv_obj_set_size(card, card_w, card_h);
     smart_home_lvgl_card_style(card);
     smart_home_lvgl_set_bg(card, SMART_HOME_UI_COLOR_SURFACE_SOFT);
-    if (device->control_count > 0) {
-        const char *stable_did = g_miloco_card_dids[0];
-
-        if (g_miloco_card_did_count < SMART_HOME_MILOCO_MAX_DEVICES) {
-            stable_did =
-                g_miloco_card_dids[g_miloco_card_did_count];
-            snprintf(g_miloco_card_dids[g_miloco_card_did_count],
-                     sizeof(g_miloco_card_dids[0]), "%s", device->did);
-            g_miloco_card_did_count++;
-        }
-        lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_user_data(card, (void *)stable_did);
-        lv_obj_add_event_cb(card, miloco_card_click_cb, LV_EVENT_CLICKED,
-                            ui);
-    } else {
-        lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
-    }
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
 
     content = lv_obj_create(card);
     lv_obj_remove_style_all(content);
@@ -1883,6 +1867,25 @@ static lv_obj_t *create_miloco_card(smart_home_lvgl_t *ui,
     lv_obj_set_size(card, card_w, card_h);
     smart_home_lvgl_card_style(card);
     smart_home_lvgl_set_bg(card, SMART_HOME_UI_COLOR_SURFACE_SOFT);
+
+    if (device->control_count > 0) {
+        const char *stable_did = g_miloco_card_dids[0];
+
+        if (g_miloco_card_did_count < SMART_HOME_MILOCO_MAX_DEVICES) {
+            stable_did =
+                g_miloco_card_dids[g_miloco_card_did_count];
+            snprintf(g_miloco_card_dids[g_miloco_card_did_count],
+                     sizeof(g_miloco_card_dids[0]), "%s", device->did);
+            g_miloco_card_did_count++;
+        }
+        lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_user_data(card, (void *)stable_did);
+        lv_obj_add_event_cb(card, miloco_card_click_cb, LV_EVENT_CLICKED,
+                            ui);
+    } else {
+        lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    }
+
     lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
 
     content = lv_obj_create(card);
