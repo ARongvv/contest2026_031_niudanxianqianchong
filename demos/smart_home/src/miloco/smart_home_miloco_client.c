@@ -3,6 +3,7 @@
 #include "smart_home_miloco_client.h"
 
 #include <arpa/inet.h>
+#include <syslog.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -48,6 +49,7 @@ static int http_request(const smart_home_miloco_client_config_t *config,
         return -EINVAL;
     }
 
+    syslog(LOG_INFO, "[milo] http: begin %s\n", path);
     snprintf(port_text, sizeof(port_text), "%u", (unsigned)config->port);
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
@@ -57,6 +59,7 @@ static int http_request(const smart_home_miloco_client_config_t *config,
         return -EHOSTUNREACH;
     }
 
+    syslog(LOG_INFO, "[milo] http: addrinfo ok\n");
     sockfd = socket(result->ai_family, result->ai_socktype, 0);
     if (sockfd < 0) {
         ret = -errno;
@@ -90,6 +93,7 @@ static int http_request(const smart_home_miloco_client_config_t *config,
         goto out_close;
     }
 
+    syslog(LOG_INFO, "[milo] http: connected fd=%d\n", sockfd);
     /* 收发阶段恢复阻塞并施加超时。 */
     if (flags >= 0) {
         fcntl(sockfd, F_SETFL, flags);

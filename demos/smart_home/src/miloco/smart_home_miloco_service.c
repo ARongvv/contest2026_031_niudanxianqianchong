@@ -565,10 +565,12 @@ static int execute_control(smart_home_miloco_t *service,
 static void *miloco_worker(void *argument)
 {
     smart_home_miloco_t *service = argument;
-    char *body = smart_home_bulk_alloc(MILOCO_RESPONSE_BYTES);
+    char *body;
     struct timespec wait_until;
     bool poll_due = true;
 
+    syslog(LOG_INFO, "[milo] worker: entry\n");
+    body = smart_home_bulk_alloc(MILOCO_RESPONSE_BYTES);
     if (!body) {
         syslog(LOG_ERR, "ERROR: [miloco] response buffer alloc failed\n");
         return NULL;
@@ -580,6 +582,7 @@ static void *miloco_worker(void *argument)
         miloco_control_request_t control;
 
         if (poll_due) {
+            syslog(LOG_INFO, "[milo] worker: poll begin\n");
             if (poll_bind_status(service, body, MILOCO_RESPONSE_BYTES)
                     == AGENT_OK) {
                 /* 已绑定才轮询设备；未绑定时绑定页只需要 is_bound。 */
@@ -649,6 +652,7 @@ int smart_home_miloco_start(smart_home_miloco_t **service_out,
         return AGENT_ERROR_INVALID;
     }
 
+    syslog(LOG_INFO, "[milo] start: enter host=%s\n", config->host);
     service = calloc(1, sizeof(*service));
     if (!service) {
         return AGENT_ERROR_NOMEM;
@@ -673,6 +677,7 @@ int smart_home_miloco_start(smart_home_miloco_t **service_out,
     /* worker 栈走 PSRAM，避免占用默认 pthread 栈预算；pthread 栈有
      * 架构对齐要求（RISC-V 16B），PSRAM 分配不保证，必须向上对齐
      * （网络配网 worker 同款做法）。 */
+    syslog(LOG_INFO, "[milo] start: mutex/sem ready\n");
     stack = smart_home_bulk_alloc(MILOCO_WORKER_STACK_SIZE +
                                   STACK_ALIGNMENT - 1u);
     if (!stack) {
@@ -683,14 +688,18 @@ int smart_home_miloco_start(smart_home_miloco_t **service_out,
     }
     service->worker_stack = (void *)STACK_ALIGN_UP((uintptr_t)stack);
     service->worker_stack_bytes = MILOCO_WORKER_STACK_SIZE;
+    syslog(LOG_INFO, "[milo] start: stack=%p bytes=%u\n",
+           service->worker_stack, (unsigned)service->worker_stack_bytes);
     ret = pthread_attr_init(&attr);
     if (ret == 0) {
         ret = pthread_attr_setstack(&attr, service->worker_stack,
                                     service->worker_stack_bytes);
     }
+    syslog(LOG_INFO, "[milo] start: attr ret=%d, creating thread\n", ret);
     if (ret == 0) {
         ret = pthread_create(&service->worker, &attr, miloco_worker, service);
     }
+    syslog(LOG_INFO, "[milo] start: pthread_create ret=%d\n", ret);
     pthread_attr_destroy(&attr);
     if (ret != 0) {
         smart_home_bulk_free(service->worker_stack);

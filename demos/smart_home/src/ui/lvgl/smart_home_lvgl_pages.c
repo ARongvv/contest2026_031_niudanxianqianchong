@@ -12,6 +12,7 @@
 
 #include <errno.h>
 #include <nuttx/sched.h>
+#include <syslog.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -857,6 +858,7 @@ static void miloco_save_cb(lv_event_t *event)
     }
     config.port = (uint16_t)port_value;
 
+    syslog(LOG_INFO, "[milo] save: begin\n");
     if (!smart_home_miloco_config_valid(&config)) {
         lv_label_set_text(ui->miloco_status_label, "地址不能为空");
         lv_obj_set_style_text_color(ui->miloco_status_label,
@@ -865,6 +867,7 @@ static void miloco_save_cb(lv_event_t *event)
     }
     ret = smart_home_secrets_set_miloco(config.host, config.port,
                                         config.token);
+    syslog(LOG_INFO, "[milo] save: secrets ret=%d\n", ret);
     if (ret != AGENT_OK) {
         lv_label_set_text(ui->miloco_status_label, "保存失败");
         lv_obj_set_style_text_color(ui->miloco_status_label,
@@ -879,6 +882,7 @@ static void miloco_save_cb(lv_event_t *event)
     } else {
         ret = smart_home_miloco_start(&ui->app->miloco, &config);
     }
+    syslog(LOG_INFO, "[milo] save: start ret=%d\n", ret);
     if (ret != AGENT_OK) {
         lv_label_set_text(ui->miloco_status_label, "网关启动失败");
         lv_obj_set_style_text_color(ui->miloco_status_label,
