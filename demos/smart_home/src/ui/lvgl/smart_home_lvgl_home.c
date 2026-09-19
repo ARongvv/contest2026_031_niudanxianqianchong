@@ -229,9 +229,10 @@ void smart_home_lvgl_refresh_network_indicators(smart_home_lvgl_t *ui)
 void smart_home_lvgl_build_top_bar(lv_obj_t *screen, smart_home_lvgl_t *ui,
                                    const char *title)
 {
+    /* 摄像头/麦克风默认 off（本地预览和音频未主动开启）。 */
     static const char *const status_icons[] = {
-        ICON_STATUS_MICROPHONE,
-        ICON_STATUS_CAMERA,
+        "asset:microphone-off",
+        "asset:camera-off",
         ICON_STATUS_DND,
         ICON_STATUS_WIFI,
     };

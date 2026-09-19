@@ -28,9 +28,9 @@ LARGE_SIZE = 48
 
 # Top/status/navigation and compact device glyphs need a native 20 px source.
 SMALL_ICONS = {
-    "air-conditioning", "bulb", "camera", "cloud-rain", "devices", "dots",
-    "home", "microphone", "moon", "propeller", "robot", "shield",
-    "sparkle-2", "sun", "temperature", "wifi",
+    "air-conditioning", "bulb", "camera", "camera-off", "cloud-rain", "devices", "dots",
+    "home", "microphone", "microphone-off", "moon", "propeller", "robot", "shield",
+    "sparkle-2", "sun", "temperature", "wifi", "wifi-off",
 }
 
 # These are the only glyphs used as visual anchors on the 1024x600 home page.

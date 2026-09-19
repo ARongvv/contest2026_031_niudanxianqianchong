@@ -898,6 +898,29 @@ static void refresh_sensor_bar(smart_home_lvgl_t *ui)
         return;
     }
 
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    /* 传感器栏优先显示 wttr.in 真实天气。 */
+    if (ui->app && ui->app->miloco) {
+        smart_home_miloco_weather_t wx;
+
+        if (smart_home_miloco_get_weather(ui->app->miloco, &wx)) {
+            if (ui->env_temp_label) {
+                snprintf(text, sizeof(text), "室外 %d°C", wx.temperature);
+                lv_label_set_text(ui->env_temp_label, text);
+            }
+            if (ui->env_hum_label) {
+                snprintf(text, sizeof(text), "湿度 %d%%", wx.humidity);
+                lv_label_set_text(ui->env_hum_label, text);
+            }
+            if (ui->env_light_label) {
+                snprintf(text, sizeof(text), "%s · 风%dkm/h",
+                         wx.condition_cn, wx.wind_kmph);
+                lv_label_set_text(ui->env_light_label, text);
+            }
+            return;
+        }
+    }
+#endif
     if (ui->env_temp_label) {
         snprintf(text, sizeof(text), "温度 %d°C", state->env_temperature);
         lv_label_set_text(ui->env_temp_label, text);
