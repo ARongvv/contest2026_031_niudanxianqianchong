@@ -1456,7 +1456,16 @@ static lv_obj_t *create_remote_node_card(lv_obj_t *grid,
     lv_obj_set_size(card, card_w, card_h);
     smart_home_lvgl_card_style(card);
     smart_home_lvgl_set_bg(card, SMART_HOME_UI_COLOR_SURFACE_SOFT);
-    lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    if (device->control_count > 0) {
+        /* 有可控项的设备卡可点击，打开通用控制抽屉。did 由设备缓存
+         * 长期持有。 */
+        lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_user_data(card, (void *)device->did);
+        lv_obj_add_event_cb(card, miloco_card_click_cb, LV_EVENT_CLICKED,
+                            ui);
+    } else {
+        lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    }
 
     content = lv_obj_create(card);
     lv_obj_remove_style_all(content);
@@ -1542,6 +1551,239 @@ static void remote_node_timer_cb(lv_timer_t *timer)
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
 /* 米家（Miloco 网关）远程设备卡：电源开关提交异步控制，实际状态
  * 以 worker 轮询回读为准（revision 变化触发整卡重建）。 */
+/* ── 米家通用控制抽屉：按 controls 的值类型渲染 ──
+ *   BOOL→开关  ENUM→分段选择  ACTION→按钮
+ * 状态以 worker 回读为准；revision 变化时刷新控件。 */
+static void miloco_sheet_close(smart_home_lvgl_t *ui)
+{
+    if (ui && ui->miloco_sheet) {
+        lv_obj_delete(ui->miloco_sheet);
+        ui->miloco_sheet = NULL;
+        ui->miloco_sheet_did[0] = '\0';
+    }
+}
+
+/* 控件私有数据：iid 指针（设备缓存长期持有）+ 目标值。 */
+typedef struct {
+    smart_home_lvgl_t *ui;
+    const char *iid;
+    const char *operation;
+    int32_t value;
+} miloco_sheet_req_t;
+
+static miloco_sheet_req_t g_miloco_sheet_req[SMART_HOME_MILOCO_MAX_CONTROLS +
+                                             1];
+
+static void miloco_sheet_set_cb(lv_event_t *event)
+{
+    miloco_sheet_req_t *req = lv_event_get_user_data(event);
+
+    if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED || !req ||
+        !req->ui || !req->ui->app || !req->ui->app->miloco) {
+        return;
+    }
+    (void)smart_home_miloco_submit_control(
+        req->ui->app->miloco, req->ui->miloco_sheet_did, req->iid,
+        req->operation,
+        lv_obj_has_state(lv_event_get_current_target(event),
+                         LV_STATE_CHECKED) ? 1 : 0);
+}
+
+static void miloco_sheet_pick_cb(lv_event_t *event)
+{
+    miloco_sheet_req_t *req = lv_event_get_user_data(event);
+
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED || !req ||
+        !req->ui || !req->ui->app || !req->ui->app->miloco) {
+        return;
+    }
+    (void)smart_home_miloco_submit_control(
+        req->ui->app->miloco, req->ui->miloco_sheet_did, req->iid,
+        req->operation, req->value);
+}
+
+static void miloco_sheet_action_cb(lv_event_t *event)
+{
+    miloco_sheet_req_t *req = lv_event_get_user_data(event);
+
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED || !req ||
+        !req->ui || !req->ui->app || !req->ui->app->miloco) {
+        return;
+    }
+    (void)smart_home_miloco_submit_control(
+        req->ui->app->miloco, req->ui->miloco_sheet_did, req->iid,
+        "action", 0);
+}
+
+static void miloco_card_click_cb(lv_event_t *event);
+
+static void miloco_sheet_build(smart_home_lvgl_t *ui, const char *did)
+{
+    smart_home_miloco_device_t devices[SMART_HOME_MILOCO_MAX_DEVICES];
+    smart_home_miloco_device_t *dev = NULL;
+    lv_obj_t *sheet;
+    lv_obj_t *row;
+    lv_obj_t *label;
+    lv_obj_t *btn;
+    lv_obj_t *sw;
+    int drawer_w;
+    int drawer_h;
+    int y = 0;
+    uint8_t k;
+    uint8_t req_slot = 0;
+    size_t count;
+    size_t i;
+
+    count = smart_home_miloco_list(ui->app->miloco, devices,
+                                   SMART_HOME_MILOCO_MAX_DEVICES, NULL);
+    for (i = 0; i < count; i++) {
+        if (strcmp(devices[i].did, did) == 0) {
+            dev = &devices[i];
+            break;
+        }
+    }
+    if (!dev) {
+        return;
+    }
+
+    drawer_w = smart_home_lvgl_compact() ? smart_home_lvgl_content_w() :
+              smart_home_lvgl_disp_w() * 56 / 100;
+    drawer_h = smart_home_lvgl_disp_h() - SMART_HOME_TOPBAR_H -
+               SMART_HOME_NAV_H - 40;
+    sheet = lv_obj_create(ui->screen_panel);
+    lv_obj_remove_style_all(sheet);
+    lv_obj_set_size(sheet, drawer_w, drawer_h);
+    lv_obj_align(sheet, LV_ALIGN_TOP_RIGHT, -12, SMART_HOME_TOPBAR_H + 20);
+    smart_home_lvgl_card_style(sheet);
+    lv_obj_set_style_pad_all(sheet, 16, 0);
+    ui->miloco_sheet = sheet;
+    snprintf(ui->miloco_sheet_did, sizeof(ui->miloco_sheet_did), "%s", did);
+
+    label = smart_home_lvgl_label_create(sheet, dev->name,
+                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY,
+                                         16);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 0);
+    label = smart_home_lvgl_label_create(sheet,
+                                         dev->online ? "● 在线 · 米家" :
+                                                       "○ 离线 · 米家",
+                                         dev->online ?
+                                             SMART_HOME_UI_COLOR_SUCCESS :
+                                             SMART_HOME_UI_COLOR_TEXT_MUTED,
+                                         12);
+    lv_obj_align(label, LV_ALIGN_TOP_RIGHT, 0, 4);
+    btn = lv_btn_create(sheet);
+    lv_obj_set_size(btn, 64, 32);
+    lv_obj_align(btn, LV_ALIGN_TOP_RIGHT, 0, 24);
+    label = smart_home_lvgl_label_create(btn, "关闭", lv_color_white(), 12);
+    lv_obj_center(label);
+    lv_obj_add_event_cb(btn, miloco_sheet_close, LV_EVENT_CLICKED, ui);
+    y = 56;
+
+    for (k = 0; k < dev->control_count && k <
+         SMART_HOME_MILOCO_MAX_CONTROLS; k++) {
+        const smart_home_miloco_control_t *ctrl = &dev->controls[k];
+        miloco_sheet_req_t *req = &g_miloco_sheet_req[req_slot++];
+
+        req->ui = ui;
+        req->iid = ctrl->iid;
+        req->operation = ctrl->type == SMART_HOME_MILOCO_CTRL_ACTION ?
+                         "action" : "set";
+
+        row = lv_obj_create(sheet);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, lv_pct(100), 40);
+        lv_obj_set_pos(row, 0, y);
+        label = smart_home_lvgl_label_create(row, ctrl->desc,
+                                             SMART_HOME_UI_COLOR_TEXT_PRIMARY,
+                                             13);
+        lv_obj_align(label, LV_ALIGN_LEFT_MID, 0, 0);
+
+        if (ctrl->type == SMART_HOME_MILOCO_CTRL_BOOL) {
+            req->value = 0;
+            sw = lv_switch_create(row);
+            lv_obj_set_size(sw, 44, 24);
+            lv_obj_align(sw, LV_ALIGN_RIGHT_MID, 0, 0);
+            if (ctrl->value) {
+                lv_obj_add_state(sw, LV_STATE_CHECKED);
+            }
+            lv_obj_add_event_cb(sw, miloco_sheet_set_cb,
+                                LV_EVENT_VALUE_CHANGED, req);
+        } else if (ctrl->type == SMART_HOME_MILOCO_CTRL_ENUM &&
+                   ctrl->option_count > 0) {
+            uint8_t j;
+
+            for (j = 0; j < ctrl->option_count; j++) {
+                miloco_sheet_req_t *oreq = &g_miloco_sheet_req[req_slot++];
+                lv_obj_t *opt;
+
+                if (req_slot >= sizeof(g_miloco_sheet_req) /
+                                sizeof(g_miloco_sheet_req[0])) {
+                    break;
+                }
+                oreq->ui = ui;
+                oreq->iid = ctrl->iid;
+                oreq->operation = "set";
+                oreq->value = ctrl->options[j].value;
+                opt = lv_btn_create(row);
+                lv_obj_set_size(opt, 56, 30);
+                lv_obj_align(opt, LV_ALIGN_RIGHT_MID,
+                             -(int)(j * 62), 0);
+                label = smart_home_lvgl_label_create(
+                    opt, ctrl->options[j].name,
+                    ctrl->value == ctrl->options[j].value ?
+                        lv_color_white() :
+                        SMART_HOME_UI_COLOR_TEXT_PRIMARY, 11);
+                lv_obj_center(label);
+                if (ctrl->value == ctrl->options[j].value) {
+                    smart_home_lvgl_set_bg(opt, SMART_HOME_UI_COLOR_PRIMARY);
+                } else {
+                    smart_home_lvgl_set_bg(opt,
+                        SMART_HOME_UI_COLOR_SURFACE_SOFT);
+                }
+                lv_obj_add_event_cb(opt, miloco_sheet_pick_cb,
+                                    LV_EVENT_CLICKED, oreq);
+            }
+        } else {
+            req->value = 0;
+            btn = lv_btn_create(row);
+            lv_obj_set_size(btn, 88, 32);
+            lv_obj_align(btn, LV_ALIGN_RIGHT_MID, 0, 0);
+            label = smart_home_lvgl_label_create(btn, "执行", lv_color_white(),
+                                                 12);
+            lv_obj_center(label);
+            smart_home_lvgl_set_bg(btn, SMART_HOME_UI_COLOR_PRIMARY);
+            lv_obj_add_event_cb(btn, miloco_sheet_action_cb,
+                                LV_EVENT_CLICKED, req);
+        }
+        y += 48;
+    }
+}
+
+static void miloco_card_click_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+    const char *did = lv_obj_get_user_data(lv_event_get_current_target(event));
+
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED || !ui ||
+        !ui->app || !ui->app->miloco || !did) {
+        return;
+    }
+    miloco_sheet_close(ui);
+    miloco_sheet_build(ui, did);
+}
+
+/* revision 变化时刷新打开中的抽屉（重建以取最新值）。 */
+void smart_home_lvgl_miloco_sheet_refresh(smart_home_lvgl_t *ui)
+{
+    if (ui && ui->miloco_sheet && ui->miloco_sheet_did[0]) {
+        char did[24];
+
+        snprintf(did, sizeof(did), "%s", ui->miloco_sheet_did);
+        miloco_sheet_close(ui);
+        miloco_sheet_build(ui, did);
+    }
+}
+
 static void miloco_switch_cb(lv_event_t *event)
 {
     smart_home_lvgl_t *ui = lv_event_get_user_data(event);
@@ -1703,6 +1945,9 @@ static void miloco_timer_cb(lv_timer_t *timer)
     }
     (void)smart_home_miloco_list(ui->app->miloco, NULL, 0, &revision);
     if (revision != ui->miloco_revision) {
+        if (ui->miloco_sheet) {
+            smart_home_lvgl_miloco_sheet_refresh(ui);
+        }
         if (ui->active_tab == SMART_HOME_TAB_HOME) {
             smart_home_lvgl_refresh_home(ui);
         } else {
@@ -1736,6 +1981,7 @@ static void rebuild_device_cards(smart_home_lvgl_t *ui)
 
     lv_obj_clean(ui->panel_grid);
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    miloco_sheet_close(ui);
     /* 米家桥接模式下设备页只呈现真实设备（米家 + Node）；本地虚拟
      * 设备不上屏，仅保留给 Agent 本地工具与场景使用。 */
     for (slot = 0; slot < SMART_HOME_MAX_DEVICES; slot++) {

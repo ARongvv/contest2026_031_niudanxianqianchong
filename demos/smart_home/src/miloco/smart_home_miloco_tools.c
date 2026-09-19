@@ -15,7 +15,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define MILOCO_TOOL_LIST_BUFFER_BYTES 2048
+#define MILOCO_TOOL_LIST_BUFFER_BYTES 4096
 
 #define SCHEMA_MIOT_DEVICE_LIST \
     "{\"type\":\"object\",\"properties\":{}}"
@@ -23,8 +23,10 @@
 #define SCHEMA_MIOT_DEVICE_CONTROL                                      \
     "{\"type\":\"object\",\"properties\":"                               \
     "{\"did\":{\"type\":\"string\",\"description\":\"Mi Home device id\"}," \
-    "\"power_on\":{\"type\":\"boolean\",\"description\":\"true = on\"}}," \
-    "\"required\":[\"did\",\"power_on\"]}"
+    "\"iid\":{\"type\":\"string\",\"description\":\"control id from miot_device_list controls, e.g. prop.2.1\"}," \
+    "\"operation\":{\"type\":\"string\",\"enum\":[\"set\",\"action\"],\"description\":\"set=write property, action=call action\"}," \
+    "\"value\":{\"type\":\"number\",\"description\":\"value to write; omit for action\"}}," \
+    "\"required\":[\"did\",\"iid\"]}"
 
 static const char *category_name(smart_home_miloco_category_t category)
 {
@@ -56,6 +58,7 @@ static int miot_device_list_tool(const agent_tool_call_t *call,
     size_t count;
     size_t used;
     size_t i;
+    uint8_t k;
 
     (void)call;
     result->status = AGENT_ERROR;
@@ -76,15 +79,29 @@ static int miot_device_list_tool(const agent_tool_call_t *call,
                                    SMART_HOME_MILOCO_MAX_DEVICES, NULL);
     used = (size_t)snprintf(output, sizeof(output),
                             "{\"ok\":true,\"source\":\"miloco\",\"devices\":[");
-    for (i = 0; i < count && used < sizeof(output) - 160u; i++) {
+    for (i = 0; i < count && used < sizeof(output) - 256u; i++) {
         used += (size_t)snprintf(
             output + used, sizeof(output) - used,
             "%s{\"did\":\"%s\",\"name\":\"%s\",\"room\":\"%s\","
-            "\"category\":\"%s\",\"online\":%s,\"power_on\":%s}",
+            "\"category\":\"%s\",\"online\":%s,\"controls\":[",
             i > 0 ? "," : "", devices[i].did, devices[i].name,
             devices[i].room, category_name(devices[i].category),
-            devices[i].online ? "true" : "false",
-            devices[i].power_on ? "true" : "false");
+            devices[i].online ? "true" : "false");
+        for (k = 0; k < devices[i].control_count &&
+                    used < sizeof(output) - 192u; k++) {
+            const smart_home_miloco_control_t *ctrl =
+                &devices[i].controls[k];
+
+            used += (size_t)snprintf(
+                output + used, sizeof(output) - used,
+                "%s{\"iid\":\"%s\",\"op\":\"%s\",\"desc\":\"%s\"}",
+                k > 0 ? "," : "", ctrl->iid,
+                ctrl->type == SMART_HOME_MILOCO_CTRL_ACTION ?
+                    "action" : "set",
+                ctrl->desc);
+        }
+        used += (size_t)snprintf(output + used, sizeof(output) - used,
+                                 "]}");
     }
     snprintf(output + used, sizeof(output) - used, "]}");
     result->status = AGENT_OK;
@@ -100,7 +117,9 @@ static int miot_device_control_tool(const agent_tool_call_t *call,
     smart_home_agent_app_t *app = user_data;
     cJSON *root;
     const cJSON *did;
-    const cJSON *power_on;
+    const cJSON *iid;
+    const cJSON *value;
+    const cJSON *operation;
 
     result->status = AGENT_ERROR;
     result->content_json = output;
@@ -118,32 +137,41 @@ static int miot_device_control_tool(const agent_tool_call_t *call,
         return result->status;
     }
     did = cJSON_GetObjectItemCaseSensitive(root, "did");
-    power_on = cJSON_GetObjectItemCaseSensitive(root, "power_on");
+    iid = cJSON_GetObjectItemCaseSensitive(root, "iid");
+    value = cJSON_GetObjectItemCaseSensitive(root, "value");
+    operation = cJSON_GetObjectItemCaseSensitive(root, "operation");
     if (!cJSON_IsString(did) || !did->valuestring[0] ||
-        !cJSON_IsBool(power_on)) {
+        !cJSON_IsString(iid) || !iid->valuestring[0]) {
         cJSON_Delete(root);
         snprintf(output, sizeof(output),
-                 "{\"ok\":false,\"error\":\"invalid_arguments\"}");
+                 "{\"ok\":false,\"error\":\"invalid_arguments\","
+                 "\"hint\":\"run miot_device_list first to get valid iid\"}");
         return result->status;
     }
 
-    result->status = smart_home_miloco_submit_power(
-        app->miloco, did->valuestring, cJSON_IsTrue(power_on));
+    result->status = smart_home_miloco_submit_control(
+        app->miloco, did->valuestring, iid->valuestring,
+        (cJSON_IsString(operation) &&
+         strcmp(operation->valuestring, "action") == 0) ?
+            "action" : "set",
+        cJSON_IsNumber(value) ? (int32_t)value->valueint :
+        cJSON_IsTrue(value) ? 1 : 0);
     cJSON_Delete(root);
     if (result->status != AGENT_OK) {
         snprintf(output, sizeof(output),
-                 "{\"ok\":false,\"error\":\"submit_failed\",\"code\":%d}",
+                 "{\"ok\":false,\"error\":\"submit_failed\",\"code\":%d,"
+                 "\"hint\":\"iid must come from miot_device_list controls\"}",
                  result->status);
         result->status = AGENT_ERROR;
         return result->status;
     }
     snprintf(output, sizeof(output),
-             "{\"ok\":true,\"did\":\"%s\",\"power_on\":%s,"
-             "\"note\":\"control submitted; result visible on next poll\"}",
-             did->valuestring, cJSON_IsTrue(power_on) ? "true" : "false");
+             "{\"ok\":true,\"did\":\"%s\",\"iid\":\"%s\","
+             "\"note\":\"control submitted; state updates on next poll\"}",
+             did->valuestring, iid->valuestring);
     result->status = AGENT_OK;
     result->error_message = NULL;
-    return AGENT_OK;
+    return result->status;
 }
 
 static int register_tool(agent_t *agent,
@@ -184,9 +212,11 @@ int smart_home_miloco_tools_register(agent_t *agent,
         return ret;
     }
     return register_tool(agent, "miot_device_control",
-                         "Turn a Mi Home device on or off through the "
-                         "Miloco gateway. Use miot_device_list to find "
-                         "the did first.",
+                         "Unified Mi Home device control through the "
+                         "Miloco gateway: write a property (operation=set) "
+                         "or call an action (operation=action). Valid iid "
+                         "values are listed per device in the controls "
+                         "array of miot_device_list.",
                          SCHEMA_MIOT_DEVICE_CONTROL,
                          miot_device_control_tool, app,
                          AGENT_TOOL_FLAG_LLM_VISIBLE);

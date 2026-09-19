@@ -34,13 +34,15 @@
  * 栈深，8 KiB 时溢出会踩坏相邻 PSRAM，症状延迟到后续堆操作（cJSON）
  * 才爆——分段日志定位的教训，见开发日志。 */
 #define MILOCO_WORKER_STACK_SIZE   24576u
-#define MILOCO_CONTROL_QUEUE_DEPTH 4
+#define MILOCO_CONTROL_QUEUE_DEPTH 8
 #define MILOCO_RESPONSE_BYTES      (16u * 1024u)
 #define MILOCO_STATUS_RESPONSE_BYTES 512u
 
 typedef struct {
     char did[sizeof(((smart_home_miloco_device_t *)0)->did)];
-    bool on;
+    char iid[14];
+    uint8_t is_action;                   /* 0=set_property 1=call_action */
+    int32_t value;
 } miloco_control_request_t;
 
 struct smart_home_miloco {
@@ -169,14 +171,41 @@ bool smart_home_miloco_reachable(const smart_home_miloco_t *service)
     return reachable;
 }
 
-int smart_home_miloco_submit_power(smart_home_miloco_t *service,
-                                   const char *did,
-                                   bool on)
+/* 危险动作 type_name 黑名单：解析期过滤（device_list 永不展示），
+ * 执行期经"iid 必须在 controls 中"间接再拦一道。 */
+static const char *const g_miloco_dangerous_types[] = {
+    "format",            /* 格式化存储卡 */
+    "pop-up",            /* 弹出存储卡 */
+    "restart-device",    /* 重启设备 */
+};
+
+static bool type_is_dangerous(const char *type_name)
+{
+    size_t i;
+
+    if (!type_name) {
+        return false;
+    }
+    for (i = 0; i < sizeof(g_miloco_dangerous_types) /
+                    sizeof(g_miloco_dangerous_types[0]); i++) {
+        if (strcmp(type_name, g_miloco_dangerous_types[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int smart_home_miloco_submit_control(smart_home_miloco_t *service,
+                                     const char *did,
+                                     const char *iid,
+                                     const char *operation,
+                                     int32_t value)
 {
     int ret = AGENT_OK;
 
-    if (!service || !did || !did[0] || strlen(did) >=
-        sizeof(service->pending[0].did)) {
+    if (!service || !did || !did[0] || !iid || !iid[0] ||
+        strlen(did) >= sizeof(service->pending[0].did) ||
+        strlen(iid) >= sizeof(service->pending[0].iid) || !operation) {
         return AGENT_ERROR_INVALID;
     }
     lock_state(service);
@@ -185,8 +214,13 @@ int smart_home_miloco_submit_power(smart_home_miloco_t *service,
     } else if (service->pending_count >= MILOCO_CONTROL_QUEUE_DEPTH) {
         ret = AGENT_ERROR_LIMIT;
     } else {
-        strcpy(service->pending[service->pending_count].did, did);
-        service->pending[service->pending_count].on = on;
+        miloco_control_request_t *slot =
+            &service->pending[service->pending_count];
+
+        strcpy(slot->did, did);
+        strcpy(slot->iid, iid);
+        slot->is_action = strcmp(operation, "action") == 0;
+        slot->value = value;
         service->pending_count++;
     }
     unlock_state(service);
@@ -194,6 +228,14 @@ int smart_home_miloco_submit_power(smart_home_miloco_t *service,
         sem_post(&service->wake);
     }
     return ret;
+}
+
+int smart_home_miloco_submit_power(smart_home_miloco_t *service,
+                                   const char *did,
+                                   bool on)
+{
+    return smart_home_miloco_submit_control(service, did, "prop.2.1",
+                                            "set", on ? 1 : 0);
 }
 
 /*
@@ -363,17 +405,27 @@ static int parse_device_list(smart_home_miloco_t *service, const char *body,
     return AGENT_OK;
 }
 
-/* 解析 data: {did, name, category, spec,...}（单设备 spec 响应）。 */
+/* 解析 data: {did, name, category, spec:{iid:{...}}}。从 spec 提取
+ * 可控清单：可写 bool 属性→开关、可写 uint8+value_list→多档、动作→
+ * 按钮；危险 type_name 黑名单过滤。controllable=存在 prop.2.1。 */
 static int parse_device_spec(smart_home_miloco_t *service, const char *body)
 {
-    cJSON *root = cJSON_Parse(body);
+    cJSON *root;
     cJSON *data;
+    cJSON *spec;
+    cJSON *item;
     const cJSON *did;
     const cJSON *category;
     smart_home_miloco_category_t mapped;
     const char *category_text;
+    char target_did[24];
+    size_t dev_index = SMART_HOME_MILOCO_MAX_DEVICES;
+    smart_home_miloco_control_t parsed[SMART_HOME_MILOCO_MAX_CONTROLS];
+    uint8_t parsed_count = 0;
+    bool power_ctrl = false;
     size_t i;
 
+    root = cJSON_Parse(body);
     if (!root) {
         return AGENT_ERROR_PARSE;
     }
@@ -382,71 +434,230 @@ static int parse_device_spec(smart_home_miloco_t *service, const char *body)
         cJSON_GetObjectItemCaseSensitive(data, "did") : NULL;
     category = cJSON_IsObject(data) ?
         cJSON_GetObjectItemCaseSensitive(data, "category") : NULL;
-    if (!cJSON_IsString(did) || !did->valuestring[0]) {
+    spec = cJSON_IsObject(data) ?
+        cJSON_GetObjectItemCaseSensitive(data, "spec") : NULL;
+    if (!cJSON_IsString(did) || !did->valuestring[0] ||
+        strlen(did->valuestring) >= sizeof(target_did)) {
         cJSON_Delete(root);
         return AGENT_ERROR_PARSE;
     }
+    strcpy(target_did, did->valuestring);
     category_text = cJSON_IsString(category) ? category->valuestring : NULL;
     mapped = category_from_name(category_text);
+
+    cJSON_ArrayForEach(item, spec) {
+        const char *iid = item->string;
+        const cJSON *writeable = cJSON_GetObjectItemCaseSensitive(
+            item, "writeable");
+        const cJSON *desc = cJSON_GetObjectItemCaseSensitive(
+            item, "description");
+        const cJSON *format = cJSON_GetObjectItemCaseSensitive(
+            item, "format");
+        const cJSON *type_name = cJSON_GetObjectItemCaseSensitive(
+            item, "type_name");
+        const cJSON *value_list;
+        smart_home_miloco_control_t *ctrl;
+
+        if (!iid || parsed_count >= SMART_HOME_MILOCO_MAX_CONTROLS) {
+            continue;
+        }
+        if (strncmp(iid, "prop.", 5) == 0) {
+            if (!cJSON_IsTrue(writeable)) {
+                continue;
+            }
+        } else if (strncmp(iid, "action.", 7) == 0) {
+            /* 动作无 writeable 语义，按 spec 约定视为可调用。 */
+        } else {
+            continue;
+        }
+        if (type_is_dangerous(cJSON_IsString(type_name) ?
+                              type_name->valuestring : NULL)) {
+            continue;
+        }
+
+        ctrl = &parsed[parsed_count];
+        memset(ctrl, 0, sizeof(*ctrl));
+        snprintf(ctrl->iid, sizeof(ctrl->iid), "%.13s", iid);
+        snprintf(ctrl->desc, sizeof(ctrl->desc), "%s",
+                 cJSON_IsString(desc) && desc->valuestring[0] ?
+                     desc->valuestring : iid);
+        ctrl->value = 0;
+
+        if (strncmp(iid, "action.", 7) == 0) {
+            ctrl->type = SMART_HOME_MILOCO_CTRL_ACTION;
+            parsed_count++;
+            continue;
+        }
+        if (strcmp(cJSON_IsString(format) ? format->valuestring : "",
+                   "bool") == 0) {
+            ctrl->type = SMART_HOME_MILOCO_CTRL_BOOL;
+            if (strcmp(iid, "prop.2.1") == 0) {
+                power_ctrl = true;
+            }
+            parsed_count++;
+            continue;
+        }
+        /* uint8/uint16 + value_list → ENUM（最多取 4 档）。 */
+        value_list = cJSON_GetObjectItemCaseSensitive(item, "value_list");
+        if (cJSON_IsArray(value_list)) {
+            cJSON *opt;
+            uint8_t count = 0;
+
+            ctrl->type = SMART_HOME_MILOCO_CTRL_ENUM;
+            cJSON_ArrayForEach(opt, value_list) {
+                const cJSON *on = cJSON_GetObjectItemCaseSensitive(opt,
+                                                                   "name");
+                const cJSON *ov = cJSON_GetObjectItemCaseSensitive(opt,
+                                                                   "value");
+
+                if (count >= SMART_HOME_MILOCO_MAX_OPTIONS ||
+                    !cJSON_IsString(on) || !cJSON_IsNumber(ov)) {
+                    continue;
+                }
+                snprintf(ctrl->options[count].name,
+                         sizeof(ctrl->options[count].name), "%s",
+                         on->valuestring);
+                ctrl->options[count].value = (int32_t)ov->valueint;
+                count++;
+            }
+            ctrl->option_count = count;
+            if (count > 0) {
+                parsed_count++;
+            }
+            continue;
+        }
+        /* 其余可写数值属性按 ENUM 无选项处理为不可渲染，跳过。 */
+    }
     cJSON_Delete(root);
 
     lock_state(service);
     for (i = 0; i < service->device_count; i++) {
-        if (strcmp(service->devices[i].did, did->valuestring) == 0) {
-            service->devices[i].category = mapped;
-            /* V1 控制范围：灯/空调/插座，电源走 miotspec 惯例 prop.2.1。 */
-            service->devices[i].controllable =
-                mapped == SMART_HOME_MILOCO_CATEGORY_LIGHT ||
-                mapped == SMART_HOME_MILOCO_CATEGORY_AC ||
-                mapped == SMART_HOME_MILOCO_CATEGORY_OUTLET;
-            service->revision++;
+        if (strcmp(service->devices[i].did, target_did) == 0) {
+            dev_index = i;
             break;
         }
+    }
+    if (dev_index != SMART_HOME_MILOCO_MAX_DEVICES) {
+        smart_home_miloco_device_t *dev = &service->devices[dev_index];
+
+        dev->category = mapped;
+        memcpy(dev->controls, parsed, parsed_count * sizeof(parsed[0]));
+        dev->control_count = parsed_count;
+        dev->controllable = power_ctrl;
+        service->revision++;
     }
     unlock_state(service);
     return AGENT_OK;
 }
 
-/* 解析 data: [{iid, value}, ...]（status 响应，仅查 prop.2.1）。 */
-static int parse_power_status(smart_home_miloco_t *service,
-                              const char *did_text,
-                              const char *body)
+/* 解析 data: [{iid, value}, ...]，按设备 controls 的 prop 项回读。 */
+static int refresh_device_status(smart_home_miloco_t *service,
+                                 const char *did_text,
+                                 char *body, size_t body_size)
 {
-    cJSON *root = cJSON_Parse(body);
+    cJSON *root;
     cJSON *data;
     cJSON *item;
-    bool power_on = false;
-    bool found = false;
     size_t i;
+    uint8_t k;
+    bool changed = false;
 
+    root = cJSON_Parse(body);
     if (!root) {
         return AGENT_ERROR_PARSE;
     }
     data = cJSON_GetObjectItemCaseSensitive(root, "data");
-    cJSON_ArrayForEach(item, data) {
-        const cJSON *iid = cJSON_GetObjectItemCaseSensitive(item, "iid");
-        const cJSON *value = cJSON_GetObjectItemCaseSensitive(item, "value");
-
-        if (cJSON_IsString(iid) && strcmp(iid->valuestring, "prop.2.1") == 0) {
-            power_on = cJSON_IsTrue(value);
-            found = true;
-        }
-    }
-    cJSON_Delete(root);
-    if (!found) {
-        return AGENT_ERROR_NOTFOUND;
-    }
-
     lock_state(service);
     for (i = 0; i < service->device_count; i++) {
-        if (strcmp(service->devices[i].did, did_text) == 0) {
-            service->devices[i].power_on = power_on;
-            service->revision++;
-            break;
+        smart_home_miloco_device_t *dev = &service->devices[i];
+
+        if (strcmp(dev->did, did_text) != 0) {
+            continue;
         }
+        cJSON_ArrayForEach(item, data) {
+            const cJSON *iid = cJSON_GetObjectItemCaseSensitive(item,
+                                                                "iid");
+            const cJSON *value = cJSON_GetObjectItemCaseSensitive(item,
+                                                                  "value");
+            int32_t v;
+
+            if (!cJSON_IsString(iid) || !cJSON_IsNumber(value)) {
+                continue;
+            }
+            v = (int32_t)value->valueint;
+            for (k = 0; k < dev->control_count; k++) {
+                smart_home_miloco_control_t *ctrl = &dev->controls[k];
+
+                if (strcmp(ctrl->iid, iid->valuestring) == 0 &&
+                    ctrl->value != v) {
+                    ctrl->value = v;
+                    changed = true;
+                }
+                if (strcmp(ctrl->iid, "prop.2.1") == 0) {
+                    dev->power_on = v != 0;
+                }
+            }
+        }
+        break;
+    }
+    if (changed) {
+        service->revision++;
     }
     unlock_state(service);
+    cJSON_Delete(root);
     return AGENT_OK;
+}
+
+/* 拉取设备全部 prop 控制项的当前值（一次合并请求）。 */
+static int refresh_device_values(smart_home_miloco_t *service,
+                                 const char *did,
+                                 char *body, size_t body_size)
+{
+    char path[160];
+    char iids[96];
+    size_t used = 0;
+    int http_status = 0;
+    int ret;
+    size_t i;
+    uint8_t k;
+
+    iids[0] = '\0';
+    lock_state(service);
+    for (i = 0; i < service->device_count; i++) {
+        const smart_home_miloco_device_t *dev = &service->devices[i];
+
+        if (strcmp(dev->did, did) != 0) {
+            continue;
+        }
+        for (k = 0; k < dev->control_count; k++) {
+            const smart_home_miloco_control_t *ctrl = &dev->controls[k];
+
+            if (ctrl->type == SMART_HOME_MILOCO_CTRL_ACTION) {
+                continue;
+            }
+            if (used + strlen(ctrl->iid) + 2 >= sizeof(iids)) {
+                break;
+            }
+            used += (size_t)snprintf(iids + used, sizeof(iids) - used,
+                                     "%s%s", used ? "," : "", ctrl->iid);
+        }
+        break;
+    }
+    unlock_state(service);
+    if (!used) {
+        return AGENT_OK;
+    }
+    snprintf(path, sizeof(path), "/api/miot/devices/%.23s/status?iid=%s",
+             did, iids);
+    ret = smart_home_miloco_http_get(&service->client_config, path,
+                                     body, body_size, &http_status);
+    if (ret < 0) {
+        return ret;
+    }
+    if (http_status != 200) {
+        return -EIO;
+    }
+    return refresh_device_status(service, did, body, body_size);
 }
 
 /* ── worker ────────────────────────────────────────────────── */
@@ -468,25 +679,6 @@ static int fetch_spec_for(smart_home_miloco_t *service, const char *did,
         return -EIO;
     }
     return parse_device_spec(service, body);
-}
-
-static int refresh_power_status(smart_home_miloco_t *service, const char *did,
-                                char *body, size_t body_size)
-{
-    char path[96];
-    int http_status = 0;
-    int ret;
-
-    snprintf(path, sizeof(path), "/api/miot/devices/%.23s/status?iid=prop.2.1", did);
-    ret = smart_home_miloco_http_get(&service->client_config, path,
-                                     body, body_size, &http_status);
-    if (ret < 0) {
-        return ret;
-    }
-    if (http_status != 200) {
-        return -EIO;
-    }
-    return parse_power_status(service, did, body);
 }
 
 /* GET /api/miot/status 解析 data.is_bound。绑定状态翻转时递增 revision
@@ -579,8 +771,9 @@ static int poll_device_list(smart_home_miloco_t *service,
         count = smart_home_miloco_list(service, snapshot,
                                        SMART_HOME_MILOCO_MAX_DEVICES, NULL);
         for (i = 0; i < count; i++) {
-            if (snapshot[i].controllable && snapshot[i].online) {
-                refresh_power_status(service, snapshot[i].did, body, body_size);
+    if (snapshot[i].online && snapshot[i].control_count > 0) {
+                refresh_device_values(service, snapshot[i].did,
+                                      body, body_size);
             }
         }
     }
@@ -595,11 +788,54 @@ static int execute_control(smart_home_miloco_t *service,
     char request_body[128];
     int http_status = 0;
     int ret;
+    size_t i;
+    uint8_t k;
+    bool iid_allowed = false;
+    bool is_bool = false;
 
-    snprintf(path, sizeof(path), "/api/miot/devices/%.23s/control", request->did);
-    snprintf(request_body, sizeof(request_body),
-             "{\"type\":\"set_property\",\"iid\":\"prop.2.1\",\"value\":%s}",
-             request->on ? "true" : "false");
+    /* 执行侧安全闸：iid 必须命中该设备已解析（且黑名单已过滤）的
+     * controls；未知 iid 一律拒绝。 */
+    lock_state(service);
+    for (i = 0; i < service->device_count && !iid_allowed; i++) {
+        const smart_home_miloco_device_t *dev = &service->devices[i];
+
+        if (strcmp(dev->did, request->did) != 0) {
+            continue;
+        }
+        for (k = 0; k < dev->control_count; k++) {
+            if (strcmp(dev->controls[k].iid, request->iid) == 0) {
+                iid_allowed = true;
+                is_bool = dev->controls[k].type ==
+                          SMART_HOME_MILOCO_CTRL_BOOL;
+                break;
+            }
+        }
+    }
+    unlock_state(service);
+    if (!iid_allowed) {
+        syslog(LOG_WARNING,
+               "[milo] control rejected unknown iid %s did %s\n",
+               request->iid, request->did);
+        return -EINVAL;
+    }
+
+    snprintf(path, sizeof(path), "/api/miot/devices/%.23s/control",
+             request->did);
+    if (request->is_action) {
+        snprintf(request_body, sizeof(request_body),
+                 "{\"type\":\"call_action\",\"iid\":\"%.13s\"}",
+                 request->iid);
+    } else if (is_bool) {
+        snprintf(request_body, sizeof(request_body),
+                 "{\"type\":\"set_property\",\"iid\":\"%.13s\","
+                 "\"value\":%s}",
+                 request->iid, request->value ? "true" : "false");
+    } else {
+        snprintf(request_body, sizeof(request_body),
+                 "{\"type\":\"set_property\",\"iid\":\"%.13s\","
+                 "\"value\":%d}",
+                 request->iid, (int)request->value);
+    }
     ret = smart_home_miloco_http_post(&service->client_config, path,
                                       request_body, body, body_size,
                                       &http_status);
@@ -610,7 +846,7 @@ static int execute_control(smart_home_miloco_t *service,
         return -EIO;
     }
     /* 控制成功后回读真实状态，失败也接受（下轮轮询会补）。 */
-    (void)refresh_power_status(service, request->did, body, body_size);
+    (void)refresh_device_values(service, request->did, body, body_size);
     return AGENT_OK;
 }
 
@@ -699,8 +935,8 @@ static void *miloco_worker(void *argument)
             if (execute_control(service, &control, body,
                                 MILOCO_RESPONSE_BYTES) != AGENT_OK) {
                 syslog(LOG_WARNING,
-                       "WARNING: [miloco] control did=%s on=%d failed\n",
-                       control.did, control.on ? 1 : 0);
+                       "WARNING: [miloco] control did=%s iid=%s failed\n",
+                       control.did, control.iid);
             }
             continue; /* 立即处理后续排队的控制请求。 */
         }

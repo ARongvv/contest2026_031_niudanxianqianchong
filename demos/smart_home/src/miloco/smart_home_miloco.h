@@ -20,6 +20,8 @@ extern "C" {
 #define SMART_HOME_MILOCO_HOST_SIZE 64
 #define SMART_HOME_MILOCO_TOKEN_SIZE 64
 #define SMART_HOME_MILOCO_MAX_DEVICES 16
+#define SMART_HOME_MILOCO_MAX_CONTROLS 8
+#define SMART_HOME_MILOCO_MAX_OPTIONS 4
 #define SMART_HOME_MILOCO_POLL_INTERVAL_SEC 5
 
 /* Miloco 默认监听端口（backend settings server.port）。 */
@@ -35,14 +37,37 @@ typedef enum {
     SMART_HOME_MILOCO_CATEGORY_OTHER,
 } smart_home_miloco_category_t;
 
+/* 控制类型：BOOL=开关，ENUM=多档（带选项），ACTION=无参动作。 */
+typedef enum {
+    SMART_HOME_MILOCO_CTRL_BOOL = 0,
+    SMART_HOME_MILOCO_CTRL_ENUM,
+    SMART_HOME_MILOCO_CTRL_ACTION,
+} smart_home_miloco_ctrl_type_t;
+
+/* 单个可控项：由设备 spec 的可写属性/动作解析而来（黑名单过滤），
+ * 是统一控制工具与通用控制抽屉的共同数据源。 */
+typedef struct {
+    char iid[14];                        /* 如 "prop.2.3" / "action.2.1" */
+    char desc[24];                       /* spec 中文描述 */
+    uint8_t type;                        /* smart_home_miloco_ctrl_type_t */
+    int32_t value;                       /* BOOL:0/1 ENUM:当前值 ACTION:无效 */
+    uint8_t option_count;
+    struct {
+        char name[12];
+        int32_t value;
+    } options[SMART_HOME_MILOCO_MAX_OPTIONS];
+} smart_home_miloco_control_t;
+
 typedef struct {
     char did[24];
     char name[40];
     char room[24];
     smart_home_miloco_category_t category;
     bool online;
-    bool controllable;
+    bool controllable;                   /* 存在 prop.2.1 控制项 */
     bool power_on;
+    smart_home_miloco_control_t controls[SMART_HOME_MILOCO_MAX_CONTROLS];
+    uint8_t control_count;
 } smart_home_miloco_device_t;
 
 typedef struct {
@@ -101,6 +126,16 @@ bool smart_home_miloco_bound(const smart_home_miloco_t *service);
 int smart_home_miloco_submit_power(smart_home_miloco_t *service,
                                    const char *did,
                                    bool on);
+
+/* 统一控制提交：operation 取 "set"（set_property）或 "action"
+ * （call_action）。iid 必须存在于该设备已解析的 controls 中（黑名单
+ * 已在解析期过滤），否则 AGENT_ERROR_INVALID——这是统一工具的执行
+ * 侧安全闸。 */
+int smart_home_miloco_submit_control(smart_home_miloco_t *service,
+                                     const char *did,
+                                     const char *iid,
+                                     const char *operation,
+                                     int32_t value);
 
 #ifdef __cplusplus
 }

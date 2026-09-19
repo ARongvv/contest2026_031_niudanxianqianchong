@@ -164,6 +164,8 @@ void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
         lv_timer_delete(ui->bind_timer);
         ui->bind_timer = NULL;
     }
+    ui->miloco_sheet = NULL;
+    ui->miloco_sheet_did[0] = '\0';
 #endif
     if (ui->screen_screensaver) {
         lv_obj_del(ui->screen_screensaver);
