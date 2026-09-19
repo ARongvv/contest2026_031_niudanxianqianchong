@@ -1582,6 +1582,12 @@ static lv_obj_t *create_miloco_card(smart_home_lvgl_t *ui,
     case SMART_HOME_MILOCO_CATEGORY_AC:
         icon = ICON_DEVICE_AC;
         break;
+    case SMART_HOME_MILOCO_CATEGORY_CAMERA:
+        icon = ICON_STATUS_CAMERA;
+        break;
+    case SMART_HOME_MILOCO_CATEGORY_FAN:
+        icon = ICON_DEVICE_FAN;
+        break;
     default:
         icon = ICON_DEVICE_GENERIC;
         break;

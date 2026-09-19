@@ -35,6 +35,10 @@ static const char *category_name(smart_home_miloco_category_t category)
         return "air-conditioner";
     case SMART_HOME_MILOCO_CATEGORY_OUTLET:
         return "outlet";
+    case SMART_HOME_MILOCO_CATEGORY_CAMERA:
+        return "camera";
+    case SMART_HOME_MILOCO_CATEGORY_FAN:
+        return "fan";
     case SMART_HOME_MILOCO_CATEGORY_OTHER:
         return "other";
     default:

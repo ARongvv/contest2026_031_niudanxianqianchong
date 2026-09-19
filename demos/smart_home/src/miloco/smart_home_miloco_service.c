@@ -270,6 +270,12 @@ static smart_home_miloco_category_t category_from_name(const char *name)
         strcmp(name, "switch") == 0) {
         return SMART_HOME_MILOCO_CATEGORY_OUTLET;
     }
+    if (strcmp(name, "camera") == 0 || strcmp(name, "video-camera") == 0) {
+        return SMART_HOME_MILOCO_CATEGORY_CAMERA;
+    }
+    if (strcmp(name, "fan") == 0 || strcmp(name, "ceiling-fan") == 0) {
+        return SMART_HOME_MILOCO_CATEGORY_FAN;
+    }
     return SMART_HOME_MILOCO_CATEGORY_OTHER;
 }
 
