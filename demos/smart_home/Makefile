@@ -98,6 +98,7 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/ui/lvgl/icons
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/ui/lvgl/images
   # cAGENT 内部头（runtime_openvela.h，TLS 封装复用）
+  CFLAGS += ${INCDIR_PREFIX}$(APPDIR)/packages/cAGENT/include
   CFLAGS += ${INCDIR_PREFIX}$(APPDIR)/packages/cAGENT/src/runtime
 endif
 
