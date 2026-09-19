@@ -633,6 +633,33 @@ static void device_editor_confirm_cb(lv_event_t *event)
     smart_home_lvgl_refresh_cards(ui);
 }
 
+/* 来源筛选：0=全部 1=米家 2=Node。 */
+static void panel_source_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+
+    if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED || !ui ||
+        !ui->panel_source_dd) {
+        return;
+    }
+    smart_home_lvgl_refresh_cards(ui);
+}
+
+/* 判断设备是否命中当前来源筛选。 */
+static int device_matches_source(smart_home_lvgl_t *ui, int source)
+{
+    int selected;
+
+    if (!ui || !ui->panel_source_dd) {
+        return 1;
+    }
+    selected = lv_dropdown_get_selected(ui->panel_source_dd);
+    if (selected == 0) {
+        return 1;
+    }
+    return selected == source;
+}
+
 static void panel_room_cb(lv_event_t *event)
 {
     smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
