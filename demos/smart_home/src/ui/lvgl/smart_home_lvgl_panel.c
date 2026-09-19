@@ -1904,7 +1904,7 @@ static lv_obj_t *create_miloco_card(smart_home_lvgl_t *ui,
             stable_did =
                 g_miloco_card_dids[g_miloco_card_did_count];
             snprintf(g_miloco_card_dids[g_miloco_card_did_count],
-                     sizeof(g_miloco_card_dids[0]), "%s", device->did);
+                     sizeof(g_miloco_card_dids[0]), "%.23s", device->did);
             g_miloco_card_did_count++;
         }
         lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
