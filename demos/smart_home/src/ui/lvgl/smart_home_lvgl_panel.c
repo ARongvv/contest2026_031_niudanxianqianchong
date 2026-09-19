@@ -796,6 +796,7 @@ static void open_room_creator(smart_home_lvgl_t *ui)
                      compact ? 12 : 16);
 
         ui->room_preset_dd = lv_dropdown_create(popup);
+    lv_obj_set_style_text_font(ui->room_preset_dd, smart_home_lvgl_font(13), 0);
         lv_dropdown_set_options(ui->room_preset_dd, "厨房\n卫生间\n书房\n阳台");
         lv_obj_set_size(ui->room_preset_dd, lv_pct(74), compact ? 32 : 36);
         lv_obj_align(ui->room_preset_dd, LV_ALIGN_TOP_MID, 0,
@@ -996,6 +997,7 @@ static void ensure_control_popup(smart_home_lvgl_t *ui)
     lv_obj_align(label, LV_ALIGN_TOP_LEFT, compact ? 16 : 28,
                  compact ? 52 : 68);
     ui->ctrl_room_dd = lv_dropdown_create(popup);
+    lv_obj_set_style_text_font(ui->ctrl_room_dd, smart_home_lvgl_font(13), 0);
     lv_obj_set_size(ui->ctrl_room_dd, compact ? 112 : 142,
                     compact ? 30 : 34);
     lv_obj_align(ui->ctrl_room_dd, LV_ALIGN_TOP_LEFT,
@@ -1012,6 +1014,7 @@ static void ensure_control_popup(smart_home_lvgl_t *ui)
                  compact ? 90 : 114);
 
     ui->ctrl_mode_dd = lv_dropdown_create(popup);
+    lv_obj_set_style_text_font(ui->ctrl_mode_dd, smart_home_lvgl_font(13), 0);
     lv_dropdown_set_options(ui->ctrl_mode_dd, "制冷\n制热\n除湿\n送风\n自动");
     lv_obj_set_size(ui->ctrl_mode_dd, compact ? 104 : 116, 32);
     lv_obj_align(ui->ctrl_mode_dd,
@@ -1025,6 +1028,7 @@ static void ensure_control_popup(smart_home_lvgl_t *ui)
                         ui);
 
     ui->ctrl_fan_dd = lv_dropdown_create(popup);
+    lv_obj_set_style_text_font(ui->ctrl_fan_dd, smart_home_lvgl_font(13), 0);
     lv_dropdown_set_options(ui->ctrl_fan_dd, "低速\n中速\n高速\n自动");
     lv_obj_set_size(ui->ctrl_fan_dd, compact ? 104 : 116, 32);
     lv_obj_align(ui->ctrl_fan_dd,
@@ -1300,6 +1304,7 @@ static void open_device_editor(smart_home_lvgl_t *ui,
                             ui);
 
         ui->device_room_dd = lv_dropdown_create(popup);
+    lv_obj_set_style_text_font(ui->device_room_dd, smart_home_lvgl_font(13), 0);
         lv_dropdown_set_options(ui->device_room_dd, "客厅\n卧室");
         lv_obj_set_size(ui->device_room_dd, lv_pct(78), compact ? 32 : 34);
         lv_obj_align(ui->device_room_dd,
@@ -1311,6 +1316,7 @@ static void open_device_editor(smart_home_lvgl_t *ui,
                                    0);
 
         ui->device_type_dd = lv_dropdown_create(popup);
+    lv_obj_set_style_text_font(ui->device_type_dd, smart_home_lvgl_font(13), 0);
         lv_dropdown_set_options(ui->device_type_dd, "灯光\n空调");
         lv_obj_set_size(ui->device_type_dd, lv_pct(78), compact ? 32 : 34);
         lv_obj_align(ui->device_type_dd,
@@ -2182,6 +2188,13 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
     lv_dropdown_set_options(ui->panel_room_dd, room_options);
     /* Keep the existing selection contract as the source of truth while the
      * product page exposes it as touch-friendly room chips below. */
+    lv_obj_set_style_text_font(ui->panel_room_dd, smart_home_lvgl_font(13), 0);
+    {
+        lv_obj_t *room_list = lv_dropdown_get_list(ui->panel_room_dd);
+        if (room_list) {
+            lv_obj_set_style_text_font(room_list, smart_home_lvgl_font(13), 0);
+        }
+    }
     lv_obj_set_size(ui->panel_room_dd, 1, 1);
     lv_obj_add_flag(ui->panel_room_dd, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(ui->panel_room_dd,
@@ -2192,6 +2205,11 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
     /* 来源筛选：全部/米家/Node，与房间筛选互补。 */
     ui->panel_source_dd = lv_dropdown_create(screen);
     lv_dropdown_set_options(ui->panel_source_dd, "全部来源\n米家\nNode");
+    lv_obj_set_style_text_font(ui->panel_source_dd, smart_home_lvgl_font(13), 0);
+    lv_obj_t *source_list = lv_dropdown_get_list(ui->panel_source_dd);
+    if (source_list) {
+        lv_obj_set_style_text_font(source_list, smart_home_lvgl_font(13), 0);
+    }
     lv_obj_set_size(ui->panel_source_dd, 96, 32);
     lv_obj_align(ui->panel_source_dd, LV_ALIGN_TOP_RIGHT,
                  -smart_home_lvgl_pad_x(), SMART_HOME_TOPBAR_H + 42);

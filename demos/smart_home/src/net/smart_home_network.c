@@ -20,7 +20,6 @@
 #include <syslog.h>
 
 #include "netutils/netlib.h"
-#include "netutils/ntpclient.h"
 
 #include <cagent/types.h>
 
@@ -218,14 +217,6 @@ static int smart_home_network_init_ethernet(
       ret = netlib_obtain_ipv4addr(status->ifname);
       status->ip_status = ret < 0 ? SMART_HOME_NETWORK_ERR_DHCP :
                                     SMART_HOME_NETWORK_OK;
-#ifndef CONFIG_SMART_HOME_DEMO_OFFLINE_UI
-    /* DHCP 成功后触发 NTP 时间同步（非阻塞、失败静默）。 */
-    if (ret == 0) {
-        netlib_set_ntpserver((FAR const struct in_addr *)&(struct in_addr){
-            .s_addr = htonl(0x08080808)  /* 8.8.8.8 */
-        });
-    }
-#endif
       if (ret < 0)
         {
           syslog(LOG_WARNING, "Network: DHCP on %s failed: %d\n",
