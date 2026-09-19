@@ -62,6 +62,11 @@ bool smart_home_miloco_config_valid(const smart_home_miloco_config_t *config);
 int smart_home_miloco_start(smart_home_miloco_t **service,
                             const smart_home_miloco_config_t *config);
 
+/* 原子切换网关目标配置：不销毁 worker 线程（无 join 阻塞），LVGL
+ * 线程可安全调用；worker 在下一循环边界应用并立即轮询。 */
+int smart_home_miloco_reconfigure(smart_home_miloco_t *service,
+                                  const smart_home_miloco_config_t *config);
+
 /* 停止 worker、等待退出并释放全部资源。容忍 NULL 与重复调用。 */
 void smart_home_miloco_stop(smart_home_miloco_t **service);
 

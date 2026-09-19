@@ -20,6 +20,7 @@
 #include <cagent/types.h>
 
 #include <errno.h>
+#include <nuttx/irq.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include <stdio.h>
@@ -43,6 +44,13 @@ struct smart_home_miloco {
     pthread_t worker;
     bool worker_started;
     bool stop_requested;
+    /* worker 栈（PSRAM）：保存指针以便 stop 时释放，避免泄漏。 */
+    void *worker_stack;
+    size_t worker_stack_bytes;
+    /* reconfigure 待生效配置：worker 在循环顶部安全切换，UI 线程
+     * 永不 join、永不重建线程。 */
+    smart_home_miloco_client_config_t pending_config;
+    bool config_dirty;
 
     pthread_mutex_t lock;
     sem_t wake;
@@ -154,6 +162,40 @@ int smart_home_miloco_submit_power(smart_home_miloco_t *service,
         strcpy(service->pending[service->pending_count].did, did);
         service->pending[service->pending_count].on = on;
         service->pending_count++;
+    }
+    unlock_state(service);
+    if (ret == AGENT_OK) {
+        sem_post(&service->wake);
+    }
+    return ret;
+}
+
+/*
+ * 原子切换网关目标配置：worker 在下一个循环边界应用并立即轮询。
+ * 与 stop+start 的区别：不销毁线程（无 join 阻塞、无栈重分配），
+ * LVGL 线程调用安全。
+ */
+int smart_home_miloco_reconfigure(smart_home_miloco_t *service,
+                                  const smart_home_miloco_config_t *config)
+{
+    smart_home_miloco_client_config_t client_config;
+    int ret = AGENT_OK;
+
+    if (!service || !smart_home_miloco_config_valid(config)) {
+        return AGENT_ERROR_INVALID;
+    }
+    snprintf(client_config.host, sizeof(client_config.host), "%s",
+             config->host);
+    client_config.port = config->port;
+    snprintf(client_config.token, sizeof(client_config.token), "%s",
+             config->token);
+
+    lock_state(service);
+    if (service->stop_requested) {
+        ret = AGENT_ERROR_INVALID;
+    } else {
+        service->pending_config = client_config;
+        service->config_dirty = true;
     }
     unlock_state(service);
     if (ret == AGENT_OK) {
@@ -548,6 +590,11 @@ static void *miloco_worker(void *argument)
 
         lock_state(service);
         stop = service->stop_requested;
+        if (service->config_dirty) {
+            service->client_config = service->pending_config;
+            service->config_dirty = false;
+            poll_due = true;
+        }
         if (!stop && service->pending_count > 0) {
             control = service->pending[0];
             memmove(&service->pending[0], &service->pending[1],
@@ -623,25 +670,30 @@ int smart_home_miloco_start(smart_home_miloco_t **service_out,
         return AGENT_ERROR;
     }
 
-    /* worker 栈走 PSRAM，避免占用默认 pthread 栈预算。 */
-    stack = smart_home_bulk_alloc(MILOCO_WORKER_STACK_SIZE + 64u);
+    /* worker 栈走 PSRAM，避免占用默认 pthread 栈预算；pthread 栈有
+     * 架构对齐要求（RISC-V 16B），PSRAM 分配不保证，必须向上对齐
+     * （网络配网 worker 同款做法）。 */
+    stack = smart_home_bulk_alloc(MILOCO_WORKER_STACK_SIZE +
+                                  STACK_ALIGNMENT - 1u);
     if (!stack) {
         sem_destroy(&service->wake);
         pthread_mutex_destroy(&service->lock);
         free(service);
         return AGENT_ERROR_NOMEM;
     }
+    service->worker_stack = (void *)STACK_ALIGN_UP((uintptr_t)stack);
+    service->worker_stack_bytes = MILOCO_WORKER_STACK_SIZE;
     ret = pthread_attr_init(&attr);
     if (ret == 0) {
-        ret = pthread_attr_setstack(&attr, stack,
-                                    MILOCO_WORKER_STACK_SIZE + 64u);
+        ret = pthread_attr_setstack(&attr, service->worker_stack,
+                                    service->worker_stack_bytes);
     }
     if (ret == 0) {
         ret = pthread_create(&service->worker, &attr, miloco_worker, service);
     }
     pthread_attr_destroy(&attr);
     if (ret != 0) {
-        smart_home_bulk_free(stack);
+        smart_home_bulk_free(service->worker_stack);
         sem_destroy(&service->wake);
         pthread_mutex_destroy(&service->lock);
         free(service);
@@ -673,6 +725,7 @@ void smart_home_miloco_stop(smart_home_miloco_t **service_ptr)
     if (service->worker_started) {
         pthread_join(service->worker, NULL);
     }
+    smart_home_bulk_free(service->worker_stack);
     sem_destroy(&service->wake);
     pthread_mutex_destroy(&service->lock);
     free(service);

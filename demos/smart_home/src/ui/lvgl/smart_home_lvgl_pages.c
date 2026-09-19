@@ -867,9 +867,13 @@ static void miloco_save_cb(lv_event_t *event)
         return;
     }
 
-    /* 重启 worker 使新配置立即生效（stop 容忍 NULL，幂等）。 */
-    smart_home_miloco_stop(&ui->app->miloco);
-    ret = smart_home_miloco_start(&ui->app->miloco, &config);
+    /* 已有 worker 时原子切换配置（无 join、无线程重建，UI 秒回）；
+     * 首次配置才创建 worker。 */
+    if (ui->app->miloco) {
+        ret = smart_home_miloco_reconfigure(ui->app->miloco, &config);
+    } else {
+        ret = smart_home_miloco_start(&ui->app->miloco, &config);
+    }
     if (ret != AGENT_OK) {
         lv_label_set_text(ui->miloco_status_label, "网关启动失败");
         lv_obj_set_style_text_color(ui->miloco_status_label,
@@ -943,16 +947,16 @@ void smart_home_lvgl_build_miloco_screen(smart_home_lvgl_t *ui)
         card, ui, "服务 Token（未启用鉴权可留空）",
         "", sizeof(token) - 1u, 1, 188);
 
+    /* 按钮放卡片头部右侧：键盘弹出时覆盖卡片下半区（约 y>232），
+     * 底部布局的按钮会被键盘遮住导致不可见不可点。 */
     button = page_outline_button(card, "保存并连接", 132);
     smart_home_lvgl_set_bg(button, SMART_HOME_UI_COLOR_PRIMARY);
     lv_obj_set_style_text_color(lv_obj_get_child(button, 0), lv_color_white(), 0);
-    lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -14);
+    lv_obj_align(button, LV_ALIGN_TOP_RIGHT, 0, 0);
     lv_obj_add_event_cb(button, miloco_save_cb, LV_EVENT_CLICKED, ui);
 
-    /* 绑定入口：网关配置好之后，账号绑定由独立页扫码完成。
-     * 放在状态行下方、输入区上方的空档，避免与保存按钮重叠。 */
-    button = page_outline_button(card, "扫码绑定米家账号", 150);
-    lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -60);
+    button = page_outline_button(card, "扫码绑定", 108);
+    lv_obj_align(button, LV_ALIGN_TOP_RIGHT, -144, 0);
     lv_obj_add_event_cb(button, miloco_bind_entry_cb, LV_EVENT_CLICKED, ui);
 
     ui->miloco_keyboard = lv_keyboard_create(screen);
