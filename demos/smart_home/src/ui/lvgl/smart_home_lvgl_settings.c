@@ -9,6 +9,9 @@
 #include "../../config/smart_home_secrets.h"
 #include "../../net/smart_home_network.h"
 #include "../../net/smart_home_wifi.h"
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+#include "../../miloco/smart_home_miloco.h"
+#endif
 #ifdef CONFIG_SMART_HOME_MCP_BRIDGE
 #include "../../addons/smart_home_mcp_bridge.h"
 #endif

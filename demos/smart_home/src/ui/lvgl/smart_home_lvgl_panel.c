@@ -1566,13 +1566,18 @@ static uint8_t g_miloco_card_did_count;
 /* ── 米家通用控制抽屉：按 controls 的值类型渲染 ──
  *   BOOL→开关  ENUM→分段选择  ACTION→按钮
  * 状态以 worker 回读为准；revision 变化时刷新控件。 */
-static void miloco_sheet_close(smart_home_lvgl_t *ui)
+static void miloco_sheet_close_impl(smart_home_lvgl_t *ui)
 {
     if (ui && ui->miloco_sheet) {
         lv_obj_delete(ui->miloco_sheet);
         ui->miloco_sheet = NULL;
         ui->miloco_sheet_did[0] = '\0';
     }
+}
+
+static void miloco_sheet_close(lv_event_t *event)
+{
+    miloco_sheet_close_impl((smart_home_lvgl_t *)lv_event_get_user_data(event));
 }
 
 /* 控件私有数据：iid 拷贝（设备快照是栈上临时拷贝，指针会悬空）。 */
@@ -1780,7 +1785,7 @@ static void miloco_card_click_cb(lv_event_t *event)
         !ui->app || !ui->app->miloco || !did) {
         return;
     }
-    miloco_sheet_close(ui);
+    miloco_sheet_close_impl(ui);
     miloco_sheet_build(ui, did);
 }
 
@@ -1791,7 +1796,7 @@ void smart_home_lvgl_miloco_sheet_refresh(smart_home_lvgl_t *ui)
         char did[24];
 
         snprintf(did, sizeof(did), "%s", ui->miloco_sheet_did);
-        miloco_sheet_close(ui);
+        miloco_sheet_close_impl(ui);
         miloco_sheet_build(ui, did);
     }
 }
@@ -1994,7 +1999,7 @@ static void rebuild_device_cards(smart_home_lvgl_t *ui)
 
     lv_obj_clean(ui->panel_grid);
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
-    miloco_sheet_close(ui);
+    miloco_sheet_close_impl(ui);
     /* 米家桥接模式下设备页只呈现真实设备（米家 + Node）；本地虚拟
      * 设备不上屏，仅保留给 Agent 本地工具与场景使用。 */
     for (slot = 0; slot < SMART_HOME_MAX_DEVICES; slot++) {
