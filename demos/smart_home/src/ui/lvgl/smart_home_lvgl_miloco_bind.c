@@ -109,9 +109,14 @@ static void bind_timer_cb(lv_timer_t *timer)
     if (!ui || !ui->app || !ui->app->miloco) {
         return;
     }
-    /* 只在绑定页激活时工作；离开页面后空转，开销可忽略。 */
+    /* 只在绑定页激活时工作；离开页面后空转，开销可忽略。
+     * 例外：米家设置页借用本定时器每秒刷新状态行（同文本时 LVGL
+     * 跳过重绘，无闪烁），弥补该页缺少周期刷新的缺陷。 */
     if (lv_scr_act() != ui->screen_miloco_bind) {
         jump_countdown = 0;
+        if (ui->screen_miloco && lv_scr_act() == ui->screen_miloco) {
+            smart_home_lvgl_refresh_miloco_screen(ui);
+        }
         return;
     }
 

@@ -79,12 +79,16 @@ static int http_request(const smart_home_miloco_client_config_t *config,
         pfd.revents = 0;
         if (poll(&pfd, 1, MILOCO_HTTP_CONNECT_TIMEOUT_MS) <= 0 ||
             (pfd.revents & POLLOUT) == 0) {
+            syslog(LOG_WARNING, "[milo] http: connect timeout %ums\n",
+                   MILOCO_HTTP_CONNECT_TIMEOUT_MS);
             ret = -ETIMEDOUT;
             goto out_close;
         }
         optlen = sizeof(error_code);
         if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error_code, &optlen) < 0 ||
             error_code != 0) {
+            syslog(LOG_WARNING, "[milo] http: connect error=%d\n",
+                   error_code);
             ret = error_code != 0 ? -error_code : -EIO;
             goto out_close;
         }
@@ -211,6 +215,8 @@ static int http_request(const smart_home_miloco_client_config_t *config,
         }
     }
 
+    syslog(LOG_INFO, "[milo] http: done status=%d len=%u\n",
+           http_status, (unsigned)strlen(response));
     if (http_status_out) {
         *http_status_out = http_status;
     }
