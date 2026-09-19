@@ -389,6 +389,9 @@ static int parse_device_list(smart_home_miloco_t *service, const char *body,
                 parsed[i].category = old->category;
                 parsed[i].controllable = old->controllable;
                 parsed[i].power_on = old->power_on;
+                parsed[i].control_count = old->control_count;
+                memcpy(parsed[i].controls, old->controls,
+                       sizeof(parsed[i].controls));
             } else if (fresh_categories && *fresh_count < fresh_capacity) {
                 strcpy(fresh_categories[*fresh_count].did, parsed[i].did);
                 (*fresh_count)++;
