@@ -544,6 +544,23 @@ void smart_home_lvgl_refresh_home(smart_home_lvgl_t *ui)
                 lv_label_set_text(ui->home_ac_label, text);
             }
         }
+        /* 天气卡显示（真实数据或占位）。 */
+        {
+            smart_home_miloco_weather_t wx;
+            char buf[48];
+
+            if (smart_home_miloco_get_weather(ui->app->miloco, &wx)) {
+                snprintf(buf, sizeof(buf), "%d°", wx.temperature);
+                if (ui->home_weather_temp_label) {
+                    lv_label_set_text(ui->home_weather_temp_label, buf);
+                }
+                snprintf(buf, sizeof(buf), "%s · 湿%d%% · 风%dkm/h",
+                         wx.condition_cn, wx.humidity, wx.wind_kmph);
+                if (ui->home_weather_cond_label) {
+                    lv_label_set_text(ui->home_weather_cond_label, buf);
+                }
+            }
+        }
         if (ui->home_status_label) {
             if (reachable) {
                 snprintf(text, sizeof(text), "%u 台设备在线\n家庭状态正常",

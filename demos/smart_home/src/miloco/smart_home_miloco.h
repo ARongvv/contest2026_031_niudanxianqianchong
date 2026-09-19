@@ -137,6 +137,25 @@ int smart_home_miloco_submit_control(smart_home_miloco_t *service,
                                      const char *operation,
                                      int32_t value);
 
+/* ── 天气数据（wttr.in 文本格式，worker 每 10 分钟拉取） ────── */
+typedef struct {
+    char city[24];             /* 配置城市（英文/拼音），默认 Shenzhen */
+    char condition_en[32];     /* "Clear" / "Light rain" 等 */
+    char condition_cn[24];     /* "晴" / "小雨" 等中文映射 */
+    int temperature;           /* °C */
+    int humidity;              /* % */
+    int wind_kmph;             /* km/h */
+    bool valid;                /* 已成功获取至少一次 */
+} smart_home_miloco_weather_t;
+
+/* 读取当前天气快照（拷贝语义）。返回 false 表示尚未获取。 */
+bool smart_home_miloco_get_weather(const smart_home_miloco_t *service,
+                                   smart_home_miloco_weather_t *out);
+
+/* 设置天气城市（拷贝语义，立即生效——下次轮询即用新城市）。 */
+int smart_home_miloco_set_weather_city(smart_home_miloco_t *service,
+                                       const char *city);
+
 #ifdef __cplusplus
 }
 #endif

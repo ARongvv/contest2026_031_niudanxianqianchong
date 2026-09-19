@@ -57,6 +57,9 @@ struct smart_home_miloco {
      * 永不 join、永不重建线程。 */
     smart_home_miloco_client_config_t pending_config;
     bool config_dirty;
+    /* 天气数据与拉取节奏控制。 */
+    smart_home_miloco_weather_t weather;
+    uint32_t weather_poll_count;    /* 5s/轮，120 轮 = 10 分钟 */
     /* 保存请求：worker 代写 secrets.json 后应用配置。 */
     smart_home_miloco_config_t save_config;
     bool save_pending;
@@ -783,6 +786,142 @@ static int poll_device_list(smart_home_miloco_t *service,
     return AGENT_OK;
 }
 
+/* ── 天气（wttr.in 文本格式） ───────────────────────────────── */
+
+/* 常见天气条件英中映射；未命中的保留英文原文。 */
+static const struct {
+    const char *en;
+    const char *cn;
+} g_weather_cn_map[] = {
+    {"Clear",            "晴"},
+    {"Sunny",            "晴"},
+    {"Partly cloudy",    "多云"},
+    {"Cloudy",           "阴"},
+    {"Overcast",         "阴"},
+    {"Light rain",       "小雨"},
+    {"Moderate rain",    "中雨"},
+    {"Heavy rain",       "大雨"},
+    {"Light drizzle",    "毛毛雨"},
+    {"Patchy rain",      "局部有雨"},
+    {"Light snow",       "小雪"},
+    {"Snow",             "雪"},
+    {"Fog",              "雾"},
+    {"Mist",             "薄雾"},
+    {"Haze",             "霾"},
+    {"Smoky haze",       "雾霾"},
+    {"Thunder",          "雷阵雨"},
+    {"Thundery showers", "雷阵雨"},
+    {"Freezing fog",     "冻雾"},
+};
+
+static const char *weather_condition_cn(const char *en)
+{
+    size_t i;
+
+    for (i = 0; i < sizeof(g_weather_cn_map) /
+                    sizeof(g_weather_cn_map[0]); i++) {
+        if (strcmp(en, g_weather_cn_map[i].en) == 0) {
+            return g_weather_cn_map[i].cn;
+        }
+    }
+    return en;
+}
+
+/* 拉取 wttr.in/{city}?format=%C|%t|%h|%w 并解析管道分隔响应。
+ * 文本格式约 40 字节，远小于 JSON 25KB，复用现有响应缓冲。 */
+static void poll_weather(smart_home_miloco_t *service,
+                         char *body, size_t body_size)
+{
+    smart_home_miloco_client_config_t cfg;
+    char path[64];
+    char *fields[4];
+    char *saveptr;
+    int http_status = 0;
+    int field_count;
+    int i;
+    int ret;
+
+    memset(&cfg, 0, sizeof(cfg));
+    snprintf(cfg.host, sizeof(cfg.host), "wttr.in");
+    cfg.port = 80;
+    cfg.token[0] = '\0';
+
+    snprintf(path, sizeof(path), "/%.20s?format=%%C|%%t|%%h|%%w",
+             service->weather.city);
+    ret = smart_home_miloco_http_get(&cfg, path, body, body_size,
+                                     &http_status);
+    if (ret < 0 || http_status != 200) {
+        syslog(LOG_WARNING,
+               "[milo] weather fetch failed ret=%d status=%d\n",
+               ret, http_status);
+        return;
+    }
+
+    /* 响应形如 "Clear|+29°C|72%|→13km/h"，按管道切四段。 */
+    field_count = 0;
+    for (i = 0; i < 4; i++) {
+        fields[i] = i == 0 ? strtok_r(body, "|", &saveptr) :
+                             strtok_r(NULL, "|", &saveptr);
+        if (!fields[i]) {
+            break;
+        }
+        field_count++;
+    }
+    if (field_count < 4) {
+        syslog(LOG_WARNING, "[milo] weather parse: got %d fields\n",
+               field_count);
+        return;
+    }
+
+    lock_state(service);
+    snprintf(service->weather.condition_en,
+             sizeof(service->weather.condition_en), "%s", fields[0]);
+    snprintf(service->weather.condition_cn,
+             sizeof(service->weather.condition_cn), "%s",
+             weather_condition_cn(fields[0]));
+    service->weather.temperature = atoi(fields[1]);
+    service->weather.humidity = atoi(fields[2]);
+    service->weather.wind_kmph = atoi(fields[3]);
+    service->weather.valid = true;
+    service->revision++;    /* 触发 UI 刷新 */
+    unlock_state(service);
+    syslog(LOG_INFO,
+           "[milo] weather %s: %s(%s) %d°C %d%% %dkm/h\n",
+           service->weather.city, fields[0],
+           service->weather.condition_cn,
+           service->weather.temperature, service->weather.humidity,
+           service->weather.wind_kmph);
+}
+
+bool smart_home_miloco_get_weather(const smart_home_miloco_t *service,
+                                   smart_home_miloco_weather_t *out)
+{
+    bool valid;
+
+    if (!service || !out) {
+        return false;
+    }
+    lock_state((smart_home_miloco_t *)service);
+    *out = service->weather;
+    valid = service->weather.valid;
+    unlock_state((smart_home_miloco_t *)service);
+    return valid;
+}
+
+int smart_home_miloco_set_weather_city(smart_home_miloco_t *service,
+                                       const char *city)
+{
+    if (!service || !city || !city[0] || strlen(city) >= 24) {
+        return -EINVAL;
+    }
+    lock_state(service);
+    snprintf(service->weather.city, sizeof(service->weather.city),
+             "%s", city);
+    service->weather_poll_count = 0;    /* 下轮立即拉取 */
+    unlock_state(service);
+    return 0;
+}
+
 static int execute_control(smart_home_miloco_t *service,
                            const miloco_control_request_t *request,
                            char *body, size_t body_size)
@@ -1032,6 +1171,9 @@ int smart_home_miloco_start(smart_home_miloco_t **service_out,
         return AGENT_ERROR;
     }
     service->worker_started = true;
+    snprintf(service->weather.city, sizeof(service->weather.city),
+             "Shenzhen");
+    service->weather_poll_count = 119;  /* 首轮立即拉取天气 */
     syslog(LOG_INFO,
            "INFO: [miloco] gateway worker started host=%s port=%u\n",
            config->host, (unsigned)config->port);

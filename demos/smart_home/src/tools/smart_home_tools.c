@@ -397,45 +397,71 @@ static int indoor_environment_tool(const agent_tool_call_t *call,
 }
 #endif
 
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+#include "../miloco/smart_home_miloco.h"
+#endif
+
 static int weather_tool(const agent_tool_call_t *call,
                         agent_tool_result_t *result,
                         void *user_data)
 {
-    static char output[256];
+    static char output[320];
     char location[64] = "";
     char escaped_location[128];
-    smart_home_weather_t weather;
     int ret;
-
-    (void)user_data;
 
     ret = json_get_string(call->arguments_json,
                           "\"location\"",
                           location,
                           sizeof(location));
-    if (ret == AGENT_OK) {
-        weather = weather_for_location(location);
-        json_escape_string(location,
-                           escaped_location,
-                           sizeof(escaped_location));
-        snprintf(output,
-                 sizeof(output),
-                 "{\"ok\":true,\"source\":\"demo_simulated\","
-                 "\"location\":\"%s\",\"condition\":\"%s\","
-                 "\"temperature\":%d,\"humidity\":%d,\"wind\":\"%s\"}",
-                 escaped_location,
-                 weather.condition,
-                 weather.temperature,
-                 weather.humidity,
-                 weather.wind);
-    } else {
+    if (ret != AGENT_OK) {
         snprintf(output, sizeof(output), "{\"ok\":false}");
+        result->status = ret;
+        result->content_json = output;
+        result->error_message = "get_weather failed";
+        return ret;
     }
+    json_escape_string(location, escaped_location, sizeof(escaped_location));
 
-    result->status = ret;
-    result->content_json = output;
-    result->error_message = ret == AGENT_OK ? NULL : "get_weather failed";
-    return ret;
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    /* 真实天气：读 miloco worker 的 wttr.in 快照。 */
+    {
+        smart_home_agent_app_t *app = user_data;
+        smart_home_miloco_weather_t wx;
+
+        if (app && app->miloco &&
+            smart_home_miloco_get_weather(app->miloco, &wx)) {
+            snprintf(output, sizeof(output),
+                     "{\"ok\":true,\"source\":\"wttr.in\""
+                     ",\"location\":\"%s\",\"condition\":\"%s\""
+                     ",\"condition_cn\":\"%s\",\"temperature\":%d"
+                     ",\"humidity\":%d,\"wind_kmph\":%d}",
+                     wx.city, wx.condition_en, wx.condition_cn,
+                     wx.temperature, wx.humidity, wx.wind_kmph);
+            result->status = AGENT_OK;
+            result->content_json = output;
+            result->error_message = NULL;
+            return AGENT_OK;
+        }
+    }
+#endif
+
+    /* 无网关或天气尚未就绪：回落模拟数据。 */
+    {
+        smart_home_weather_t weather = weather_for_location(location);
+
+        snprintf(output, sizeof(output),
+                 "{\"ok\":true,\"source\":\"demo_simulated\""
+                 ",\"location\":\"%s\",\"condition\":\"%s\""
+                 ",\"temperature\":%d,\"humidity\":%d"
+                 ",\"wind\":\"%s\"}",
+                 escaped_location, weather.condition,
+                 weather.temperature, weather.humidity, weather.wind);
+        result->status = AGENT_OK;
+        result->content_json = output;
+        result->error_message = NULL;
+        return AGENT_OK;
+    }
 }
 
 static int set_light_tool(const agent_tool_call_t *call,
