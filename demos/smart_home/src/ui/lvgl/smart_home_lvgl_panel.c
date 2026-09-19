@@ -1457,10 +1457,17 @@ static lv_obj_t *create_remote_node_card(lv_obj_t *grid,
     smart_home_lvgl_card_style(card);
     smart_home_lvgl_set_bg(card, SMART_HOME_UI_COLOR_SURFACE_SOFT);
     if (device->control_count > 0) {
-        /* 有可控项的设备卡可点击，打开通用控制抽屉。did 由设备缓存
-         * 长期持有。 */
+        const char *stable_did = g_miloco_card_dids[0];
+
+        if (g_miloco_card_did_count < SMART_HOME_MILOCO_MAX_DEVICES) {
+            stable_did =
+                g_miloco_card_dids[g_miloco_card_did_count];
+            snprintf(g_miloco_card_dids[g_miloco_card_did_count],
+                     sizeof(g_miloco_card_dids[0]), "%s", device->did);
+            g_miloco_card_did_count++;
+        }
         lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_user_data(card, (void *)device->did);
+        lv_obj_set_user_data(card, (void *)stable_did);
         lv_obj_add_event_cb(card, miloco_card_click_cb, LV_EVENT_CLICKED,
                             ui);
     } else {
@@ -1550,7 +1557,12 @@ static void remote_node_timer_cb(lv_timer_t *timer)
 
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
 /* 米家（Miloco 网关）远程设备卡：电源开关提交异步控制，实际状态
- * 以 worker 轮询回读为准（revision 变化触发整卡重建）。 */
+ * 以 worker 轮询回读为准（revision 变化触发整卡重建）。
+ *
+ * user_data 不能指向 append_miloco_cards 的栈上快照拷贝（悬空），
+ * did 复制到长期存储池后再取址。 */
+static char g_miloco_card_dids[SMART_HOME_MILOCO_MAX_DEVICES][24];
+static uint8_t g_miloco_card_did_count;
 /* ── 米家通用控制抽屉：按 controls 的值类型渲染 ──
  *   BOOL→开关  ENUM→分段选择  ACTION→按钮
  * 状态以 worker 回读为准；revision 变化时刷新控件。 */
@@ -1563,11 +1575,11 @@ static void miloco_sheet_close(smart_home_lvgl_t *ui)
     }
 }
 
-/* 控件私有数据：iid 指针（设备缓存长期持有）+ 目标值。 */
+/* 控件私有数据：iid 拷贝（设备快照是栈上临时拷贝，指针会悬空）。 */
 typedef struct {
     smart_home_lvgl_t *ui;
-    const char *iid;
-    const char *operation;
+    char iid[14];
+    const char *operation;              /* 字面量 "set"/"action"，静态 */
     int32_t value;
 } miloco_sheet_req_t;
 
@@ -1685,7 +1697,7 @@ static void miloco_sheet_build(smart_home_lvgl_t *ui, const char *did)
         miloco_sheet_req_t *req = &g_miloco_sheet_req[req_slot++];
 
         req->ui = ui;
-        req->iid = ctrl->iid;
+        snprintf(req->iid, sizeof(req->iid), "%s", ctrl->iid);
         req->operation = ctrl->type == SMART_HOME_MILOCO_CTRL_ACTION ?
                          "action" : "set";
 
@@ -1721,7 +1733,7 @@ static void miloco_sheet_build(smart_home_lvgl_t *ui, const char *did)
                     break;
                 }
                 oreq->ui = ui;
-                oreq->iid = ctrl->iid;
+                snprintf(oreq->iid, sizeof(oreq->iid), "%s", ctrl->iid);
                 oreq->operation = "set";
                 oreq->value = ctrl->options[j].value;
                 opt = lv_btn_create(row);
@@ -1885,8 +1897,7 @@ static lv_obj_t *create_miloco_card(smart_home_lvgl_t *ui,
         if (device->power_on) {
             lv_obj_add_state(sw, LV_STATE_CHECKED);
         }
-        /* did 字符串由设备缓存长期持有，卡片生命周期内有效。 */
-        lv_obj_set_user_data(sw, (void *)device->did);
+        lv_obj_set_user_data(sw, lv_obj_get_user_data(card));
         lv_obj_add_event_cb(sw, miloco_switch_cb, LV_EVENT_VALUE_CHANGED, ui);
     }
     return card;
@@ -1920,6 +1931,8 @@ static void create_miloco_placeholder_card(smart_home_lvgl_t *ui)
 static void append_miloco_cards(smart_home_lvgl_t *ui)
 {
     smart_home_miloco_device_t devices[SMART_HOME_MILOCO_MAX_DEVICES];
+
+    g_miloco_card_did_count = 0;
     size_t count;
     size_t i;
 
