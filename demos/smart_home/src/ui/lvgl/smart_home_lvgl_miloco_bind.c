@@ -26,8 +26,9 @@ static uint8_t s_qr_matrix[SMART_HOME_MILOCO_QR_MAX_MODULES *
                             SMART_HOME_MILOCO_QR_MAX_MODULES];
 
 /* QR 渲染：白底卡片上按模块画黑块。一次性构建，不参与后续刷新。 */
-static void bind_render_qr(lv_obj_t *parent)
+static void bind_render_qr(lv_obj_t *parent, smart_home_lvgl_t *ui)
 {
+    smart_home_miloco_config_t qr_config;
     char url[96];
     char host[64];
     char token[64];
@@ -39,9 +40,15 @@ static void bind_render_qr(lv_obj_t *parent)
 
     host[0] = '\0';
     token[0] = '\0';
-    if (smart_home_secrets_get_miloco(host, sizeof(host), &port,
-                                      token, sizeof(token)) != AGENT_OK ||
-        !host[0]) {
+    /* 运行态配置优先（挥发型模式下 secrets 为空）；回落 secrets。 */
+    if (ui && ui->app && ui->app->miloco &&
+        smart_home_miloco_get_config(ui->app->miloco, &qr_config)) {
+        snprintf(host, sizeof(host), "%s", qr_config.host);
+        port = qr_config.port;
+    } else if (smart_home_secrets_get_miloco(host, sizeof(host), &port,
+                                             token, sizeof(token))
+                   != AGENT_OK ||
+               !host[0]) {
         lv_obj_t *label = smart_home_lvgl_label_create(
             parent, "请先在米家网关设置中\n配置服务器地址",
             SMART_HOME_UI_COLOR_WARNING, 14);
@@ -150,7 +157,7 @@ void smart_home_lvgl_build_miloco_bind_screen(smart_home_lvgl_t *ui)
     card = page_card(screen, x, y, BIND_QR_TARGET_PX + 56,
                      BIND_QR_TARGET_PX + 56);
     smart_home_lvgl_set_bg(card, lv_color_white());
-    bind_render_qr(card);
+    bind_render_qr(card, ui);
 
     /* 右侧：步骤说明与状态。 */
     card = page_card(screen, x + BIND_QR_TARGET_PX + 70, y,

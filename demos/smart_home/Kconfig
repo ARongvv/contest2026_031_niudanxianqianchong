@@ -348,6 +348,18 @@ config SMART_HOME_MILOCO_BRIDGE
       dedicated worker thread. Gateway host/port/token are stored in
       secrets.json and configured from the settings page.
 
+config SMART_HOME_MILOCO_VOLATILE_CONFIG
+    bool "Miloco gateway config is memory-only (skip secrets.json write)"
+    depends on SMART_HOME_MILOCO_BRIDGE
+    default n
+    help
+      Workaround while a smart_home-runtime flash write hard-freezes the
+      system (MSPI arbitration during LittleFS erase).  The gateway
+      configuration is applied to the worker directly and lost on reboot;
+      the bind page reads the running config from the service instead of
+      secrets.json.  Re-enable persistence once the flash-write freeze is
+      root-caused.
+
 config SMART_HOME_DEMO_STATIC_LVGL_HOME
     bool "P4X static LVGL home screen"
     depends on ARCH_BOARD_ESP32P4_FUNCTION_EV_BOARD

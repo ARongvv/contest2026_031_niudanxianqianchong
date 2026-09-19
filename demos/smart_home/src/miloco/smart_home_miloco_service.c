@@ -126,6 +126,25 @@ size_t smart_home_miloco_list(const smart_home_miloco_t *service,
     return count;
 }
 
+bool smart_home_miloco_get_config(const smart_home_miloco_t *service,
+                                  smart_home_miloco_config_t *out)
+{
+    bool ok = false;
+
+    if (service && out) {
+        lock_state((smart_home_miloco_t *)service);
+        snprintf(out->host, sizeof(out->host), "%s",
+                 service->client_config.host);
+        out->port = service->client_config.port;
+        snprintf(out->token, sizeof(out->token), "%s",
+                 service->client_config.token);
+        ok = service->reachable || service->config_dirty ||
+             service->client_config.host[0] != '\0';
+        unlock_state((smart_home_miloco_t *)service);
+    }
+    return ok;
+}
+
 bool smart_home_miloco_bound(const smart_home_miloco_t *service)
 {
     bool bound = false;
@@ -634,11 +653,18 @@ static void *miloco_worker(void *argument)
             snprintf(client_config.token, sizeof(client_config.token), "%s",
                      save.token);
             unlock_state(service);
+#ifdef CONFIG_SMART_HOME_MILOCO_VOLATILE_CONFIG
+            /* 挥发型配置：跳过 secrets.json 写入（flash 写挂死的临时
+             * 规避），仅在工作线程内应用并立即轮询。 */
+            save_ret = AGENT_OK;
+            syslog(LOG_INFO, "[milo] worker: volatile config applied\n");
+#else
             syslog(LOG_INFO, "[milo] worker: saving secrets\n");
             save_ret = smart_home_secrets_set_miloco(save.host, save.port,
                                                      save.token);
             syslog(LOG_INFO, "[milo] worker: secrets save ret=%d\n",
                    save_ret);
+#endif
             lock_state(service);
             if (save_ret == AGENT_OK) {
                 service->client_config = client_config;
