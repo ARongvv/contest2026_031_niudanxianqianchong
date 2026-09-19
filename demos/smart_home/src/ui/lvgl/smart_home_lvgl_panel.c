@@ -2031,10 +2031,14 @@ static void rebuild_device_cards(smart_home_lvgl_t *ui)
 #endif
 
 #ifdef CONFIG_SMART_HOME_NODE_GATEWAY
-    append_online_remote_node_cards(ui);
+    if (device_matches_source(ui, 2)) {
+        append_online_remote_node_cards(ui);
+    }
 #endif
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
-    append_miloco_cards(ui);
+    if (device_matches_source(ui, 1)) {
+        append_miloco_cards(ui);
+    }
 #endif
 }
 
@@ -2154,6 +2158,15 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
                         panel_room_cb,
                         LV_EVENT_VALUE_CHANGED,
                         ui);
+
+    /* 来源筛选：全部/米家/Node，与房间筛选互补。 */
+    ui->panel_source_dd = lv_dropdown_create(screen);
+    lv_dropdown_set_options(ui->panel_source_dd, "全部来源\n米家\nNode");
+    lv_obj_set_size(ui->panel_source_dd, 96, 32);
+    lv_obj_align(ui->panel_source_dd, LV_ALIGN_TOP_RIGHT,
+                 -smart_home_lvgl_pad_x(), SMART_HOME_TOPBAR_H + 42);
+    lv_obj_add_event_cb(ui->panel_source_dd, panel_source_cb,
+                        LV_EVENT_VALUE_CHANGED, ui);
 
     filter_row = lv_obj_create(screen);
     lv_obj_remove_style_all(filter_row);

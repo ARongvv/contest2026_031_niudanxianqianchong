@@ -41,11 +41,32 @@ void smart_home_lvgl_build_screensaver_screen(smart_home_lvgl_t *ui)
                                          SMART_HOME_UI_COLOR_TEXT_PRIMARY, 20);
     lv_obj_align(label, LV_ALIGN_TOP_LEFT, smart_home_lvgl_pad_x(), 28);
 
-    label = smart_home_lvgl_label_create(screen, "10:28",
-                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY, 32);
-    lv_obj_align(label, LV_ALIGN_CENTER, 0, -26);
-    label = smart_home_lvgl_label_create(screen, "9 月 17 日 · 周四",
-                                         SMART_HOME_UI_COLOR_TEXT_SECONDARY, 16);
+    ui->screensaver_time_label = smart_home_lvgl_label_create(
+        screen, "--:--", SMART_HOME_UI_COLOR_TEXT_PRIMARY, 32);
+    lv_obj_align(ui->screensaver_time_label, LV_ALIGN_CENTER, 0, -26);
+    {
+        struct timespec ts;
+        struct tm tm_now;
+        char buf[24];
+        static const char *const wd[] = {"日","一","二","三","四","五","六"};
+
+        clock_gettime(CLOCK_REALTIME, &ts);
+        if (ts.tv_sec > 1000000000L) {
+            gmtime_r(&ts.tv_sec, &tm_now);
+            snprintf(buf, sizeof(buf), "%d 月 %d 日 · 周%s",
+                     tm_now.tm_mon + 1, tm_now.tm_mday, wd[tm_now.tm_wday % 7]);
+            if (ui->screensaver_time_label) {
+                char tb[8];
+                snprintf(tb, sizeof(tb), "%02d:%02d",
+                         tm_now.tm_hour, tm_now.tm_min);
+                lv_label_set_text(ui->screensaver_time_label, tb);
+            }
+        } else {
+            snprintf(buf, sizeof(buf), "时间同步中…");
+        }
+        label = smart_home_lvgl_label_create(screen, buf,
+                                             SMART_HOME_UI_COLOR_TEXT_SECONDARY, 16);
+    }
     lv_obj_align(label, LV_ALIGN_CENTER, 0, 20);
     label = smart_home_lvgl_label_create(screen, "晴 · 32°C · 家庭状态正常",
                                          SMART_HOME_UI_COLOR_TEXT_SECONDARY, 14);

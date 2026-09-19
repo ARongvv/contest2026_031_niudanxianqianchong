@@ -72,6 +72,7 @@ typedef struct {
 
     /* Panel: device cards */
     lv_obj_t *panel_grid;
+    lv_obj_t *panel_source_dd;
     lv_obj_t *panel_room_dd;    /* room filter dropdown */
     lv_obj_t *panel_filter_row;
     lv_obj_t *panel_sensor_bar;
@@ -184,6 +185,10 @@ typedef struct {
     lv_obj_t *home_miloco_sub_label;
     lv_obj_t *home_weather_temp_label;
     lv_obj_t *home_weather_cond_label;
+    lv_obj_t *home_date_label;
+    lv_obj_t *home_time_label;
+    lv_timer_t *home_time_timer;
+    lv_obj_t *screensaver_time_label;
     lv_obj_t *settings_weather_city_input;
     lv_obj_t *miloco_sheet;
     char miloco_sheet_did[24];

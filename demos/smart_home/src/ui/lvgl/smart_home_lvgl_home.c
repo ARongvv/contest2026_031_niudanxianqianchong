@@ -14,6 +14,7 @@
 #include "icons/smart_home_lvgl_png_icons.h"
 
 #include <stdio.h>
+#include <time.h>
 
 enum home_action_e {
     HOME_ACTION_DEVICES = 1,
@@ -585,6 +586,38 @@ void smart_home_lvgl_refresh_home(smart_home_lvgl_t *ui)
     (void)on_count;
 }
 
+static void home_time_update(smart_home_lvgl_t *ui)
+{
+    struct timespec ts;
+    struct tm tm_now;
+    char buf[32];
+
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0 || ts.tv_sec < 1000000000L) {
+        /* NTP 未同步：显示占位。 */
+        return;
+    }
+    gmtime_r(&ts.tv_sec, &tm_now);
+    static const char *const weekdays[] = {
+        "日", "一", "二", "三", "四", "五", "六"
+    };
+    snprintf(buf, sizeof(buf), "%d月%d日 星期%s",
+             tm_now.tm_mon + 1, tm_now.tm_mday,
+             weekdays[tm_now.tm_wday % 7]);
+    if (ui->home_date_label) {
+        lv_label_set_text(ui->home_date_label, buf);
+    }
+    snprintf(buf, sizeof(buf), "%02d:%02d",
+             tm_now.tm_hour, tm_now.tm_min);
+    if (ui->home_time_label) {
+        lv_label_set_text(ui->home_time_label, buf);
+    }
+}
+
+static void home_time_timer_cb(lv_timer_t *timer)
+{
+    home_time_update((smart_home_lvgl_t *)lv_timer_get_user_data(timer));
+}
+
 void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui)
 {
     lv_obj_t *screen;
@@ -620,12 +653,12 @@ void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui)
                      SMART_HOME_UI_COLOR_SURFACE_SOFT);
     /* Keep location in the fixed top metadata block. The dynamic environment
      * summary occupies the bottom, so the two strings never share an anchor. */
-    label = smart_home_lvgl_label_create(card, "9月18日 星期五",
-                                         SMART_HOME_UI_COLOR_TEXT_SECONDARY, 13);
-    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 0);
-    label = smart_home_lvgl_label_create(card, "11:37", SMART_HOME_UI_COLOR_TEXT_PRIMARY,
-                                         32);
-    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 24);
+    ui->home_date_label = smart_home_lvgl_label_create(card, "",
+                                                       SMART_HOME_UI_COLOR_TEXT_SECONDARY, 13);
+    lv_obj_align(ui->home_date_label, LV_ALIGN_TOP_LEFT, 0, 0);
+    ui->home_time_label = smart_home_lvgl_label_create(card, "--:--",
+                                                       SMART_HOME_UI_COLOR_TEXT_PRIMARY, 32);
+    lv_obj_align(ui->home_time_label, LV_ALIGN_TOP_LEFT, 0, 24);
     label = smart_home_lvgl_label_create(card, "深圳市南山区",
                                          SMART_HOME_UI_COLOR_TEXT_SECONDARY, 13);
     lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 70);
@@ -680,11 +713,10 @@ void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui)
     card = home_card(screen, x + weather_w + gap + scene_w + gap,
                      y + top_h + gap, primary_w, bottom_h,
                      SMART_HOME_UI_COLOR_SURFACE_ON);
-    home_icon_badge(card, ICON_MEDIA_AUDIO, lv_color_hex(0xFFF8F2), 48);
-    home_feature_text(card, "Last Dance", "卧室 · 家庭音响",
+    home_icon_badge(card, ICON_NAV_DEVICES, lv_color_hex(0xFFF8F2), 48);
+    home_feature_text(card, "Node 设备", "传感器 · 远程控制",
                       SMART_HOME_UI_COLOR_TEXT_PRIMARY);
-    home_music_controls(card);
-    home_make_clickable(card, ui, HOME_ACTION_MORE);
+    home_make_clickable(card, ui, HOME_ACTION_DEVICES);
 
     card = home_card(screen, x + weather_w + gap + scene_w + gap + primary_w + gap,
                      y + top_h + gap, monitor_w, bottom_h,
@@ -699,5 +731,7 @@ void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui)
     home_make_clickable(card, ui, HOME_ACTION_DEVICES);
 
     smart_home_lvgl_build_nav_bar(screen, ui);
+    home_time_update(ui);
+    ui->home_time_timer = lv_timer_create(home_time_timer_cb, 30000, ui);
     smart_home_lvgl_refresh_home(ui);
 }
