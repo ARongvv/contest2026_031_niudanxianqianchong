@@ -959,7 +959,7 @@ void smart_home_lvgl_build_miloco_screen(smart_home_lvgl_t *ui)
         port_text, sizeof(port_text) - 1u, 0, 138);
     ui->miloco_token_input = miloco_input_create(
         card, ui, "服务 Token（未启用鉴权可留空）",
-        "", sizeof(token) - 1u, 1, 188);
+        token, sizeof(token) - 1u, 1, 188);
 
     /* 按钮放卡片头部右侧：键盘弹出时覆盖卡片下半区（约 y>232），
      * 底部布局的按钮会被键盘遮住导致不可见不可点。 */
