@@ -59,6 +59,10 @@ void smart_home_lvgl_load_tab(smart_home_lvgl_t *ui, int tab)
 #endif
     previous_tab = ui->active_tab;
     ui->active_tab = tab;
+    if (tab == SMART_HOME_TAB_HOME) {
+        /* 首页统计（网络/米家设备数）在切回时取最新值。 */
+        smart_home_lvgl_refresh_home(ui);
+    }
 
     /* Chat is entered from three independent product paths.  Load it
      * directly rather than queuing another screen animation: on the P4

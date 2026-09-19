@@ -8,6 +8,9 @@
 
 #include "smart_home_lvgl_internal.h"
 #include "images/smart_home_icons.h"
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+#include "../../miloco/smart_home_miloco.h"
+#endif
 #include "icons/smart_home_lvgl_png_icons.h"
 
 #include <stdio.h>
@@ -474,6 +477,55 @@ void smart_home_lvgl_refresh_home(smart_home_lvgl_t *ui)
                  state->env_humidity);
         lv_label_set_text(ui->home_env_label, text);
     }
+#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
+    /* 米家桥接模式下首页统计以网关真实状态为准，不再数本地虚拟设备。 */
+    {
+        bool reachable = ui->app && ui->app->miloco &&
+                         smart_home_miloco_reachable(ui->app->miloco);
+        bool configured = ui->app && ui->app->miloco;
+        size_t miloco_count = 0;
+        size_t online_count = 0;
+
+        if (reachable) {
+            smart_home_miloco_device_t devices[SMART_HOME_MILOCO_MAX_DEVICES];
+            size_t i;
+
+            miloco_count = smart_home_miloco_list(
+                ui->app->miloco, devices, SMART_HOME_MILOCO_MAX_DEVICES, NULL);
+            for (i = 0; i < miloco_count; i++) {
+                if (devices[i].online) {
+                    online_count++;
+                }
+            }
+        }
+        if (ui->home_miloco_sub_label) {
+            lv_label_set_text(ui->home_miloco_sub_label,
+                              reachable ? "已连接 · Miloco 网关" :
+                              configured ? "未连接 · 等待网关" :
+                                           "未配置 · 系统设置中配置");
+        }
+        if (ui->home_ac_label) {
+            if (reachable) {
+                snprintf(text, sizeof(text),
+                         "%u 台米家设备\n点击进入设备管理",
+                         (unsigned)miloco_count);
+            } else {
+                snprintf(text, sizeof(text),
+                         "米家网关未连接\n系统设置中配置后显示");
+            }
+            lv_label_set_text(ui->home_ac_label, text);
+        }
+        if (ui->home_status_label) {
+            if (reachable) {
+                snprintf(text, sizeof(text), "%u 台设备在线\n家庭状态正常",
+                         (unsigned)online_count);
+            } else {
+                snprintf(text, sizeof(text), "设备状态未知\n网关未连接");
+            }
+            lv_label_set_text(ui->home_status_label, text);
+        }
+    }
+#else
     if (ui->home_ac_label) {
         snprintf(text, sizeof(text), "%d 台设备已接入\n点击进入设备管理",
                  smart_home_device_count(state));
@@ -483,6 +535,8 @@ void smart_home_lvgl_refresh_home(smart_home_lvgl_t *ui)
         snprintf(text, sizeof(text), "%d 个设备正在运行\n家庭状态正常", on_count);
         lv_label_set_text(ui->home_status_label, text);
     }
+#endif
+    (void)on_count;
 }
 
 void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui)
@@ -553,9 +607,9 @@ void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui)
     label = smart_home_lvgl_label_create(card, "米家设备",
                                          SMART_HOME_UI_COLOR_TEXT_PRIMARY, 18);
     lv_obj_align(label, LV_ALIGN_TOP_LEFT, 58, 0);
-    label = smart_home_lvgl_label_create(card, "已连接 · 本地管理",
-                                         SMART_HOME_UI_COLOR_TEXT_SECONDARY, 13);
-    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 58, 25);
+    ui->home_miloco_sub_label = smart_home_lvgl_label_create(
+        card, "", SMART_HOME_UI_COLOR_TEXT_SECONDARY, 13);
+    lv_obj_align(ui->home_miloco_sub_label, LV_ALIGN_TOP_LEFT, 58, 25);
     ui->home_ac_label = smart_home_lvgl_label_create(card, "",
                                                      SMART_HOME_UI_COLOR_TEXT_SECONDARY,
                                                      16);

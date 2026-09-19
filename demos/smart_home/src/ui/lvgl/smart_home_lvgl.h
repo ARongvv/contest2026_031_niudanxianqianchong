@@ -187,6 +187,7 @@ typedef struct {
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
     lv_timer_t *miloco_timer;
     uint32_t miloco_revision;
+    lv_obj_t *home_miloco_sub_label;
 #endif
     pthread_t network_worker;
     void *network_worker_stack_alloc;
