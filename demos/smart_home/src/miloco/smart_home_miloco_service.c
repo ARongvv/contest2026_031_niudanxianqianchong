@@ -30,7 +30,10 @@
 #include <time.h>
 #include <unistd.h>
 
-#define MILOCO_WORKER_STACK_SIZE   8192u
+/* 24 KiB：HTTP 路径（getaddrinfo + 非阻塞 connect + 收包解析）实测
+ * 栈深，8 KiB 时溢出会踩坏相邻 PSRAM，症状延迟到后续堆操作（cJSON）
+ * 才爆——分段日志定位的教训，见开发日志。 */
+#define MILOCO_WORKER_STACK_SIZE   24576u
 #define MILOCO_CONTROL_QUEUE_DEPTH 4
 #define MILOCO_RESPONSE_BYTES      (16u * 1024u)
 #define MILOCO_STATUS_RESPONSE_BYTES 512u
