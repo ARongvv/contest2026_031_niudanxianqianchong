@@ -547,12 +547,10 @@ static int poll_device_list(smart_home_miloco_t *service,
                                      "/api/miot/device_list", body, body_size,
                                      &http_status);
     if (ret < 0) {
-        lock_state(service);
-        if (service->reachable) {
-            service->reachable = false;
-            service->revision++;
-        }
-        unlock_state(service);
+        /* 设备列表传输失败不降级网关在线状态：健康判定只属于
+         * /api/miot/status（poll_bind_status）。保留上次设备快照，
+         * 下轮轮询自然重试；绑定后服务端重编排期间曾出现短暂
+         * 连接超时，属可恢复现象。 */
         return ret;
     }
     if (http_status != 200) {
