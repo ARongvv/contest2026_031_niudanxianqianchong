@@ -163,12 +163,21 @@ static int http_request(const smart_home_miloco_client_config_t *config,
         }
     }
 
-    /* 逐字节解析头部直到空行，其余字节进入 body 缓冲。 */
+    /*
+     * 响应解析状态机：头部阶段逐字节扫描，行缓冲仅保留第一行（状态
+     * 行）；"\r\n\r\n" 之后进入 body，后续字节全部写入 response。
+     * line_pending 标记"上一字节是行尾 \n"，其后紧跟 "\r\n"（空行）
+     * 即头部结束；该判定不依赖 chunk 边界。
+     */
     {
         char chunk[256];
+        char status_line[40];
         size_t used = 0;
+        size_t line_len = 0;
+        bool line_pending = false;
         size_t i;
 
+        status_line[0] = '\0';
         while (1) {
             ret = recv(sockfd, chunk, sizeof(chunk), 0);
             if (ret < 0) {
@@ -179,38 +188,45 @@ static int http_request(const smart_home_miloco_client_config_t *config,
                 goto out_close;
             }
             if (ret == 0) {
-                break;
+                break; /* 连接关闭：HTTP/1.0 body 结束 */
             }
             for (i = 0; i < (size_t)ret; i++) {
-                if (!header_done) {
-                    if (!have_status && response + used + 1 < response + response_size) {
-                        /* 状态行与头部复用 response 缓冲暂存。 */
-                        response[used++] = chunk[i];
+                char byte = chunk[i];
+
+                if (header_done) {
+                    if (used + 1 < response_size) {
+                        response[used++] = byte;
                         response[used] = '\0';
-                        if (chunk[i] == '\n') {
-                            if (!have_status) {
-                                if (sscanf(response, "HTTP/%*d.%*d %d",
-                                           &http_status) == 1) {
-                                    have_status = true;
-                                }
-                                used = 0;
-                                response[0] = '\0';
-                            }
-                        }
-                    }
-                    /* 检测 \r\n\r\n：跨 chunk 边界时借助上一字节。 */
-                    if (chunk[i] == '\n' && i > 0 && chunk[i - 1] == '\r') {
-                        /* 候选行尾；若下一字节也是 \r\n 则头部结束。 */
+                    } else {
+                        ret = -ENOMEM;
+                        goto out_close;
                     }
                     continue;
                 }
-                if (used + 1 < response_size) {
-                    response[used++] = chunk[i];
-                    response[used] = '\0';
-                } else {
-                    ret = -ENOMEM;
-                    goto out_close;
+                if (byte == '\n') {
+                    if (line_pending) {
+                        /* 空行：头部结束，同 chunk 余下字节即 body。 */
+                        header_done = true;
+                        continue;
+                    }
+                    line_pending = true;
+                    if (!have_status) {
+                        if (sscanf(status_line, "HTTP/%*d.%*d %d",
+                                   &http_status) == 1) {
+                            have_status = true;
+                        }
+                        line_len = 0;
+                    }
+                    continue;
                 }
+                if (byte != '\r') {
+                    line_pending = false;
+                    if (!have_status && line_len + 1 < sizeof(status_line)) {
+                        status_line[line_len++] = byte;
+                        status_line[line_len] = '\0';
+                    }
+                }
+                /* '\r'：可能是行尾或空行组成，保持状态。 */
             }
         }
     }
@@ -229,25 +245,6 @@ out_freeaddr:
     return ret;
 }
 
-/* 头部结束检测独立于上面的逐字节扫描：头部以 "\r\n\r\n" 结束，
- * 这里用一个小的状态机完成，避免跨 chunk 边界丢失。 */
-static int http_request_sm(const smart_home_miloco_client_config_t *config,
-                           const char *method,
-                           const char *path,
-                           const char *body,
-                           char *response,
-                           size_t response_size,
-                           int *http_status_out)
-{
-    (void)config;
-    (void)method;
-    (void)path;
-    (void)body;
-    (void)response;
-    (void)response_size;
-    (void)http_status_out;
-    return -ENOSYS;
-}
 
 int smart_home_miloco_http_get(const smart_home_miloco_client_config_t *config,
                                const char *path,
@@ -255,7 +252,6 @@ int smart_home_miloco_http_get(const smart_home_miloco_client_config_t *config,
                                size_t response_size,
                                int *http_status_out)
 {
-    (void)http_request_sm;
     return http_request(config, "GET", path, NULL, response, response_size,
                         http_status_out);
 }
