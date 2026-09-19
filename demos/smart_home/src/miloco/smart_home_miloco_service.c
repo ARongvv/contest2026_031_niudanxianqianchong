@@ -91,8 +91,12 @@ bool smart_home_miloco_config_valid(const smart_home_miloco_config_t *config)
 {
     const unsigned char *p;
 
-    if (!config || config->host[0] == '\0' || config->port == 0) {
+    if (!config || config->port == 0) {
         return false;
+    }
+    /* 空 host 合法：worker 以"仅天气"模式运行，网关端点静默失败。 */
+    if (config->host[0] == '\0') {
+        return true;
     }
     for (p = (const unsigned char *)config->host; *p; p++) {
         if (*p < 0x20u || *p == 0x7fu) {

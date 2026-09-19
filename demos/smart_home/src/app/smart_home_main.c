@@ -100,18 +100,22 @@ int main(int argc, char *argv[])
         extern smart_home_miloco_t *g_weather_miloco_service;
         smart_home_miloco_config_t miloco_config;
 
-        /* 配置过 Miloco 网关就常驻启动；网络未就绪时 worker 按周期
-         * 重试，不需要与 Wi-Fi 连接时序耦合。 */
+        /* 无条件启动 worker：天气拉取（wttr.in）不依赖米家网关；
+         * 网关配置存在则一并轮询，否则网关端点静默失败。 */
         miloco_config.port = SMART_HOME_MILOCO_DEFAULT_PORT;
         miloco_config.token[0] = '\0';
+        miloco_config.host[0] = '\0';
         if (smart_home_secrets_get_miloco(miloco_config.host,
                                           sizeof(miloco_config.host),
                                           &miloco_config.port,
                                           miloco_config.token,
                                           sizeof(miloco_config.token))
-                == AGENT_OK &&
-            smart_home_miloco_start(&app.miloco, &miloco_config) != AGENT_OK) {
-            fprintf(stderr, "miloco gateway start failed\n");
+                != AGENT_OK) {
+            /* secrets 无网关配置：host 留空，worker 只跑天气。 */
+            miloco_config.host[0] = '\0';
+        }
+        if (smart_home_miloco_start(&app.miloco, &miloco_config) != AGENT_OK) {
+            fprintf(stderr, "miloco worker start failed\n");
         }
         /* 全局桥接：weather_tool 经此指针读 wttr.in 快照。 */
         g_weather_miloco_service = app.miloco;
