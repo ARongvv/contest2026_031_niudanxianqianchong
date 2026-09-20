@@ -676,6 +676,66 @@ static int refresh_device_values(smart_home_miloco_t *service,
 
 /* ── worker ────────────────────────────────────────────────── */
 
+/* spec 拉取重试记账（service 本地，避免改动 miloco.h 共享结构体触发
+ * 全量重编）。原设计"新设备一次性拉 spec 且忽略返回值"：首次失败
+ * （网关刚连上时网络/DNS 尚未稳定的高危时刻）即永久空 controls，
+ * agent 与 UI 都无法控制。现改为 control_count 仍为 0 的在线设备
+ * 每轮重试，超过上限放弃，防止 spec 恒空时打爆 backend。 */
+#define MILOCO_SPEC_RETRY_MAX 12
+
+static struct
+{
+    char did[24];
+    uint8_t attempts;
+} g_spec_attempts[SMART_HOME_MILOCO_MAX_DEVICES];
+
+/* 记一次尝试；返回 false 表示已达上限或表满，本轮不再拉。 */
+static bool spec_attempt_take(const char *did)
+{
+    int slot = -1;
+    int i;
+
+    if (!did || !did[0])
+      {
+        return false;
+      }
+
+    for (i = 0; i < SMART_HOME_MILOCO_MAX_DEVICES; i++)
+      {
+        if (g_spec_attempts[i].did[0] &&
+            strcmp(g_spec_attempts[i].did, did) == 0)
+          {
+            slot = i;
+            break;
+          }
+
+        if (slot < 0 && g_spec_attempts[i].did[0] == '\0')
+          {
+            slot = i;
+          }
+      }
+
+    if (slot < 0)
+      {
+        return false;
+      }
+
+    if (g_spec_attempts[slot].did[0] == '\0')
+      {
+        snprintf(g_spec_attempts[slot].did,
+                 sizeof(g_spec_attempts[slot].did), "%.23s", did);
+        g_spec_attempts[slot].attempts = 0;
+      }
+
+    if (g_spec_attempts[slot].attempts >= MILOCO_SPEC_RETRY_MAX)
+      {
+        return false;
+      }
+
+    g_spec_attempts[slot].attempts++;
+    return true;
+}
+
 static int fetch_spec_for(smart_home_miloco_t *service, const char *did,
                           char *body, size_t body_size)
 {
@@ -777,6 +837,7 @@ static int poll_device_list(smart_home_miloco_t *service,
     /* 新设备补 spec 类别；可控设备回读电源态。复用响应缓冲。 */
     for (i = 0; i < fresh_count; i++) {
         fetch_spec_for(service, fresh[i].did, body, body_size);
+        spec_attempt_take(fresh[i].did);
     }
     {
         smart_home_miloco_device_t snapshot[SMART_HOME_MILOCO_MAX_DEVICES];
@@ -785,6 +846,15 @@ static int poll_device_list(smart_home_miloco_t *service,
         count = smart_home_miloco_list(service, snapshot,
                                        SMART_HOME_MILOCO_MAX_DEVICES, NULL);
         for (i = 0; i < count; i++) {
+            /* controls 仍为空的在线设备重试 spec（带上限）：
+             * 修复首次拉取失败一次即永久无 controls 的结构性缺口。 */
+            if (snapshot[i].online && snapshot[i].control_count == 0 &&
+                spec_attempt_take(snapshot[i].did)) {
+                syslog(LOG_INFO,
+                       "[milo] spec retry did=%.23s\n",
+                       snapshot[i].did);
+                fetch_spec_for(service, snapshot[i].did, body, body_size);
+            }
     if (snapshot[i].online && snapshot[i].control_count > 0) {
                 refresh_device_values(service, snapshot[i].did,
                                       body, body_size);
