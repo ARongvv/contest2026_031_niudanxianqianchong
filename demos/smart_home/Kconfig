@@ -56,6 +56,66 @@ config SMART_HOME_AUDIO_SMOKE_STACKSIZE
 
 endif
 
+config SMART_HOME_VOICE_TTS
+    bool "Agent reply voice announcement (TTS)"
+    depends on ESP32P4_FUNCTION_EV_BOARD_AUDIO_ES8311
+    depends on NETUTILS_CJSON
+    default n
+    help
+      Announce agent replies through the ES8311 speaker.  Adds the shared
+      PCM16 mono voice player, the cloud TTS synthesis client (OpenAI
+      compatible /v1/audio/speech), a queued announcement service and the
+      chat-screen auto-announce hook.  The announce switch is persisted in
+      /data/smart_home/voice.json; API keys are read from secrets.json.
+
+if SMART_HOME_VOICE_TTS
+
+config SMART_HOME_TTS_AUDIO_MAX_BYTES
+    int "Maximum TTS audio response buffer"
+    default 1048576
+    range 65536 2097152
+    help
+      Upper bound of the PSRAM buffer holding one synthesized WAV
+      response.  For speech-style backends (binary WAV) 1 MiB is about
+      32 s at 16 kHz PCM16 mono; for chat-style backends (MiMo) the
+      response is JSON-wrapped base64 (~4/3 larger), so the effective
+      audio cap is about 768 KiB.
+
+config SMART_HOME_VOICE_TEXT_MAX
+    int "Maximum announcement text length"
+    default 512
+    range 128 2048
+
+config SMART_HOME_VOICE_WORKER_STACKSIZE
+    int "Voice announcement worker stack size"
+    default 32768
+    range 16384 65536
+    help
+      The worker performs the mbedTLS synthesis request; the size follows
+      the agent worker stack budget.
+
+endif
+
+config SMART_HOME_TTS_SMOKE
+    bool "TTS pipeline smoke command"
+    depends on SMART_HOME_VOICE_TTS
+    default n
+    help
+      Build the tts_smoke NSH command for the voice announcement bring-up.
+      It plays a raw PCM16 mono file through the same shared player as the
+      announcement service (play subcommand) and synthesizes plus plays a
+      short text once the TTS backend is configured (speak subcommand).  It
+      deliberately starts no LVGL UI and touches no agent state.
+
+if SMART_HOME_TTS_SMOKE
+
+config SMART_HOME_TTS_SMOKE_STACKSIZE
+    int "TTS smoke command stack size"
+    default 8192
+    range 4096 16384
+
+endif
+
 config SMART_HOME_DEMO_OFFLINE_UI
     bool "Offline regular LVGL UI bring-up"
     depends on SMART_HOME_DEMO_UI_LVGL

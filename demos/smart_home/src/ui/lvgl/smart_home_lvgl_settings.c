@@ -12,6 +12,10 @@
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
 #include "../../miloco/smart_home_miloco.h"
 #endif
+#ifdef CONFIG_SMART_HOME_VOICE_TTS
+#include "../../voice/smart_home_tts.h"
+#include "../../voice/smart_home_voice_play.h"
+#endif
 #ifdef CONFIG_SMART_HOME_MCP_BRIDGE
 #include "../../addons/smart_home_mcp_bridge.h"
 #endif
@@ -1468,6 +1472,207 @@ static void create_system_status_card(lv_obj_t *content,
     }
 }
 
+#ifdef CONFIG_SMART_HOME_VOICE_TTS
+static void voice_announce_toggle_event(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
+    lv_obj_t *body;
+
+    if (!ui) {
+        return;
+    }
+
+    body = ui->settings_voice_body;
+    if (!body) {
+        return;
+    }
+
+    if (lv_obj_has_flag(body, LV_OBJ_FLAG_HIDDEN)) {
+        lv_obj_clear_flag(body, LV_OBJ_FLAG_HIDDEN);
+        if (ui->settings_voice_toggle) {
+            lv_label_set_text(ui->settings_voice_toggle, "-");
+        }
+    } else {
+        lv_obj_add_flag(body, LV_OBJ_FLAG_HIDDEN);
+        if (ui->settings_voice_toggle) {
+            lv_label_set_text(ui->settings_voice_toggle, "+");
+        }
+    }
+}
+
+static void voice_announce_switch_event(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
+    smart_home_tts_config_t config;
+
+    if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED ||
+        !ui || !ui->settings_voice_switch) {
+        return;
+    }
+
+    smart_home_tts_config_load(&config);
+    config.enabled = lv_obj_has_state(ui->settings_voice_switch,
+                                      LV_STATE_CHECKED) ? 1 : 0;
+    if (smart_home_tts_config_save(&config) == AGENT_OK) {
+        set_settings_status(ui,
+                            config.enabled ? "语音播报已开启" : "语音播报已关闭",
+                            SMART_HOME_UI_COLOR_SUCCESS);
+    } else {
+        set_settings_status(ui, "voice.json 保存失败", SMART_HOME_UI_COLOR_DANGER);
+    }
+
+    if (!config.enabled) {
+        voice_play_stop();
+    }
+}
+
+static void voice_announce_stop_event(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
+
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED || !ui) {
+        return;
+    }
+
+    voice_play_stop();
+    set_settings_status(ui, "已请求停止播报", SMART_HOME_UI_COLOR_SUCCESS);
+}
+
+static void create_voice_announce_card(lv_obj_t *content,
+                                       smart_home_lvgl_t *ui)
+{
+    smart_home_tts_config_t config;
+    lv_obj_t *card;
+    lv_obj_t *header;
+    lv_obj_t *body;
+    lv_obj_t *row;
+    lv_obj_t *label;
+    lv_obj_t *button;
+    char value[96];
+
+    card = lv_obj_create(content);
+    lv_obj_set_size(card, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(card, 6, 0);
+    smart_home_lvgl_card_style(card);
+
+    header = lv_obj_create(card);
+    lv_obj_remove_style_all(header);
+    lv_obj_set_size(header, lv_pct(100), 28);
+    lv_obj_set_style_bg_opa(header, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(header, 0, 0);
+    lv_obj_set_style_pad_all(header, 0, 0);
+    lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(header,
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(header, 6, 0);
+    lv_obj_add_flag(header, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(header,
+                        voice_announce_toggle_event,
+                        LV_EVENT_CLICKED,
+                        ui);
+
+    smart_home_lvgl_icon_create(header, ICON_STATUS_MICROPHONE, 18, 18);
+    label = smart_home_lvgl_label_create(header,
+                                         "语音播报",
+                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY,
+                                         14);
+    lv_obj_set_flex_grow(label, 1);
+    ui->settings_voice_toggle =
+        smart_home_lvgl_label_create(header,
+                                     "+",
+                                     SMART_HOME_UI_COLOR_TEXT_SECONDARY,
+                                     16);
+    lv_obj_set_width(ui->settings_voice_toggle, 18);
+    lv_obj_set_style_text_align(ui->settings_voice_toggle,
+                                LV_TEXT_ALIGN_CENTER,
+                                0);
+
+    body = lv_obj_create(card);
+    lv_obj_remove_style_all(body);
+    lv_obj_set_size(body, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(body, 8, 0);
+    lv_obj_add_flag(body, LV_OBJ_FLAG_HIDDEN);
+    ui->settings_voice_body = body;
+
+    row = lv_obj_create(body);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row,
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 8, 0);
+
+    label = smart_home_lvgl_label_create(row,
+                                         "自动播报 Agent 回复",
+                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY,
+                                         12);
+    lv_obj_set_flex_grow(label, 1);
+
+    ui->settings_voice_switch = lv_switch_create(row);
+    lv_obj_set_size(ui->settings_voice_switch, 44, 24);
+    smart_home_tts_config_load(&config);
+    if (config.enabled) {
+        lv_obj_add_state(ui->settings_voice_switch, LV_STATE_CHECKED);
+    }
+    lv_obj_add_event_cb(ui->settings_voice_switch,
+                        voice_announce_switch_event,
+                        LV_EVENT_VALUE_CHANGED,
+                        ui);
+
+    snprintf(value, sizeof(value), "%s | %s",
+             config.backend_id[0] ? config.backend_id : "custom",
+             config.model[0] ? config.model : "(未配置)");
+    create_status_row(body,
+                      "TTS 后端",
+                      value,
+                      SMART_HOME_UI_COLOR_TEXT_SECONDARY);
+
+    snprintf(value, sizeof(value), "%s | %lu Hz",
+             config.voice[0] ? config.voice : "(默认音色)",
+             (unsigned long)config.sample_rate);
+    create_status_row(body,
+                      "音色 / 采样率",
+                      value,
+                      SMART_HOME_UI_COLOR_TEXT_SECONDARY);
+
+    label = smart_home_lvgl_label_create(
+        body,
+        "端点与密钥在 /data/smart_home/voice.json 与 secrets.json 中配置；"
+        "可用 tts_smoke speak 命令验证链路。",
+        SMART_HOME_UI_COLOR_TEXT_MUTED,
+        10);
+    lv_obj_set_width(label, lv_pct(100));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+
+    button = lv_btn_create(body);
+    lv_obj_remove_style_all(button);
+    lv_obj_set_size(button, 112, 32);
+    lv_obj_set_style_radius(button, 6, 0);
+    smart_home_lvgl_set_bg(button, SMART_HOME_UI_COLOR_PRIMARY);
+    lv_obj_add_event_cb(button,
+                        voice_announce_stop_event,
+                        LV_EVENT_CLICKED,
+                        ui);
+    label = smart_home_lvgl_label_create(button,
+                                         "停止播报",
+                                         lv_color_white(),
+                                         12);
+    lv_obj_center(label);
+
+    ui->settings_voice_status_label =
+        smart_home_lvgl_label_create(body,
+                                     "播报状态: 空闲",
+                                     SMART_HOME_UI_COLOR_TEXT_MUTED,
+                                     10);
+}
+#endif
+
 void smart_home_lvgl_build_settings_screen(smart_home_lvgl_t *ui)
 {
     lv_obj_t *screen;
@@ -1684,6 +1889,10 @@ void smart_home_lvgl_build_settings_screen(smart_home_lvgl_t *ui)
     create_tool_directory_card(content, ui);
 
     create_system_status_card(content, ui);
+
+#ifdef CONFIG_SMART_HOME_VOICE_TTS
+    create_voice_announce_card(content, ui);
+#endif
 
     ui->settings_keyboard = lv_keyboard_create(screen);
     smart_home_lvgl_style_keyboard(ui->settings_keyboard);

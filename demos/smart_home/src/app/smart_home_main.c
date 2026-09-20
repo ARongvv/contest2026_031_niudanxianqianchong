@@ -10,6 +10,9 @@
 #ifdef CONFIG_SMART_HOME_APP_BRIDGE
 #include "../addons/smart_home_app_bridge.h"
 #endif
+#ifdef CONFIG_SMART_HOME_VOICE_TTS
+#include "../voice/smart_home_voice_play.h"
+#endif
 #ifdef CONFIG_SMART_HOME_DEMO_UI_LVGL
 #include "../ui/lvgl/smart_home_lvgl.h"
 #endif
@@ -130,6 +133,13 @@ int main(int argc, char *argv[])
     }
 #endif
 
+#ifdef CONFIG_SMART_HOME_VOICE_TTS
+    /* 播报服务与 UI 并行启动；初始化失败只损失语音播报，不阻断主流程。 */
+    if (voice_play_init() != 0) {
+        fprintf(stderr, "voice_play_init failed; announcements disabled\n");
+    }
+#endif
+
 #if defined(CONFIG_SMART_HOME_DEMO_UI_QUICKAPP)
     if (argc > 1) {
         fprintf(stderr, "QuickApp mode ignores console input\n");
@@ -155,6 +165,9 @@ int main(int argc, char *argv[])
 
 #ifdef CONFIG_SMART_HOME_APP_BRIDGE
     smart_home_app_bridge_stop(&app.app_bridge);
+#endif
+#ifdef CONFIG_SMART_HOME_VOICE_TTS
+    voice_play_deinit();
 #endif
     smart_home_agent_app_deinit(&app);
     return ret == AGENT_OK ? EXIT_SUCCESS : EXIT_FAILURE;

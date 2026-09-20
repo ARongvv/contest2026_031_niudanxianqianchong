@@ -8,6 +8,9 @@
 #include "../../smart_home_cpu_debug.h"
 #include "../../smart_home_memory.h"
 #include <cagent/runtime_openvela.h>
+#ifdef CONFIG_SMART_HOME_VOICE_TTS
+#include "../../voice/smart_home_voice_play.h"
+#endif
 
 #ifndef CONFIG_SMART_HOME_DEMO_OFFLINE_UI
 #include <arpa/inet.h>
@@ -181,6 +184,15 @@ static void agent_done_apply(agent_done_t *done)
             smart_home_lvgl_finish_thinking(ui);
             smart_home_lvgl_append_msg_bubble(ui, done->output, 0);
             smart_home_lvgl_refresh_cards(ui);
+#ifdef CONFIG_SMART_HOME_VOICE_TTS
+            /* 语音播报在独立 worker 中合成与播放；开关关闭或服务
+             * 未就绪时静默跳过，不影响气泡展示路径。 */
+            if (voice_play_announce_enabled()) {
+                if (voice_play_text(done->output) != 0) {
+                    printf("[voice] announce enqueue failed\n");
+                }
+            }
+#endif
         } else {
             char message[160];
             snprintf(message,

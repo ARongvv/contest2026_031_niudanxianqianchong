@@ -56,6 +56,11 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
     CSRCS   += third_party/qrcodegen/qrcodegen.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_miloco_bind.c
   endif
+  ifneq ($(CONFIG_SMART_HOME_VOICE_TTS),)
+    CSRCS   += src/voice/smart_home_voice_player.c
+    CSRCS   += src/voice/smart_home_tts.c
+    CSRCS   += src/voice/smart_home_voice_play.c
+  endif
   ifneq ($(CONFIG_SMART_HOME_DEMO_UI_LVGL),)
     CSRCS   += src/ui/lvgl/smart_home_lvgl.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_agent.c
@@ -82,6 +87,13 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
   STACKSIZE += $(CONFIG_SMART_HOME_AUDIO_SMOKE_STACKSIZE)
   endif
 
+  ifneq ($(CONFIG_SMART_HOME_TTS_SMOKE),)
+  MAINSRC   += src/voice/tts_smoke_main.c
+  PROGNAME  += tts_smoke
+  PRIORITY  += $(CONFIG_SMART_HOME_DEMO_PRIORITY)
+  STACKSIZE += $(CONFIG_SMART_HOME_TTS_SMOKE_STACKSIZE)
+  endif
+
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/addons
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src/agent
@@ -100,6 +112,8 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
   # cAGENT 内部头（runtime_openvela.h，TLS 封装复用）
   CFLAGS += ${INCDIR_PREFIX}$(APPDIR)/packages/cAGENT/include
   CFLAGS += ${INCDIR_PREFIX}$(APPDIR)/packages/cAGENT/src/runtime
+  # TTS/ASR 客户端直接使用 mbedtls base64 编解码
+  CFLAGS += ${INCDIR_PREFIX}$(APPDIR)/crypto/mbedtls/mbedtls/include
 endif
 
 include $(APPDIR)/Application.mk

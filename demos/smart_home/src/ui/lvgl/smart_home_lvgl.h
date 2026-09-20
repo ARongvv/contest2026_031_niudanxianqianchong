@@ -171,6 +171,13 @@ typedef struct {
     lv_obj_t *settings_status_label;
     lv_obj_t *settings_mcp_discover_btn;
 
+#ifdef CONFIG_SMART_HOME_VOICE_TTS
+    lv_obj_t *settings_voice_body;
+    lv_obj_t *settings_voice_toggle;
+    lv_obj_t *settings_voice_switch;
+    lv_obj_t *settings_voice_status_label;
+#endif
+
 
     /* More / network setup: credentials are kept out of settings.json. */
     lv_obj_t *network_ssid_input;

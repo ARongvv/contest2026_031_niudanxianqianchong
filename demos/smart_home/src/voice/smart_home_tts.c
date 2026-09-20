@@ -1,0 +1,691 @@
+/****************************************************************************
+ * demos/smart_home/src/voice/smart_home_tts.c
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Copyright (c) 2026 The NuttX Contributors
+ *
+ ****************************************************************************/
+
+/****************************************************************************
+ * Included Files
+ ****************************************************************************/
+
+#include "smart_home_tts.h"
+
+#include <errno.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "../config/cjson_compat.h"
+#include "../config/smart_home_config_store.h"
+#include "../config/smart_home_secrets.h"
+#include "../smart_home_memory.h"
+
+#include <cagent/runtime.h>
+#include "runtime_openvela.h"
+
+#include "mbedtls/base64.h"
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#ifndef CONFIG_SMART_HOME_TTS_AUDIO_MAX_BYTES
+#define CONFIG_SMART_HOME_TTS_AUDIO_MAX_BYTES (768 * 1024)
+#endif
+
+#define TTS_CONFIG_PATH SMART_HOME_CONFIG_DIR "/voice.json"
+#define TTS_KEY_MAX     256
+#define TTS_TIMEOUT_MS  30000u
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+/* TTS 端点预设。首选 MiMo（与 LLM mimo 预设同 host，secrets 里的
+ * mimo key 直接复用）；其余为 OpenAI 兼容 speech 形态备选。 */
+static const smart_home_tts_preset_t g_tts_presets[] =
+{
+  {
+    "mimo", "MiMo TTS",
+    "api.xiaomimimo.com", "/v1/chat/completions", "443",
+    "mimo-v2.5-tts", "mimo_default",
+    SMART_HOME_TTS_API_CHAT_COMPLETIONS
+  },
+  {
+    "siliconflow", "SiliconFlow",
+    "api.siliconflow.cn", "/v1/audio/speech", "443",
+    "fishaudio/fish-speech-1.5", "alex",
+    SMART_HOME_TTS_API_SPEECH
+  },
+  {
+    "dashscope", "Aliyun DashScope",
+    "dashscope.aliyuncs.com", "/compatible-mode/v1/audio/speech", "443",
+    "cosyvoice-v2", "longwan_v2",
+    SMART_HOME_TTS_API_SPEECH
+  },
+  {
+    "openai", "OpenAI",
+    "api.openai.com", "/v1/audio/speech", "443",
+    "gpt-4o-mini-tts", "alloy",
+    SMART_HOME_TTS_API_SPEECH
+  },
+  {
+    "custom", "Custom", "", "/v1/audio/speech", "443", "", "",
+    SMART_HOME_TTS_API_SPEECH
+  },
+};
+
+static smart_home_tts_config_t g_tts_config;
+static pthread_mutex_t g_tts_config_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int g_tts_config_loaded;
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+static void tts_config_from_preset(smart_home_tts_config_t *config,
+                                   const smart_home_tts_preset_t *preset)
+{
+  strncpy(config->backend_id, preset->id,
+          sizeof(config->backend_id) - 1);
+  strncpy(config->host, preset->host, sizeof(config->host) - 1);
+  strncpy(config->path, preset->path, sizeof(config->path) - 1);
+  strncpy(config->port, preset->port, sizeof(config->port) - 1);
+  strncpy(config->model, preset->default_model,
+          sizeof(config->model) - 1);
+  strncpy(config->voice, preset->default_voice,
+          sizeof(config->voice) - 1);
+}
+
+static cJSON *tts_config_make_default(void *user_data)
+{
+  smart_home_tts_config_t config;
+  cJSON *root;
+
+  (void)user_data;
+  memset(&config, 0, sizeof(config));
+  tts_config_from_preset(&config,
+                         smart_home_tts_preset_by_id("mimo"));
+  config.enabled = 0;
+  config.sample_rate = 16000;
+
+  root = cJSON_CreateObject();
+  if (root == NULL ||
+      !cJSON_AddNumberToObject(root, "version", 1) ||
+      !cJSON_AddBoolToObject(root, "enabled", 0) ||
+      !cJSON_AddStringToObject(root, "backend_id", config.backend_id) ||
+      !cJSON_AddStringToObject(root, "host", config.host) ||
+      !cJSON_AddStringToObject(root, "path", config.path) ||
+      !cJSON_AddStringToObject(root, "port", config.port) ||
+      !cJSON_AddStringToObject(root, "model", config.model) ||
+      !cJSON_AddStringToObject(root, "voice", config.voice) ||
+      !cJSON_AddNumberToObject(root, "sample_rate",
+                               (double)config.sample_rate))
+    {
+      cJSON_Delete(root);
+      return NULL;
+    }
+
+  return root;
+}
+
+static void tts_config_read(const cJSON *root,
+                            smart_home_tts_config_t *config)
+{
+  const cJSON *item;
+
+  memset(config, 0, sizeof(*config));
+
+  item = cJSON_GetObjectItemCaseSensitive(root, "enabled");
+  config->enabled = cJSON_IsTrue(item);
+
+  item = cJSON_GetObjectItemCaseSensitive(root, "backend_id");
+  if (cJSON_IsString(item) && item->valuestring[0])
+    {
+      strncpy(config->backend_id, item->valuestring,
+              sizeof(config->backend_id) - 1);
+    }
+
+  item = cJSON_GetObjectItemCaseSensitive(root, "host");
+  if (cJSON_IsString(item))
+    {
+      strncpy(config->host, item->valuestring, sizeof(config->host) - 1);
+    }
+
+  item = cJSON_GetObjectItemCaseSensitive(root, "path");
+  if (cJSON_IsString(item) && item->valuestring[0])
+    {
+      strncpy(config->path, item->valuestring, sizeof(config->path) - 1);
+    }
+
+  item = cJSON_GetObjectItemCaseSensitive(root, "port");
+  if (cJSON_IsString(item) && item->valuestring[0])
+    {
+      strncpy(config->port, item->valuestring, sizeof(config->port) - 1);
+    }
+
+  item = cJSON_GetObjectItemCaseSensitive(root, "model");
+  if (cJSON_IsString(item))
+    {
+      strncpy(config->model, item->valuestring,
+              sizeof(config->model) - 1);
+    }
+
+  item = cJSON_GetObjectItemCaseSensitive(root, "voice");
+  if (cJSON_IsString(item))
+    {
+      strncpy(config->voice, item->valuestring,
+              sizeof(config->voice) - 1);
+    }
+
+  item = cJSON_GetObjectItemCaseSensitive(root, "sample_rate");
+  if (cJSON_IsNumber(item) && item->valuedouble >= 8000.0 &&
+      item->valuedouble <= 96000.0)
+    {
+      config->sample_rate = (uint32_t)item->valuedouble;
+    }
+  else
+    {
+      config->sample_rate = 16000;
+    }
+}
+
+static int tts_config_validate(const cJSON *root, void *user_data)
+{
+  smart_home_tts_config_t config;
+
+  (void)user_data;
+  tts_config_read(root, &config);
+
+  if (config.backend_id[0] == '\0' || config.path[0] == '\0' ||
+      config.port[0] == '\0')
+    {
+      return AGENT_ERROR_PARSE;
+    }
+
+  /* 只有启用播报才要求端点可用；关闭状态下允许残缺配置存在。 */
+  if (config.enabled &&
+      (config.host[0] == '\0' || config.model[0] == '\0'))
+    {
+      return AGENT_ERROR_PARSE;
+    }
+
+  return AGENT_OK;
+}
+
+static void tts_config_ensure_loaded(void)
+{
+  cJSON *root = NULL;
+  char error[96];
+
+  pthread_mutex_lock(&g_tts_config_mutex);
+  if (g_tts_config_loaded)
+    {
+      pthread_mutex_unlock(&g_tts_config_mutex);
+      return;
+    }
+
+  if (smart_home_config_store_load(TTS_CONFIG_PATH,
+                                   tts_config_make_default,
+                                   SMART_HOME_CONFIG_RECOVER_DEFAULT,
+                                   tts_config_validate, NULL,
+                                   &root, error, sizeof(error)) == AGENT_OK)
+    {
+      tts_config_read(root, &g_tts_config);
+      cJSON_Delete(root);
+    }
+  else
+    {
+      /* 连内存默认都构造失败时保持全零；enabled=0 使功能静默关闭。 */
+      fprintf(stderr, "tts: config load failed: %s\n", error);
+    }
+
+  g_tts_config_loaded = 1;
+  pthread_mutex_unlock(&g_tts_config_mutex);
+}
+
+/* 解析 WAV（RIFF/WAVE，PCM16）：返回 0 成功并给出 data 偏移、长度与
+ * 采样率。只支持最常见的 fmt 在 data 之前的单 data 块布局。 */
+static int tts_parse_wav(const uint8_t *data, size_t size,
+                         size_t *data_offset, size_t *data_len,
+                         uint32_t *rate)
+{
+  size_t offset;
+  uint32_t chunk_size;
+
+  if (size < 44 || memcmp(data, "RIFF", 4) != 0 ||
+      memcmp(data + 8, "WAVE", 4) != 0)
+    {
+      return -EINVAL;
+    }
+
+  offset = 12;
+  *rate = 0;
+  while (offset + 8 <= size)
+    {
+      chunk_size = (uint32_t)data[offset + 4] |
+                   ((uint32_t)data[offset + 5] << 8) |
+                   ((uint32_t)data[offset + 6] << 16) |
+                   ((uint32_t)data[offset + 7] << 24);
+
+      if (memcmp(data + offset, "fmt ", 4) == 0 && chunk_size >= 16)
+        {
+          uint16_t format;
+          uint16_t channels;
+          uint16_t bits;
+
+          format = (uint16_t)(data[offset + 8] |
+                              (data[offset + 9] << 8));
+          channels = (uint16_t)(data[offset + 10] |
+                                (data[offset + 11] << 8));
+          bits = (uint16_t)(data[offset + 22] |
+                            (data[offset + 23] << 8));
+          *rate = (uint32_t)(data[offset + 12] |
+                             (data[offset + 13] << 8) |
+                             ((uint32_t)data[offset + 14] << 16) |
+                             ((uint32_t)data[offset + 15] << 24));
+          if (format != 1 || channels != 1 || bits != 16 || *rate == 0)
+            {
+              return -EINVAL;
+            }
+        }
+      else if (memcmp(data + offset, "data", 4) == 0)
+        {
+          if (*rate == 0)
+            {
+              return -EINVAL;
+            }
+
+          *data_offset = offset + 8;
+          *data_len = chunk_size;
+          if (*data_offset + *data_len > size)
+            {
+              *data_len = size - *data_offset;
+            }
+
+          return 0;
+        }
+
+      offset += 8 + chunk_size + (chunk_size & 1u);
+    }
+
+  return -EINVAL;
+}
+
+/* 解析 MiMo chat 形态响应：缓冲内为 JSON 文本（choices[0].message.
+ * audio.data 为 base64 WAV），解码后写回缓冲起始处。成功时
+ * *decoded_len 为解码字节数。注意 cJSON 会把 base64 字符串拷贝到堆，
+ * 峰值内存约为响应缓冲的两倍。 */
+static int tts_decode_chat_response(uint8_t *audio, size_t capacity,
+                                    size_t body_len, size_t *decoded_len)
+{
+  const cJSON *choices;
+  const cJSON *choice;
+  const cJSON *message;
+  const cJSON *audio_obj;
+  const cJSON *data;
+  cJSON *root;
+  size_t olen = 0;
+  int ret;
+
+  if (body_len == 0 || body_len + 1 > capacity)
+    {
+      return -EINVAL;
+    }
+
+  audio[body_len] = '\0';
+  root = cJSON_Parse((const char *)audio);
+  if (root == NULL)
+    {
+      return -EINVAL;
+    }
+
+  choices = cJSON_GetObjectItemCaseSensitive(root, "choices");
+  choice = cJSON_IsArray(choices) && cJSON_GetArraySize(choices) > 0
+               ? cJSON_GetArrayItem(choices, 0)
+               : NULL;
+  message = choice != NULL
+                ? cJSON_GetObjectItemCaseSensitive(choice, "message")
+                : NULL;
+  audio_obj = message != NULL
+                  ? cJSON_GetObjectItemCaseSensitive(message, "audio")
+                  : NULL;
+  data = audio_obj != NULL
+             ? cJSON_GetObjectItemCaseSensitive(audio_obj, "data")
+             : NULL;
+
+  if (!cJSON_IsString(data) || data->valuestring == NULL ||
+      data->valuestring[0] == '\0')
+    {
+      fprintf(stderr, "tts: chat response has no audio.data\n");
+      cJSON_Delete(root);
+      return -EINVAL;
+    }
+
+  ret = mbedtls_base64_decode(audio, capacity, &olen,
+                              (const unsigned char *)data->valuestring,
+                              strlen(data->valuestring));
+  cJSON_Delete(root);
+  if (ret != 0)
+    {
+      fprintf(stderr, "tts: base64 decode failed: -0x%04x\n", -ret);
+      return -EINVAL;
+    }
+
+  *decoded_len = olen;
+  return 0;
+}
+
+/* 按后端形态组装请求体。返回堆缓冲（JSON 文本），调用者释放。 */
+static char *tts_build_request(const smart_home_tts_config_t *config,
+                               int api_style, const char *text)
+{
+  cJSON *root;
+  cJSON *messages;
+  cJSON *message;
+  cJSON *audio;
+  char *body;
+
+  root = cJSON_CreateObject();
+  if (root == NULL)
+    {
+      return NULL;
+    }
+
+  if (api_style == SMART_HOME_TTS_API_CHAT_COMPLETIONS)
+    {
+      /* MiMo 形态：合成文本放 role:assistant 消息，audio 携带格式与音色。
+       * message 先入树再填字段，失败路径由 cJSON_Delete(root) 统一回收。 */
+      messages = cJSON_AddArrayToObject(root, "messages");
+      message = cJSON_CreateObject();
+      if (messages == NULL || message == NULL ||
+          !cJSON_AddItemToArray(messages, message) ||
+          !cJSON_AddStringToObject(root, "model", config->model) ||
+          !cJSON_AddStringToObject(message, "role", "assistant") ||
+          !cJSON_AddStringToObject(message, "content", text))
+        {
+          cJSON_Delete(root);
+          return NULL;
+        }
+
+      audio = cJSON_AddObjectToObject(root, "audio");
+      if (audio == NULL ||
+          !cJSON_AddStringToObject(audio, "format", "wav") ||
+          !cJSON_AddStringToObject(audio, "voice", config->voice))
+        {
+          cJSON_Delete(root);
+          return NULL;
+        }
+    }
+  else
+    {
+      if (!cJSON_AddStringToObject(root, "model", config->model) ||
+          !cJSON_AddStringToObject(root, "input", text) ||
+          !cJSON_AddStringToObject(root, "voice", config->voice) ||
+          !cJSON_AddStringToObject(root, "response_format", "wav"))
+        {
+          cJSON_Delete(root);
+          return NULL;
+        }
+    }
+
+  body = cJSON_PrintUnformatted(root);
+  cJSON_Delete(root);
+  return body;
+}
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+size_t smart_home_tts_preset_count(void)
+{
+  return sizeof(g_tts_presets) / sizeof(g_tts_presets[0]);
+}
+
+const smart_home_tts_preset_t *smart_home_tts_preset_get(size_t index)
+{
+  if (index >= smart_home_tts_preset_count())
+    {
+      return NULL;
+    }
+
+  return &g_tts_presets[index];
+}
+
+const smart_home_tts_preset_t *smart_home_tts_preset_by_id(const char *id)
+{
+  size_t index;
+
+  for (index = 0; index < smart_home_tts_preset_count(); index++)
+    {
+      if (strcmp(g_tts_presets[index].id, id) == 0)
+        {
+          return &g_tts_presets[index];
+        }
+    }
+
+  return &g_tts_presets[smart_home_tts_preset_count() - 1];
+}
+
+void smart_home_tts_config_load(smart_home_tts_config_t *config)
+{
+  tts_config_ensure_loaded();
+  pthread_mutex_lock(&g_tts_config_mutex);
+  memcpy(config, &g_tts_config, sizeof(*config));
+  pthread_mutex_unlock(&g_tts_config_mutex);
+}
+
+int smart_home_tts_config_set(const smart_home_tts_config_t *config)
+{
+  int ret;
+
+  if (config == NULL)
+    {
+      return AGENT_ERROR_INVALID;
+    }
+
+  tts_config_ensure_loaded();
+  pthread_mutex_lock(&g_tts_config_mutex);
+  memcpy(&g_tts_config, config, sizeof(g_tts_config));
+  ret = AGENT_OK;
+  pthread_mutex_unlock(&g_tts_config_mutex);
+  return ret;
+}
+
+int smart_home_tts_config_save(const smart_home_tts_config_t *config)
+{
+  cJSON *root;
+  int ret;
+
+  if (config == NULL)
+    {
+      return AGENT_ERROR_INVALID;
+    }
+
+  root = cJSON_CreateObject();
+  if (root == NULL ||
+      !cJSON_AddNumberToObject(root, "version", 1) ||
+      !cJSON_AddBoolToObject(root, "enabled", config->enabled ? 1 : 0) ||
+      !cJSON_AddStringToObject(root, "backend_id", config->backend_id) ||
+      !cJSON_AddStringToObject(root, "host", config->host) ||
+      !cJSON_AddStringToObject(root, "path", config->path) ||
+      !cJSON_AddStringToObject(root, "port", config->port) ||
+      !cJSON_AddStringToObject(root, "model", config->model) ||
+      !cJSON_AddStringToObject(root, "voice", config->voice) ||
+      !cJSON_AddNumberToObject(root, "sample_rate",
+                               (double)config->sample_rate))
+    {
+      cJSON_Delete(root);
+      return AGENT_ERROR_NOMEM;
+    }
+
+  ret = smart_home_config_store_save(TTS_CONFIG_PATH, root);
+  cJSON_Delete(root);
+
+  if (ret == AGENT_OK)
+    {
+      smart_home_tts_config_set(config);
+    }
+
+  return ret;
+}
+
+int smart_home_tts_synth(const char *text,
+                         uint8_t **out_pcm, size_t *out_bytes,
+                         uint32_t *out_rate)
+{
+  smart_home_tts_config_t config;
+  const smart_home_tts_preset_t *preset;
+  int api_style;
+  agent_runtime_t runtime;
+  agent_http_request_t request;
+  agent_http_response_t response;
+  char api_key[TTS_KEY_MAX];
+  char auth_header[TTS_KEY_MAX + 32];
+  char *body = NULL;
+  uint8_t *audio = NULL;
+  size_t data_offset;
+  size_t data_len;
+  uint32_t rate;
+  int ret;
+
+  if (text == NULL || text[0] == '\0' || out_pcm == NULL ||
+      out_bytes == NULL || out_rate == NULL)
+    {
+      return AGENT_ERROR_INVALID;
+    }
+
+  *out_pcm = NULL;
+  *out_bytes = 0;
+
+  smart_home_tts_config_load(&config);
+  if (config.host[0] == '\0' || config.model[0] == '\0')
+    {
+      fprintf(stderr, "tts: backend not configured (voice.json)\n");
+      return AGENT_ERROR_INVALID;
+    }
+
+  /* 请求/响应形态由 backend_id 对应预设决定；未知 id 走 speech 形态。 */
+  preset = smart_home_tts_preset_by_id(config.backend_id);
+  api_style = preset != NULL ? preset->api_style
+                             : SMART_HOME_TTS_API_SPEECH;
+
+  ret = smart_home_secrets_get_model_api_key(config.backend_id,
+                                             api_key, sizeof(api_key));
+  if (ret != AGENT_OK)
+    {
+      fprintf(stderr, "tts: no api key for backend '%s' in secrets.json\n",
+              config.backend_id);
+      return ret;
+    }
+
+  body = tts_build_request(&config, api_style, text);
+  if (body == NULL)
+    {
+      return AGENT_ERROR_NOMEM;
+    }
+
+  audio = smart_home_bulk_alloc(CONFIG_SMART_HOME_TTS_AUDIO_MAX_BYTES);
+  if (audio == NULL)
+    {
+      free(body);
+      return AGENT_ERROR_NOMEM;
+    }
+
+  snprintf(auth_header, sizeof(auth_header),
+           "Authorization: Bearer %s\r\n"
+           "Content-Type: application/json\r\n",
+           api_key);
+
+  memset(&runtime, 0, sizeof(runtime));
+  agent_runtime_openvela_fill(&runtime);
+  if (runtime.http_post == NULL)
+    {
+      /* OFFLINE_UI 等无 TLS 运行时的镜像：合成不可用而非崩溃。 */
+      fprintf(stderr, "tts: runtime has no http_post (no TLS profile)\n");
+      free(body);
+      smart_home_bulk_free(audio);
+      return AGENT_ERROR_NOTSUP;
+    }
+
+  memset(&request, 0, sizeof(request));
+  request.method = "POST";
+  request.host = config.host;
+  request.path = config.path;
+  request.port = config.port;
+  request.headers = auth_header;
+  request.body = body;
+  request.body_size = strlen(body);
+  request.timeout_ms = TTS_TIMEOUT_MS;
+
+  memset(&response, 0, sizeof(response));
+  response.body = (char *)audio;
+  response.body_size = CONFIG_SMART_HOME_TTS_AUDIO_MAX_BYTES;
+
+  ret = runtime.http_post(&request, &response, runtime.user_data);
+  free(body);
+
+  if (ret != AGENT_OK)
+    {
+      fprintf(stderr, "tts: synth http failed: %d\n", ret);
+      goto out;
+    }
+
+  if (response.status_code < 200 || response.status_code >= 300)
+    {
+      /* 错误响应是 JSON 文本；截断打印辅助排障。 */
+      fprintf(stderr, "tts: synth http status=%d body: %.200s\n",
+              response.status_code,
+              response.bytes_written > 0 ? (const char *)audio : "(empty)");
+      ret = AGENT_ERROR_MODEL;
+      goto out;
+    }
+
+  if (api_style == SMART_HOME_TTS_API_CHAT_COMPLETIONS)
+    {
+      size_t decoded_len = 0;
+
+      ret = tts_decode_chat_response(
+          audio, CONFIG_SMART_HOME_TTS_AUDIO_MAX_BYTES,
+          response.bytes_written, &decoded_len);
+      if (ret != 0)
+        {
+          ret = AGENT_ERROR_PARSE;
+          goto out;
+        }
+
+      response.bytes_written = decoded_len;
+    }
+
+  ret = tts_parse_wav(audio, response.bytes_written,
+                      &data_offset, &data_len, &rate);
+  if (ret != 0)
+    {
+      fprintf(stderr, "tts: response is not PCM16 mono wav "
+              "(len=%zu)\n", response.bytes_written);
+      ret = AGENT_ERROR_PARSE;
+      goto out;
+    }
+
+  if (data_len == 0)
+    {
+      ret = AGENT_ERROR_PARSE;
+      goto out;
+    }
+
+  /* 原地搬移去掉 WAV 头，缓冲仍由 bulk 堆分配，语义与声明一致。 */
+  memmove(audio, audio + data_offset, data_len);
+  *out_pcm = audio;
+  *out_bytes = data_len;
+  *out_rate = rate;
+  return AGENT_OK;
+
+out:
+  smart_home_bulk_free(audio);
+  return ret;
+}
