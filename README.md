@@ -83,7 +83,9 @@ picocom -b 115200 /dev/ttyACM0
 ### 4. 写入 Smart Home 运行时资源
 
 P4X 正式 Smart Home UI 从 LittleFS 读取技能、配置、MiSans 字体和 PNG 图标。构建
-`smart_home` 固件后生成数据镜像并写入固定的 `0x800000` 分区：
+`smart_home` 固件后生成数据镜像并写入固定的 `0x600000` 分区（10 MiB，
+与 defconfig 的 `CONFIG_ESPRESSIF_STORAGE_MTD_OFFSET=0x600000`、
+`CONFIG_ESPRESSIF_STORAGE_MTD_SIZE=0xa00000` 一致）：
 
 ```bash
 cd ~/openvela
@@ -92,12 +94,13 @@ contest2026_031_niudanxianqianchong/scripts/make_p4x_littlefs_data_image.sh
 
 esptool --chip esp32p4 --port /dev/ttyACM0 --baud 921600 \
   write-flash -fs 16MB -fm dio -ff 80m \
-  0x800000 out/p4x_littlefs_data/data_lfs.bin
+  0x600000 out/p4x_littlefs_data/data_lfs.bin
 ```
 
-脚本默认仅打包 `MiSans-Normal-subset.ttf` 并重命名为设备侧的
-`/data/res/fonts/MiSans-Normal.ttf`，以及 `res/icons/*.png`；不会打包完整字体或
-`secrets.json`。`src/ui/lvgl/icons/*.c` 的 LVGL 字体图标则会直接编译进
+脚本默认打包完整 `MiSans-Normal.ttf`（约 7.9 MB，设备侧路径
+`/data/res/fonts/MiSans-Normal.ttf`，由 LVGL TinyTTF 从 PSRAM 预加载内存创建字体
+实例）和 `res/icons/*.png`；不会打包 `secrets.json`。`src/ui/lvgl/icons/*.c` 的
+LVGL 字体图标则会直接编译进
 固件，不在数据镜像中；设备、风扇、灯等核心语义图标即使 LittleFS 中缺少 PNG 仍可显示。
 如需调试最小镜像，可传入 `WITH_FONTS=0 WITH_ICONS=0`。
 
