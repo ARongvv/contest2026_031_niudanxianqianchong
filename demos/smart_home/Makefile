@@ -75,11 +75,14 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
   CXXSRCS += src/voice/kws/kws_infer.cc
   # tflite-micro 实际源码在双层目录（repo 清单嵌套，同 mbedtls/libcxx 模式）
   TFLM_ROOT := $(APPDIR)/mlearning/tflite-micro/tflite-micro
-  CFLAGS   += ${INCDIR_PREFIX}$(TFLM_ROOT)
+  # 与 TFLM 包自身的编译宏对齐：strip 掉 MicroPrintf 等日志符号，
+  # 否则本模块的引用在链接期无法解析（库中实现已被剥离）
+  KWS_CXXDEFS := -DTF_LITE_STRIP_ERROR_STRINGS
+  CFLAGS   += ${INCDIR_PREFIX}$(TFLM_ROOT) $(KWS_CXXDEFS)
   CFLAGS   += ${INCDIR_PREFIX}$(APPDIR)/math/gemmlowp/gemmlowp
   CFLAGS   += ${INCDIR_PREFIX}$(APPDIR)/math/kissfft/kissfft
   CFLAGS   += ${INCDIR_PREFIX}$(APPDIR)/math/ruy/ruy
-  CXXFLAGS += ${INCDIR_PREFIX}$(TFLM_ROOT)
+  CXXFLAGS += ${INCDIR_PREFIX}$(TFLM_ROOT) $(KWS_CXXDEFS)
   CXXFLAGS += ${INCDIR_PREFIX}$(APPDIR)/math/gemmlowp/gemmlowp
   CXXFLAGS += ${INCDIR_PREFIX}$(APPDIR)/math/kissfft/kissfft
   CXXFLAGS += ${INCDIR_PREFIX}$(APPDIR)/math/ruy/ruy
