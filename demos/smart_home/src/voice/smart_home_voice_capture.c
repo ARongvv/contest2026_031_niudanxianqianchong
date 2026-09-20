@@ -75,7 +75,7 @@ struct voice_capture_state_s
   mqd_t mq;
   char mq_name[VOICE_CAPTURE_MQ_MAX];
   FAR struct ap_buffer_s **buffers;
-  struct audio_buf_info_s buffer_info;
+  struct ap_buffer_info_s buffer_info;
 };
 
 /****************************************************************************

@@ -46,7 +46,7 @@ struct voice_player_state_s
 {
   FAR struct ap_buffer_s **buffers;
   struct audio_buf_desc_s desc;
-  struct audio_buf_info_s buffer_info;
+  struct ap_buffer_info_s buffer_info;
   mqd_t mq;
   char mq_name[VOICE_PLAYER_MQ_NAME_MAX];
   int audio_fd;

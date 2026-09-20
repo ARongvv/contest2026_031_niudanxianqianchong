@@ -546,7 +546,7 @@ int smart_home_tts_synth(const char *text,
   agent_http_request_t request;
   agent_http_response_t response;
   char api_key[TTS_KEY_MAX];
-  char auth_header[TTS_KEY_MAX + 32];
+  char auth_header[TTS_KEY_MAX + 64];
   char *body = NULL;
   uint8_t *audio = NULL;
   size_t data_offset;
