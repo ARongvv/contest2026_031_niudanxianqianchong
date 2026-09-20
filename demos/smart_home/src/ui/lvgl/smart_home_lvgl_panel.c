@@ -1915,8 +1915,6 @@ static lv_obj_t *create_miloco_card(smart_home_lvgl_t *ui,
         lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
     }
 
-    lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
-
     content = lv_obj_create(card);
     lv_obj_remove_style_all(content);
     lv_obj_set_size(content, lv_pct(100), lv_pct(100));
