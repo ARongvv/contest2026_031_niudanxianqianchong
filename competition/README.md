@@ -1,0 +1,51 @@
+# ESP32-P4X 新硬件适配证据文档（2026 OpenVela AI 硬件开发者大赛）
+
+本目录是「新硬件适配」赛道的评审证据文档包。项目以 **Route A（custom chip +
+custom board）**方式将 openvela（NuttX 内核）适配到 **ESP32-P4X-Function-EV-Board**
+开发板：`chips/esp32p4/`（芯片层 + Espressif HAL + MIPI DSI/CSI Host）与
+`board/esp32p4/`（板级装配 + 40 余个独立 defconfig），EK79007/GT911 驱动源码
+维护在 `drivers/nuttx/`，独立硬件验证程序在 `app/`（dsi_probe / gt911_probe /
+csi_probe / video_test）。
+
+每个适配域一份文档，统一结构：**适配背景与目标 → 适配流程 → 关键代码与配置 →
+适配证据（真机验收）→ 遇到的问题与解决 → 当前验收状态与边界 → 原始文档索引**。
+
+## 文档索引
+
+| # | 文档 | 适配域 | 真机验收状态 |
+| --- | --- | --- | --- |
+| 01 | [系统启动与芯片移植](01-系统启动与芯片移植.md) | Route A 芯片层、板级 bring-up、最小系统（USB Serial/JTAG + NSH）、ESP-HAL 治理 | ✅ NSH 启动与内建命令通过 |
+| 02 | [MIPI-DSI 屏幕显示适配](02-MIPI-DSI屏幕显示适配.md) | MIPI-DSI Host、EK79007 面板（1024×600）、NuttX framebuffer、LVGL | ✅ 色条 / `/dev/fb0` + `fb` 示例 / LVGL 静态首页三项通过 |
+| 03 | [触摸 GT911 适配](03-触摸GT911适配.md) | I2C 触摸、`/dev/input0`、gt911_probe | ✅ 单指 DOWN/MOVE/UP 通过；多点与 LVGL 输入待验证 |
+| 04 | [MIPI-CSI 摄像头 SC2336 适配](04-MIPI-CSI摄像头SC2336适配.md) | MIPI-CSI、CSI Host/Bridge、GDMA、V4L2（RGB565） | ✅ 300 帧 `app_fps=30.02`、`sequence_gaps=0` 吞吐验收通过 |
+| 05 | [WiFi 适配（板载 C6 · ESP-Hosted）](05-WiFi-C6托管适配.md) | SDIO 总线、ESP-Hosted 控制面、WLAN 数据面 | ✅ 枚举→关联→DHCP→DNS→TCP 443；TLS/模型调用证据待补 |
+| 06 | [以太网适配](06-以太网适配.md) | P4 内置 EMAC + 外置 PHY、`eth0` | 方案 + 代码就绪，待真机验证 |
+| 07 | [音频 ES8311 适配](07-音频ES8311适配.md) | ES8311 codec、I2S/GDMA、语音链路（TTS/ASR/KWS） | ✅ 构建通过 + 真机初始化通过；录放与语音链路验收进行中 |
+| 08 | [存储 LittleFS 与系统集成](08-存储LittleFS与系统集成.md) | LittleFS 数据分区（`0x600000`，10 MiB）、PSRAM 资源预加载、部署脚本 | ✅ `/data` 挂载 + 完整 MiSans（7,943,504 B）预加载通过 |
+
+## 与大赛评分维度的对应
+
+| 评分维度（分值） | 对应证据 |
+| --- | --- |
+| 技术难度（30） | 新芯片从 0 到 1 的 Route A 移植（01）；MIPI-DSI/CSI 双高速接口、SDIO 托管 WiFi、GDMA 音频等底层驱动扩展（02/04/05/07）；携带 2 个 nuttx V4L2 修复 patch（04） |
+| 项目完整度（20） | 40+ 独立 defconfig 配置矩阵、probe-first 独立验证程序（`app/`）、SmartHome 可运行 Demo；本目录 8 份文档含完整适配流程与复现命令 |
+| AI 开发（10） | AI Coding 日志已按大赛要求归集至仓内 `logs/`（见《AI Coding 日志归集与提交手册》） |
+| 展示效果（10） | 各文档"适配证据"章节的真机日志与视觉验收记录可直接用于路演材料 |
+
+## 证据规范
+
+- **逐字摘录、注明出处**：所有真机日志、命令输出均逐字取自仓内源文档（各文档
+  附录列明原始路径），不做改写或外推。
+- **证据分级**：遵循"枚举成功 ≠ 数据有效 ≠ 时序/业务达标"，各文档按级给出结论。
+- **如实标注边界**：源文档中"待真机验证""证据不足"等限定原样保留，方案类内容
+  不写成已完成能力。
+- **溯源**：原始文档唯一事实源在 `docs/硬件适配/`、`docs/开发日志/`、
+  `docs/开发计划/`、`docs/开发指南/`；本目录为面向评审的整合视图。
+
+## 提交材料清单（对照《参赛代码提交指南》）
+
+1. 专属仓代码（本仓 `chips/` + `board/` + `drivers/` + `app/` + `demos/` + `scripts/`）；
+2. AI Coding 日志：仓内 `logs/`；
+3. 作品介绍文档（.docx / .pdf / .pptx）与演示视频（≤ 5 分钟）另行准备，
+   本目录 8 份证据文档可作为介绍文档的技术附录；
+4. 仓库 README 为作品入口（名称、赛道、运行方式、简介）。
