@@ -11,6 +11,12 @@
 #include "images/smart_home_icons.h"
 
 #include "../../config/smart_home_config.h"
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+#include <pthread.h>
+#include "../../smart_home_memory.h"
+#include "../../voice/smart_home_asr.h"
+#include "../../voice/smart_home_voice_capture.h"
+#endif
 
 #include <stdio.h>
 #include <string.h>
@@ -173,6 +179,70 @@ static void chat_send_event_cb(lv_event_t *event)
         submit_chat_input(ui);
     }
 }
+
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+/* PTT 语音输入：点击开始录音（按钮转"停止"），再点结束并云端识别，
+ * 结果由 agent.c 的 pending 队列回投 LVGL 线程后自动发送。 */
+void smart_home_lvgl_chat_asr_finish(smart_home_lvgl_t *ui)
+{
+    if (!ui) {
+        return;
+    }
+
+    ui->asr_active = 0;
+    ui->asr_abort = 0;
+    if (ui->chat_mic_btn) {
+        smart_home_lvgl_set_bg(ui->chat_mic_btn, SMART_HOME_UI_COLOR_PRIMARY);
+    }
+    if (ui->chat_mic_label) {
+        lv_label_set_text(ui->chat_mic_label, "语音");
+    }
+}
+
+static void chat_asr_begin(smart_home_lvgl_t *ui)
+{
+    int ret;
+
+    if (!ui) {
+        return;
+    }
+
+    ui->asr_active = 1;
+    ui->asr_abort = 0;
+    if (ui->chat_mic_btn) {
+        smart_home_lvgl_set_bg(ui->chat_mic_btn, SMART_HOME_UI_COLOR_DANGER);
+    }
+    if (ui->chat_mic_label) {
+        lv_label_set_text(ui->chat_mic_label, "停止");
+    }
+    if (ui->chat_status) {
+        lv_label_set_text(ui->chat_status, "正在录音，再点一次结束…");
+        lv_obj_clear_flag(ui->chat_status, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    ret = smart_home_lvgl_submit_asr_job(ui);
+    if (ret != 0) {
+        smart_home_lvgl_append_error_bubble(ui, "语音输入启动失败（内存不足）");
+        smart_home_lvgl_chat_asr_finish(ui);
+    }
+}
+
+static void chat_mic_event_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
+
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED || !ui) {
+        return;
+    }
+
+    if (ui->asr_active) {
+        ui->asr_abort = 1;
+        return;
+    }
+
+    chat_asr_begin(ui);
+}
+#endif
 
 void smart_home_lvgl_append_msg_bubble(smart_home_lvgl_t *ui,
                                        const char *text,
@@ -768,7 +838,11 @@ void smart_home_lvgl_build_chat_screen(smart_home_lvgl_t *ui)
     ui->chat_input_bar = input_bar;
 
     ui->chat_input = lv_textarea_create(input_bar);
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+    lv_obj_set_size(ui->chat_input, content_w - 126, SMART_HOME_CHAT_INPUT_H);
+#else
     lv_obj_set_size(ui->chat_input, content_w - 70, SMART_HOME_CHAT_INPUT_H);
+#endif
     lv_textarea_set_one_line(ui->chat_input, true);
     lv_textarea_set_placeholder_text(ui->chat_input, "问问 OpenVela…");
     lv_obj_set_style_text_font(ui->chat_input, smart_home_lvgl_font(12), 0);
@@ -778,6 +852,23 @@ void smart_home_lvgl_build_chat_screen(smart_home_lvgl_t *ui)
                         chat_input_event_cb,
                         LV_EVENT_ALL,
                         ui);
+
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+    ui->chat_mic_btn = lv_btn_create(input_bar);
+    lv_obj_remove_style_all(ui->chat_mic_btn);
+    lv_obj_set_size(ui->chat_mic_btn, 48, SMART_HOME_CHAT_INPUT_H);
+    lv_obj_set_style_radius(ui->chat_mic_btn, 8, 0);
+    smart_home_lvgl_set_bg(ui->chat_mic_btn, SMART_HOME_UI_COLOR_PRIMARY);
+    lv_obj_add_event_cb(ui->chat_mic_btn,
+                        chat_mic_event_cb,
+                        LV_EVENT_CLICKED,
+                        ui);
+    ui->chat_mic_label = smart_home_lvgl_label_create(ui->chat_mic_btn,
+                                                      "语音",
+                                                      lv_color_white(),
+                                                      12);
+    lv_obj_center(ui->chat_mic_label);
+#endif
 
     ui->chat_send_btn = lv_btn_create(input_bar);
     lv_obj_remove_style_all(ui->chat_send_btn);

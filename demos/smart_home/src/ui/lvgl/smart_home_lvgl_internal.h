@@ -129,6 +129,11 @@ void smart_home_lvgl_refresh_tool_directory(smart_home_lvgl_t *ui);
 void smart_home_lvgl_settings_deinit(void);
 
 void smart_home_lvgl_chat_send_text(smart_home_lvgl_t *ui, const char *text);
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+/* PTT 语音输入：LVGL 线程调用；finish 在 ASR 结果分发后复位按钮。 */
+void smart_home_lvgl_chat_asr_finish(smart_home_lvgl_t *ui);
+int smart_home_lvgl_submit_asr_job(smart_home_lvgl_t *ui);
+#endif
 void smart_home_lvgl_append_msg_bubble(smart_home_lvgl_t *ui,
                                        const char *text,
                                        int is_user);

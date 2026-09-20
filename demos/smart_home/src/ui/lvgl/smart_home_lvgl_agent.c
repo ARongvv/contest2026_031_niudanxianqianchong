@@ -8,6 +8,10 @@
 #include "../../smart_home_cpu_debug.h"
 #include "../../smart_home_memory.h"
 #include <cagent/runtime_openvela.h>
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+#include "../../voice/smart_home_asr.h"
+#include "../../voice/smart_home_voice_capture.h"
+#endif
 #ifdef CONFIG_SMART_HOME_VOICE_TTS
 #include "../../voice/smart_home_voice_play.h"
 #endif
@@ -58,7 +62,16 @@ typedef struct {
 typedef enum {
     UI_PENDING_EVENT = 0,
     UI_PENDING_DONE,
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+    UI_PENDING_ASR_TEXT,
+#endif
 } ui_pending_type_t;
+
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+typedef struct {
+    char text[SMART_HOME_INPUT_SIZE];
+} ui_asr_payload_t;
+#endif
 
 typedef struct ui_pending_item {
     struct ui_pending_item *next;
@@ -66,6 +79,9 @@ typedef struct ui_pending_item {
     union {
         ui_event_payload_t event;
         agent_done_t *done;
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+        ui_asr_payload_t asr;
+#endif
     } data;
 } ui_pending_item_t;
 
@@ -346,6 +362,105 @@ int smart_home_lvgl_submit_agent_job(smart_home_lvgl_t *ui, const char *text)
     return AGENT_OK;
 }
 
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+/* ASR worker：录音 + MiMo 云端识别，结果经 pending 队列回投 LVGL 线程。
+ * 本函数绝不调用任何 LVGL API。 */
+static void *asr_worker_main(void *arg)
+{
+    smart_home_lvgl_t *ui = (smart_home_lvgl_t *)arg;
+    ui_pending_item_t *item;
+    uint8_t *pcm = NULL;
+    size_t bytes = 0;
+    char text[SMART_HOME_INPUT_SIZE];
+    int ret;
+
+    text[0] = '\0';
+
+    ret = voice_capture_record(CONFIG_SMART_HOME_ASR_AUDIO_MAX_SECONDS,
+                               &ui->asr_abort, &pcm, &bytes);
+    if (ret == 0 && bytes >= 3200)
+      {
+        /* 至少 0.1 s（3200 字节）才值得上传识别。 */
+        smart_home_asr_recognize(pcm, bytes, text, sizeof(text));
+      }
+
+    if (pcm != NULL)
+      {
+        smart_home_bulk_free(pcm);
+      }
+
+    item = (ui_pending_item_t *)calloc(1, sizeof(*item));
+    if (item != NULL)
+      {
+        item->type = UI_PENDING_ASR_TEXT;
+        strncpy(item->data.asr.text, text, sizeof(item->data.asr.text) - 1);
+        item->data.asr.text[sizeof(item->data.asr.text) - 1] = '\0';
+        if (agent_ui_enqueue(ui, item) != 0)
+          {
+            free(item);
+          }
+      }
+
+    return NULL;
+}
+
+int smart_home_lvgl_submit_asr_job(smart_home_lvgl_t *ui)
+{
+    pthread_attr_t attr;
+    int attr_ready = 0;
+    int ret;
+
+    if (!ui)
+      {
+        return AGENT_ERROR_INVALID;
+      }
+
+    if (ui->asr_worker_active)
+      {
+        pthread_join(ui->asr_worker, NULL);
+        ui->asr_worker_active = 0;
+      }
+
+    if (!ui->asr_worker_stack_alloc)
+      {
+        ui->asr_worker_stack_alloc = smart_home_bulk_alloc(
+            CONFIG_SMART_HOME_VOICE_ASR_WORKER_STACKSIZE +
+            STACK_ALIGNMENT - 1u);
+        if (!ui->asr_worker_stack_alloc)
+          {
+            return AGENT_ERROR_NOMEM;
+          }
+
+        ui->asr_worker_stack = (void *)STACK_ALIGN_UP(
+            (uintptr_t)ui->asr_worker_stack_alloc);
+      }
+
+    ret = pthread_attr_init(&attr);
+    if (ret == 0)
+      {
+        attr_ready = 1;
+        ret = pthread_attr_setstack(&attr, ui->asr_worker_stack,
+                                    CONFIG_SMART_HOME_VOICE_ASR_WORKER_STACKSIZE);
+      }
+    if (ret == 0)
+      {
+        ret = pthread_create(&ui->asr_worker, &attr, asr_worker_main, ui);
+      }
+    if (attr_ready)
+      {
+        pthread_attr_destroy(&attr);
+      }
+
+    if (ret != 0)
+      {
+        return AGENT_ERROR;
+      }
+
+    ui->asr_worker_active = 1;
+    return AGENT_OK;
+}
+#endif
+
 static void ui_event_apply(smart_home_lvgl_t *ui,
                            const ui_event_payload_t *payload)
 {
@@ -468,7 +583,24 @@ void smart_home_lvgl_process_pending(smart_home_lvgl_t *ui)
 
         if (item->type == UI_PENDING_DONE) {
             agent_done_apply(item->data.done);
-        } else {
+        }
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+        else if (item->type == UI_PENDING_ASR_TEXT) {
+            if (ui->asr_worker_active) {
+                pthread_join(ui->asr_worker, NULL);
+                ui->asr_worker_active = 0;
+            }
+
+            if (item->data.asr.text[0]) {
+                smart_home_lvgl_chat_send_text(ui, item->data.asr.text);
+            } else {
+                smart_home_lvgl_append_error_bubble(
+                    ui, "语音识别失败：录音太短、密钥未配置或网络错误。");
+            }
+            smart_home_lvgl_chat_asr_finish(ui);
+        }
+#endif
+        else {
             ui_event_apply(ui, &item->data.event);
         }
         free(item);

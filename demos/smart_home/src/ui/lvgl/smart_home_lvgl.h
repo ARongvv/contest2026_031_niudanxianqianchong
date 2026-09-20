@@ -150,6 +150,17 @@ typedef struct {
     int       chat_trace_active;
     int       chat_trace_tool_count;
     int       chat_msg_count;
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+    /* PTT 语音输入（点击开始/点击结束，识别后自动发送）。 */
+    lv_obj_t *chat_mic_btn;
+    lv_obj_t *chat_mic_label;
+    int       asr_active;          /* 仅 LVGL 线程读写 */
+    volatile int asr_abort;        /* LVGL 线程置 1 请求结束录音 */
+    int       asr_worker_active;   /* worker 存活标志（LVGL 线程 join） */
+    pthread_t asr_worker;
+    void     *asr_worker_stack_alloc;
+    void     *asr_worker_stack;
+#endif
 
     /* Settings screen widgets */
     lv_obj_t *settings_page;

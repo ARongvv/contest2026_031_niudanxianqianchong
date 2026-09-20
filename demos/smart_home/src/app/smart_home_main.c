@@ -13,6 +13,9 @@
 #ifdef CONFIG_SMART_HOME_VOICE_TTS
 #include "../voice/smart_home_voice_play.h"
 #endif
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+#include "../voice/smart_home_voice_capture.h"
+#endif
 #ifdef CONFIG_SMART_HOME_DEMO_UI_LVGL
 #include "../ui/lvgl/smart_home_lvgl.h"
 #endif
@@ -168,6 +171,10 @@ int main(int argc, char *argv[])
 #endif
 #ifdef CONFIG_SMART_HOME_VOICE_TTS
     voice_play_deinit();
+#endif
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+    /* 采集服务懒启动；退出时统一释放录音设备。 */
+    voice_capture_deinit();
 #endif
     smart_home_agent_app_deinit(&app);
     return ret == AGENT_OK ? EXIT_SUCCESS : EXIT_FAILURE;
