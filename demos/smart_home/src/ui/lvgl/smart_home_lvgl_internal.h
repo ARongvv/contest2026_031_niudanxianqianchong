@@ -132,7 +132,14 @@ void smart_home_lvgl_chat_send_text(smart_home_lvgl_t *ui, const char *text);
 #ifdef CONFIG_SMART_HOME_VOICE_ASR
 /* PTT 语音输入：LVGL 线程调用；finish 在 ASR 结果分发后复位按钮。 */
 void smart_home_lvgl_chat_asr_finish(smart_home_lvgl_t *ui);
+void smart_home_lvgl_chat_asr_begin(smart_home_lvgl_t *ui);
 int smart_home_lvgl_submit_asr_job(smart_home_lvgl_t *ui);
+#endif
+#ifdef CONFIG_SMART_HOME_KWS
+/* 语音会话联动（KWS 唤醒 → 聊天/PTT → TTS 播报）。 */
+void smart_home_lvgl_voice_session_start(smart_home_lvgl_t *ui);
+void smart_home_voice_session_on_wake(smart_home_lvgl_t *ui, float score);
+int smart_home_lvgl_post_kws_wake(smart_home_lvgl_t *ui, float score);
 #endif
 void smart_home_lvgl_append_msg_bubble(smart_home_lvgl_t *ui,
                                        const char *text,

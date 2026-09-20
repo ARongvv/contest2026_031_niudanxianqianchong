@@ -86,6 +86,9 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
   ifneq ($(CONFIG_SMART_HOME_KWS),)
     CSRCS   += src/voice/smart_home_kws_frontend.c
     CSRCS   += src/voice/smart_home_kws_service.c
+    ifneq ($(CONFIG_SMART_HOME_DEMO_UI_LVGL),)
+      CSRCS += src/ui/lvgl/smart_home_lvgl_voice_session.c
+    endif
   endif
   ifneq ($(CONFIG_SMART_HOME_DEMO_UI_LVGL),)
     CSRCS   += src/ui/lvgl/smart_home_lvgl.c

@@ -24,6 +24,8 @@
 #include <unistd.h>
 
 #include "../smart_home_memory.h"
+#include "../config/cjson_compat.h"
+#include "../config/smart_home_config_store.h"
 #include "kws/kws_infer.h"
 #include "smart_home_kws_frontend.h"
 #include "smart_home_voice_capture.h"
@@ -31,6 +33,8 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+#define KWS_CONFIG_PATH SMART_HOME_CONFIG_DIR "/kws.json"
 
 /* 推理 worker 优先级：低于采集(110)与 LVGL，后台消化推理。 */
 #define KWS_WORKER_PRIORITY 120
@@ -269,6 +273,98 @@ out_stopped:
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+/* ── kws.json 配置 ──────────────────────────────────────────── */
+
+static cJSON *kws_config_make_default(void *user_data)
+{
+  cJSON *root;
+
+  (void)user_data;
+  root = cJSON_CreateObject();
+  if (root == NULL ||
+      !cJSON_AddNumberToObject(root, "version", 1) ||
+      !cJSON_AddBoolToObject(root, "enabled", 1))
+    {
+      cJSON_Delete(root);
+      return NULL;
+    }
+
+  return root;
+}
+
+static void kws_config_read(const cJSON *root,
+                            smart_home_kws_config_t *config)
+{
+  const cJSON *item;
+
+  config->enabled = 1;
+  item = cJSON_GetObjectItemCaseSensitive(root, "enabled");
+  if (cJSON_IsBool(item))
+    {
+      config->enabled = cJSON_IsTrue(item);
+    }
+}
+
+static int kws_config_validate(const cJSON *root, void *user_data)
+{
+  smart_home_kws_config_t config;
+
+  (void)user_data;
+  kws_config_read(root, &config);
+  return AGENT_OK;
+}
+
+void smart_home_kws_config_load(smart_home_kws_config_t *config)
+{
+  cJSON *root = NULL;
+  char error[96];
+
+  if (config == NULL)
+    {
+      return;
+    }
+
+  if (smart_home_config_store_load(KWS_CONFIG_PATH,
+                                   kws_config_make_default,
+                                   SMART_HOME_CONFIG_RECOVER_DEFAULT,
+                                   kws_config_validate, NULL,
+                                   &root, error, sizeof(error)) == AGENT_OK)
+    {
+      kws_config_read(root, config);
+      cJSON_Delete(root);
+    }
+  else
+    {
+      config->enabled = 1;
+    }
+}
+
+int smart_home_kws_config_save(const smart_home_kws_config_t *config)
+{
+  cJSON *root;
+  int ret;
+
+  if (config == NULL)
+    {
+      return AGENT_ERROR_INVALID;
+    }
+
+  root = cJSON_CreateObject();
+  if (root == NULL ||
+      !cJSON_AddNumberToObject(root, "version", 1) ||
+      !cJSON_AddBoolToObject(root, "enabled", config->enabled ? 1 : 0))
+    {
+      cJSON_Delete(root);
+      return AGENT_ERROR_NOMEM;
+    }
+
+  ret = smart_home_config_store_save(KWS_CONFIG_PATH, root);
+  cJSON_Delete(root);
+  return ret;
+}
+
+/* ── 服务生命周期 ───────────────────────────────────────────── */
 
 int kws_service_start(kws_wake_cb_t cb, void *user_data)
 {

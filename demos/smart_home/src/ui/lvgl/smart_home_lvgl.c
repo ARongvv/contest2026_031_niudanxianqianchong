@@ -99,6 +99,12 @@ smart_home_lvgl_t *smart_home_lvgl_init(smart_home_agent_app_t *app)
     smart_home_lvgl_log_build_stage("settings", "begin");
     smart_home_lvgl_build_settings_screen(ui);
     smart_home_lvgl_log_build_stage("settings", "done");
+
+#ifdef CONFIG_SMART_HOME_KWS
+    /* 语音会话联动：KWS 常驻监听（kws.json enabled 时）+
+     * TTS 播报期间自动暂停推理。 */
+    smart_home_lvgl_voice_session_start(ui);
+#endif
     return ui;
 }
 

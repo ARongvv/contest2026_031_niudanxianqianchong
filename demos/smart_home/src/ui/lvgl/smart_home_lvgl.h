@@ -182,11 +182,20 @@ typedef struct {
     lv_obj_t *settings_status_label;
     lv_obj_t *settings_mcp_discover_btn;
 
-#ifdef CONFIG_SMART_HOME_VOICE_TTS
+#if defined(CONFIG_SMART_HOME_VOICE_TTS) || defined(CONFIG_SMART_HOME_VOICE_ASR) || \
+    defined(CONFIG_SMART_HOME_KWS)
     lv_obj_t *settings_voice_body;
     lv_obj_t *settings_voice_toggle;
+#endif
+#ifdef CONFIG_SMART_HOME_VOICE_TTS
     lv_obj_t *settings_voice_switch;
     lv_obj_t *settings_voice_status_label;
+#endif
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+    lv_obj_t *settings_asr_switch;
+#endif
+#ifdef CONFIG_SMART_HOME_KWS
+    lv_obj_t *settings_kws_switch;
 #endif
 
 

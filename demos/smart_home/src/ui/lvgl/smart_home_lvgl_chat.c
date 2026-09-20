@@ -199,11 +199,22 @@ void smart_home_lvgl_chat_asr_finish(smart_home_lvgl_t *ui)
     }
 }
 
-static void chat_asr_begin(smart_home_lvgl_t *ui)
+void smart_home_lvgl_chat_asr_begin(smart_home_lvgl_t *ui)
 {
+    smart_home_asr_config_t config;
     int ret;
 
     if (!ui) {
+        return;
+    }
+
+    smart_home_asr_config_load(&config);
+    if (!config.enabled) {
+        if (ui->chat_status) {
+            lv_label_set_text(ui->chat_status,
+                              "语音输入已在设置中关闭。");
+            lv_obj_clear_flag(ui->chat_status, LV_OBJ_FLAG_HIDDEN);
+        }
         return;
     }
 
@@ -240,7 +251,7 @@ static void chat_mic_event_cb(lv_event_t *event)
         return;
     }
 
-    chat_asr_begin(ui);
+    smart_home_lvgl_chat_asr_begin(ui);
 }
 #endif
 

@@ -16,6 +16,12 @@
 #include "../../voice/smart_home_tts.h"
 #include "../../voice/smart_home_voice_play.h"
 #endif
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+#include "../../voice/smart_home_asr.h"
+#endif
+#ifdef CONFIG_SMART_HOME_KWS
+#include "../../voice/smart_home_kws_service.h"
+#endif
 #ifdef CONFIG_SMART_HOME_MCP_BRIDGE
 #include "../../addons/smart_home_mcp_bridge.h"
 #endif
@@ -1472,7 +1478,8 @@ static void create_system_status_card(lv_obj_t *content,
     }
 }
 
-#ifdef CONFIG_SMART_HOME_VOICE_TTS
+#if defined(CONFIG_SMART_HOME_VOICE_TTS) || defined(CONFIG_SMART_HOME_VOICE_ASR) || \
+    defined(CONFIG_SMART_HOME_KWS)
 static void voice_announce_toggle_event(lv_event_t *event)
 {
     smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
@@ -1499,7 +1506,9 @@ static void voice_announce_toggle_event(lv_event_t *event)
         }
     }
 }
+#endif
 
+#ifdef CONFIG_SMART_HOME_VOICE_TTS
 static void voice_announce_switch_event(lv_event_t *event)
 {
     smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
@@ -1537,11 +1546,68 @@ static void voice_announce_stop_event(lv_event_t *event)
     voice_play_stop();
     set_settings_status(ui, "已请求停止播报", SMART_HOME_UI_COLOR_SUCCESS);
 }
+#endif
 
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+static void voice_asr_switch_event(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
+    smart_home_asr_config_t config;
+
+    if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED ||
+        !ui || !ui->settings_asr_switch) {
+        return;
+    }
+
+    smart_home_asr_config_load(&config);
+    config.enabled = lv_obj_has_state(ui->settings_asr_switch,
+                                      LV_STATE_CHECKED) ? 1 : 0;
+    if (smart_home_asr_config_save(&config) == AGENT_OK) {
+        set_settings_status(ui,
+                            config.enabled ? "语音输入已开启" : "语音输入已关闭",
+                            SMART_HOME_UI_COLOR_SUCCESS);
+    } else {
+        set_settings_status(ui, "asr.json 保存失败", SMART_HOME_UI_COLOR_DANGER);
+    }
+}
+#endif
+
+#ifdef CONFIG_SMART_HOME_KWS
+static void voice_kws_switch_event(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = (smart_home_lvgl_t *)lv_event_get_user_data(event);
+    smart_home_kws_config_t config;
+
+    if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED ||
+        !ui || !ui->settings_kws_switch) {
+        return;
+    }
+
+    smart_home_kws_config_load(&config);
+    config.enabled = lv_obj_has_state(ui->settings_kws_switch,
+                                      LV_STATE_CHECKED) ? 1 : 0;
+    if (smart_home_kws_config_save(&config) == AGENT_OK) {
+        set_settings_status(ui,
+                            config.enabled ? "语音唤醒已开启" : "语音唤醒已关闭",
+                            SMART_HOME_UI_COLOR_SUCCESS);
+        /* 运行期切换只做暂停/恢复；boot 时关闭的服务需重启后生效。 */
+        if (kws_service_running()) {
+            kws_service_set_paused(!config.enabled);
+        } else if (config.enabled) {
+            set_settings_status(ui, "唤醒服务未启动，重启后生效",
+                                SMART_HOME_UI_COLOR_WARNING);
+        }
+    } else {
+        set_settings_status(ui, "kws.json 保存失败", SMART_HOME_UI_COLOR_DANGER);
+    }
+}
+#endif
+
+#if defined(CONFIG_SMART_HOME_VOICE_TTS) || defined(CONFIG_SMART_HOME_VOICE_ASR) || \
+    defined(CONFIG_SMART_HOME_KWS)
 static void create_voice_announce_card(lv_obj_t *content,
                                        smart_home_lvgl_t *ui)
 {
-    smart_home_tts_config_t config;
     lv_obj_t *card;
     lv_obj_t *header;
     lv_obj_t *body;
@@ -1576,7 +1642,7 @@ static void create_voice_announce_card(lv_obj_t *content,
 
     smart_home_lvgl_icon_create(header, ICON_STATUS_MICROPHONE, 18, 18);
     label = smart_home_lvgl_label_create(header,
-                                         "语音播报",
+                                         "语音",
                                          SMART_HOME_UI_COLOR_TEXT_PRIMARY,
                                          14);
     lv_obj_set_flex_grow(label, 1);
@@ -1598,78 +1664,171 @@ static void create_voice_announce_card(lv_obj_t *content,
     lv_obj_add_flag(body, LV_OBJ_FLAG_HIDDEN);
     ui->settings_voice_body = body;
 
-    row = lv_obj_create(body);
-    lv_obj_remove_style_all(row);
-    lv_obj_set_size(row, lv_pct(100), LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(row, 8, 0);
+#ifdef CONFIG_SMART_HOME_VOICE_TTS
+    {
+        smart_home_tts_config_t config;
 
-    label = smart_home_lvgl_label_create(row,
-                                         "自动播报 Agent 回复",
-                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY,
-                                         12);
-    lv_obj_set_flex_grow(label, 1);
+        row = lv_obj_create(body);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, lv_pct(100), LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(row, 8, 0);
 
-    ui->settings_voice_switch = lv_switch_create(row);
-    lv_obj_set_size(ui->settings_voice_switch, 44, 24);
-    smart_home_tts_config_load(&config);
-    if (config.enabled) {
-        lv_obj_add_state(ui->settings_voice_switch, LV_STATE_CHECKED);
+        label = smart_home_lvgl_label_create(row,
+                                             "自动播报 Agent 回复",
+                                             SMART_HOME_UI_COLOR_TEXT_PRIMARY,
+                                             12);
+        lv_obj_set_flex_grow(label, 1);
+
+        ui->settings_voice_switch = lv_switch_create(row);
+        lv_obj_set_size(ui->settings_voice_switch, 44, 24);
+        smart_home_tts_config_load(&config);
+        if (config.enabled) {
+            lv_obj_add_state(ui->settings_voice_switch, LV_STATE_CHECKED);
+        }
+        lv_obj_add_event_cb(ui->settings_voice_switch,
+                            voice_announce_switch_event,
+                            LV_EVENT_VALUE_CHANGED,
+                            ui);
+
+        snprintf(value, sizeof(value), "%s | %s",
+                 config.backend_id[0] ? config.backend_id : "custom",
+                 config.model[0] ? config.model : "(未配置)");
+        create_status_row(body,
+                          "TTS 后端",
+                          value,
+                          SMART_HOME_UI_COLOR_TEXT_SECONDARY);
+
+        snprintf(value, sizeof(value), "%s | %lu Hz",
+                 config.voice[0] ? config.voice : "(默认音色)",
+                 (unsigned long)config.sample_rate);
+        create_status_row(body,
+                          "音色 / 采样率",
+                          value,
+                          SMART_HOME_UI_COLOR_TEXT_SECONDARY);
+
+        label = smart_home_lvgl_label_create(
+            body,
+            "端点与密钥在 /data/smart_home/voice.json 与 secrets.json 中配置；"
+            "可用 tts_smoke speak 命令验证链路。",
+            SMART_HOME_UI_COLOR_TEXT_MUTED,
+            10);
+        lv_obj_set_width(label, lv_pct(100));
+        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+
+        button = lv_btn_create(body);
+        lv_obj_remove_style_all(button);
+        lv_obj_set_size(button, 112, 32);
+        lv_obj_set_style_radius(button, 6, 0);
+        smart_home_lvgl_set_bg(button, SMART_HOME_UI_COLOR_PRIMARY);
+        lv_obj_add_event_cb(button,
+                            voice_announce_stop_event,
+                            LV_EVENT_CLICKED,
+                            ui);
+        label = smart_home_lvgl_label_create(button,
+                                             "停止播报",
+                                             lv_color_white(),
+                                             12);
+        lv_obj_center(label);
+
+        ui->settings_voice_status_label =
+            smart_home_lvgl_label_create(body,
+                                         "播报状态: 空闲",
+                                         SMART_HOME_UI_COLOR_TEXT_MUTED,
+                                         10);
     }
-    lv_obj_add_event_cb(ui->settings_voice_switch,
-                        voice_announce_switch_event,
-                        LV_EVENT_VALUE_CHANGED,
-                        ui);
+#endif
 
-    snprintf(value, sizeof(value), "%s | %s",
-             config.backend_id[0] ? config.backend_id : "custom",
-             config.model[0] ? config.model : "(未配置)");
-    create_status_row(body,
-                      "TTS 后端",
-                      value,
-                      SMART_HOME_UI_COLOR_TEXT_SECONDARY);
+#ifdef CONFIG_SMART_HOME_VOICE_ASR
+    {
+        smart_home_asr_config_t config;
 
-    snprintf(value, sizeof(value), "%s | %lu Hz",
-             config.voice[0] ? config.voice : "(默认音色)",
-             (unsigned long)config.sample_rate);
-    create_status_row(body,
-                      "音色 / 采样率",
-                      value,
-                      SMART_HOME_UI_COLOR_TEXT_SECONDARY);
+        row = lv_obj_create(body);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, lv_pct(100), LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(row, 8, 0);
 
-    label = smart_home_lvgl_label_create(
-        body,
-        "端点与密钥在 /data/smart_home/voice.json 与 secrets.json 中配置；"
-        "可用 tts_smoke speak 命令验证链路。",
-        SMART_HOME_UI_COLOR_TEXT_MUTED,
-        10);
-    lv_obj_set_width(label, lv_pct(100));
-    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+        label = smart_home_lvgl_label_create(row,
+                                             "语音输入（MiMo ASR）",
+                                             SMART_HOME_UI_COLOR_TEXT_PRIMARY,
+                                             12);
+        lv_obj_set_flex_grow(label, 1);
 
-    button = lv_btn_create(body);
-    lv_obj_remove_style_all(button);
-    lv_obj_set_size(button, 112, 32);
-    lv_obj_set_style_radius(button, 6, 0);
-    smart_home_lvgl_set_bg(button, SMART_HOME_UI_COLOR_PRIMARY);
-    lv_obj_add_event_cb(button,
-                        voice_announce_stop_event,
-                        LV_EVENT_CLICKED,
-                        ui);
-    label = smart_home_lvgl_label_create(button,
-                                         "停止播报",
-                                         lv_color_white(),
-                                         12);
-    lv_obj_center(label);
+        ui->settings_asr_switch = lv_switch_create(row);
+        lv_obj_set_size(ui->settings_asr_switch, 44, 24);
+        smart_home_asr_config_load(&config);
+        if (config.enabled) {
+            lv_obj_add_state(ui->settings_asr_switch, LV_STATE_CHECKED);
+        }
+        lv_obj_add_event_cb(ui->settings_asr_switch,
+                            voice_asr_switch_event,
+                            LV_EVENT_VALUE_CHANGED,
+                            ui);
 
-    ui->settings_voice_status_label =
-        smart_home_lvgl_label_create(body,
-                                     "播报状态: 空闲",
-                                     SMART_HOME_UI_COLOR_TEXT_MUTED,
-                                     10);
+        snprintf(value, sizeof(value), "语言: %s（zh/en/auto）",
+                 config.language);
+        create_status_row(body,
+                          "识别语言",
+                          value,
+                          SMART_HOME_UI_COLOR_TEXT_SECONDARY);
+    }
+#endif
+
+#ifdef CONFIG_SMART_HOME_KWS
+    {
+        smart_home_kws_config_t config;
+
+        row = lv_obj_create(body);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, lv_pct(100), LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(row, 8, 0);
+
+        label = smart_home_lvgl_label_create(row,
+                                             "语音唤醒（KWS 常驻）",
+                                             SMART_HOME_UI_COLOR_TEXT_PRIMARY,
+                                             12);
+        lv_obj_set_flex_grow(label, 1);
+
+        ui->settings_kws_switch = lv_switch_create(row);
+        lv_obj_set_size(ui->settings_kws_switch, 44, 24);
+        smart_home_kws_config_load(&config);
+        if (config.enabled) {
+            lv_obj_add_state(ui->settings_kws_switch, LV_STATE_CHECKED);
+        }
+        lv_obj_add_event_cb(ui->settings_kws_switch,
+                            voice_kws_switch_event,
+                            LV_EVENT_VALUE_CHANGED,
+                            ui);
+
+        create_status_row(body,
+                          "唤醒服务",
+                          kws_service_running() ? "运行中" : "未启动",
+                          SMART_HOME_UI_COLOR_TEXT_SECONDARY);
+
+        label = smart_home_lvgl_label_create(
+            body,
+            "唤醒词模型特征前端尚未与训练管线对拍，真机唤醒率数据"
+            "仅供参考；可用 kws_smoke 命令验证模型。",
+            SMART_HOME_UI_COLOR_TEXT_MUTED,
+            10);
+        lv_obj_set_width(label, lv_pct(100));
+        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    }
+#endif
 }
 #endif
 
@@ -1890,7 +2049,8 @@ void smart_home_lvgl_build_settings_screen(smart_home_lvgl_t *ui)
 
     create_system_status_card(content, ui);
 
-#ifdef CONFIG_SMART_HOME_VOICE_TTS
+#if defined(CONFIG_SMART_HOME_VOICE_TTS) || defined(CONFIG_SMART_HOME_VOICE_ASR) || \
+    defined(CONFIG_SMART_HOME_KWS)
     create_voice_announce_card(content, ui);
 #endif
 

@@ -65,12 +65,21 @@ typedef enum {
 #ifdef CONFIG_SMART_HOME_VOICE_ASR
     UI_PENDING_ASR_TEXT,
 #endif
+#ifdef CONFIG_SMART_HOME_KWS
+    UI_PENDING_KWS_WAKE,
+#endif
 } ui_pending_type_t;
 
 #ifdef CONFIG_SMART_HOME_VOICE_ASR
 typedef struct {
     char text[SMART_HOME_INPUT_SIZE];
 } ui_asr_payload_t;
+#endif
+
+#ifdef CONFIG_SMART_HOME_KWS
+typedef struct {
+    float wake_score;
+} ui_kws_payload_t;
 #endif
 
 typedef struct ui_pending_item {
@@ -81,6 +90,9 @@ typedef struct ui_pending_item {
         agent_done_t *done;
 #ifdef CONFIG_SMART_HOME_VOICE_ASR
         ui_asr_payload_t asr;
+#endif
+#ifdef CONFIG_SMART_HOME_KWS
+        ui_kws_payload_t kws;
 #endif
     } data;
 } ui_pending_item_t;
@@ -461,6 +473,32 @@ int smart_home_lvgl_submit_asr_job(smart_home_lvgl_t *ui)
 }
 #endif
 
+#ifdef CONFIG_SMART_HOME_KWS
+/* KWS worker 线程调用：投递唤醒事件，不做任何 UI 操作。 */
+int smart_home_lvgl_post_kws_wake(smart_home_lvgl_t *ui, float score)
+{
+    ui_pending_item_t *item;
+
+    if (!ui) {
+        return AGENT_ERROR_INVALID;
+    }
+
+    item = (ui_pending_item_t *)calloc(1, sizeof(*item));
+    if (item == NULL) {
+        return AGENT_ERROR_NOMEM;
+    }
+
+    item->type = UI_PENDING_KWS_WAKE;
+    item->data.kws.wake_score = score;
+    if (agent_ui_enqueue(ui, item) != 0) {
+        free(item);
+        return AGENT_ERROR;
+    }
+
+    return AGENT_OK;
+}
+#endif
+
 static void ui_event_apply(smart_home_lvgl_t *ui,
                            const ui_event_payload_t *payload)
 {
@@ -598,6 +636,11 @@ void smart_home_lvgl_process_pending(smart_home_lvgl_t *ui)
                     ui, "语音识别失败：录音太短、密钥未配置或网络错误。");
             }
             smart_home_lvgl_chat_asr_finish(ui);
+        }
+#endif
+#ifdef CONFIG_SMART_HOME_KWS
+        else if (item->type == UI_PENDING_KWS_WAKE) {
+            smart_home_voice_session_on_wake(ui, item->data.kws.wake_score);
         }
 #endif
         else {

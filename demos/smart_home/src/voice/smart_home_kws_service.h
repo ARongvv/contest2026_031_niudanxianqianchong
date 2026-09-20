@@ -28,6 +28,16 @@ extern "C" {
 
 typedef void (*kws_wake_cb_t)(float wake_score, void *user_data);
 
+/* 唤醒开关配置（kws.json）。boot 时 enabled=0 则服务不启动；运行期
+ * 开关仅做暂停/恢复（避免反复重建模型与 arena）。 */
+typedef struct
+{
+  int enabled;
+} smart_home_kws_config_t;
+
+void smart_home_kws_config_load(smart_home_kws_config_t *config);
+int smart_home_kws_config_save(const smart_home_kws_config_t *config);
+
 /* 启动常驻监听（初始化模型与前端、注册采集消费者）。幂等。
  * 失败返回负值（模型/内存/采集服务不可用）。 */
 int kws_service_start(kws_wake_cb_t cb, void *user_data);
