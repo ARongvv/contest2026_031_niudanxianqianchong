@@ -23,6 +23,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <nuttx/irq.h>
+
 #include "../smart_home_memory.h"
 #include "../config/cjson_compat.h"
 #include "../config/smart_home_config_store.h"
@@ -37,8 +39,9 @@
 
 #define KWS_CONFIG_PATH SMART_HOME_CONFIG_DIR "/kws.json"
 
-/* 推理 worker 优先级：低于采集(110)与 LVGL，后台消化推理。 */
-#define KWS_WORKER_PRIORITY 120
+/* NuttX 数字越大优先级越高：推理是重后台任务，必须低于 UI(100)、
+ * 采集分发(110)与播报(90 同级即可)，每次推理数百 ms 不得抢占界面。 */
+#define KWS_WORKER_PRIORITY 90
 
 #ifndef CONFIG_SMART_HOME_KWS_WORKER_STACKSIZE
 #define CONFIG_SMART_HOME_KWS_WORKER_STACKSIZE 12288
@@ -73,7 +76,6 @@ struct kws_state_s
 {
   pthread_mutex_t mutex;
   pthread_t worker;
-  void *worker_stack;
   bool started;
   bool stop_requested;
   bool paused;
@@ -89,6 +91,8 @@ struct kws_state_s
   size_t ring_pos;
   uint64_t last_wake_ms;
   uint8_t vote_window;
+  void *worker_stack_alloc;      /* bulk 原始指针（释放用） */
+  void *worker_stack;            /* 16B 对齐后交给 pthread */
 };
 
 /****************************************************************************
@@ -408,9 +412,10 @@ int kws_service_start(kws_wake_cb_t cb, void *user_data)
   g_kws.last_wake_ms = 0;
   g_kws.vote_window = 0;
 
-  g_kws.worker_stack = smart_home_bulk_alloc(
-      CONFIG_SMART_HOME_KWS_WORKER_STACKSIZE + 64u);
-  if (g_kws.worker_stack == NULL)
+  /* RISC-V pthread 栈须 16B 对齐，bulk 堆不保证（同 voice_play）。 */
+  g_kws.worker_stack_alloc = smart_home_bulk_alloc(
+      CONFIG_SMART_HOME_KWS_WORKER_STACKSIZE + STACK_ALIGNMENT - 1u);
+  if (g_kws.worker_stack_alloc == NULL)
     {
       smart_home_bulk_free(g_kws.arena);
       smart_home_bulk_free(g_kws.ring);
@@ -421,6 +426,9 @@ int kws_service_start(kws_wake_cb_t cb, void *user_data)
       pthread_mutex_unlock(&g_kws.mutex);
       return -ENOMEM;
     }
+
+  g_kws.worker_stack = (void *)STACK_ALIGN_UP(
+      (uintptr_t)g_kws.worker_stack_alloc);
 
   ret = pthread_attr_init(&attr);
   if (ret == 0)
@@ -453,7 +461,8 @@ int kws_service_start(kws_wake_cb_t cb, void *user_data)
   if (ret != 0)
     {
       g_kws.started = false;
-      smart_home_bulk_free(g_kws.worker_stack);
+      smart_home_bulk_free(g_kws.worker_stack_alloc);
+      g_kws.worker_stack_alloc = NULL;
       g_kws.worker_stack = NULL;
       smart_home_bulk_free(g_kws.arena);
       smart_home_bulk_free(g_kws.ring);
@@ -492,7 +501,8 @@ void kws_service_stop(void)
   voice_capture_stop_listening(kws_capture_cb);
   pthread_join(g_kws.worker, NULL);
 
-  smart_home_bulk_free(g_kws.worker_stack);
+  smart_home_bulk_free(g_kws.worker_stack_alloc);
+  g_kws.worker_stack_alloc = NULL;
   g_kws.worker_stack = NULL;
   smart_home_bulk_free(g_kws.arena);
   smart_home_bulk_free(g_kws.ring);

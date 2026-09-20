@@ -26,6 +26,8 @@
 #include "smart_home_tts.h"
 #include "smart_home_voice_player.h"
 
+#include <nuttx/irq.h>
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -40,7 +42,9 @@
 #define CONFIG_SMART_HOME_VOICE_WORKER_STACKSIZE 32768
 #endif
 
-#define VOICE_WORKER_PRIORITY 120  /* 低于 LVGL(100) 与 demo 主任务 */
+/* NuttX 数字越大优先级越高：后台播报须低于 UI 主任务(100)，
+ * 避免合成/播放抢占界面渲染。 */
+#define VOICE_WORKER_PRIORITY 90
 
 /****************************************************************************
  * Private Types
@@ -63,7 +67,8 @@ static voice_job_t *g_voice_queue_tail;
 static voice_play_state_t g_voice_state = VOICE_PLAY_IDLE;
 static smart_home_voice_abort_t g_voice_abort;
 static pthread_t g_voice_worker;
-static void *g_voice_worker_stack;
+static void *g_voice_worker_stack_alloc;   /* bulk 原始指针（释放用） */
+static void *g_voice_worker_stack;         /* 16B 对齐后交给 pthread */
 static bool g_voice_started;
 static bool g_voice_stop_requested;
 
@@ -165,12 +170,17 @@ int voice_play_init(void)
   g_voice_abort.abort_flag = 0;
   pthread_mutex_unlock(&g_voice_mutex);
 
-  g_voice_worker_stack = smart_home_bulk_alloc(
-      CONFIG_SMART_HOME_VOICE_WORKER_STACKSIZE + 64u);
-  if (g_voice_worker_stack == NULL)
+  /* pthread 栈在 RISC-V 上要求 16 字节对齐，bulk(malloc) 堆不保证；
+   * 必须向上对齐（miloco/网络配网 worker 同款做法，少了这步会冻死）。 */
+  g_voice_worker_stack_alloc = smart_home_bulk_alloc(
+      CONFIG_SMART_HOME_VOICE_WORKER_STACKSIZE + STACK_ALIGNMENT - 1u);
+  if (g_voice_worker_stack_alloc == NULL)
     {
       return -ENOMEM;
     }
+
+  g_voice_worker_stack = (void *)STACK_ALIGN_UP(
+      (uintptr_t)g_voice_worker_stack_alloc);
 
   ret = pthread_attr_init(&attr);
   if (ret == 0)
@@ -201,7 +211,8 @@ int voice_play_init(void)
 
   if (ret != 0)
     {
-      smart_home_bulk_free(g_voice_worker_stack);
+      smart_home_bulk_free(g_voice_worker_stack_alloc);
+      g_voice_worker_stack_alloc = NULL;
       g_voice_worker_stack = NULL;
       return -ret;
     }
@@ -246,7 +257,8 @@ void voice_play_deinit(void)
       job = next;
     }
 
-  smart_home_bulk_free(g_voice_worker_stack);
+  smart_home_bulk_free(g_voice_worker_stack_alloc);
+  g_voice_worker_stack_alloc = NULL;
   g_voice_worker_stack = NULL;
 }
 

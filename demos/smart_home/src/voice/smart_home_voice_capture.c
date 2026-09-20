@@ -27,6 +27,7 @@
 #include <unistd.h>
 
 #include <nuttx/audio/audio.h>
+#include <nuttx/irq.h>
 
 #include "../smart_home_memory.h"
 
@@ -38,8 +39,8 @@
 #define VOICE_CAPTURE_RATE     16000
 #define VOICE_CAPTURE_MQ_MAX   32
 
-/* 采集 worker 只做分发不做处理，8 KiB 足够；优先级高于 LVGL 与
- * 播报 worker，避免录音缓冲欠载。 */
+/* NuttX 数字越大优先级越高：采集分发须高于 UI 主任务(100)，否则
+ * 界面渲染挤占音频线程导致缓冲欠载丢帧；worker 只做 memcpy 分发。 */
 #define VOICE_CAPTURE_PRIORITY 110
 
 #ifndef CONFIG_SMART_HOME_VOICE_CAPTURE_STACKSIZE
@@ -62,7 +63,8 @@ struct voice_capture_state_s
 {
   pthread_mutex_t mutex;
   pthread_t worker;
-  void *worker_stack;
+  void *worker_stack_alloc;   /* bulk 原始指针（释放用） */
+  void *worker_stack;         /* 16B 对齐后交给 pthread */
   bool started;
   bool stop_requested;
 
@@ -402,13 +404,17 @@ int voice_capture_start(void)
   g_capture.mq = (mqd_t)-1;
   g_capture.buffers = NULL;
 
-  g_capture.worker_stack = smart_home_bulk_alloc(
-      CONFIG_SMART_HOME_VOICE_CAPTURE_STACKSIZE + 64u);
-  if (g_capture.worker_stack == NULL)
+  /* RISC-V pthread 栈须 16B 对齐，bulk 堆不保证（同 voice_play）。 */
+  g_capture.worker_stack_alloc = smart_home_bulk_alloc(
+      CONFIG_SMART_HOME_VOICE_CAPTURE_STACKSIZE + STACK_ALIGNMENT - 1u);
+  if (g_capture.worker_stack_alloc == NULL)
     {
       pthread_mutex_unlock(&g_capture.mutex);
       return -ENOMEM;
     }
+
+  g_capture.worker_stack = (void *)STACK_ALIGN_UP(
+      (uintptr_t)g_capture.worker_stack_alloc);
 
   ret = pthread_attr_init(&attr);
   if (ret == 0)
@@ -444,7 +450,8 @@ int voice_capture_start(void)
   if (ret != 0)
     {
       g_capture.started = false;
-      smart_home_bulk_free(g_capture.worker_stack);
+      smart_home_bulk_free(g_capture.worker_stack_alloc);
+      g_capture.worker_stack_alloc = NULL;
       g_capture.worker_stack = NULL;
       pthread_mutex_unlock(&g_capture.mutex);
       return -ret;
@@ -477,7 +484,8 @@ void voice_capture_deinit(void)
   g_capture.stop_requested = false;
   pthread_mutex_unlock(&g_capture.mutex);
 
-  smart_home_bulk_free(g_capture.worker_stack);
+  smart_home_bulk_free(g_capture.worker_stack_alloc);
+  g_capture.worker_stack_alloc = NULL;
   g_capture.worker_stack = NULL;
 }
 
