@@ -111,8 +111,13 @@ if SMART_HOME_TTS_SMOKE
 
 config SMART_HOME_TTS_SMOKE_STACKSIZE
     int "TTS smoke command stack size"
-    default 8192
-    range 4096 16384
+    default 32768
+    range 16384 65536
+    help
+      The speak subcommand runs the full mbedTLS synthesis request on the
+      command stack.  mbedTLS does not fit in the 8 KiB NSH default (the
+      handshake overflows and hard-freezes the system before any error
+      can print); this follows the agent chat worker budget.
 
 endif
 
