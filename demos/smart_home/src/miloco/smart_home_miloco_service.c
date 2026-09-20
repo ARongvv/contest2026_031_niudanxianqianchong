@@ -39,7 +39,9 @@
  * 才爆——分段日志定位的教训，见开发日志。 */
 #define MILOCO_WORKER_STACK_SIZE   24576u
 #define MILOCO_CONTROL_QUEUE_DEPTH 8
-#define MILOCO_RESPONSE_BYTES      (16u * 1024u)
+/* 摄像机等复杂设备的 spec 达 17KB+（实测 17426B），16KB 缓冲会
+ * 截断导致解析失败；32KB 走 PSRAM bulk 堆无压力。 */
+#define MILOCO_RESPONSE_BYTES      (32u * 1024u)
 #define MILOCO_STATUS_RESPONSE_BYTES 512u
 
 typedef struct {

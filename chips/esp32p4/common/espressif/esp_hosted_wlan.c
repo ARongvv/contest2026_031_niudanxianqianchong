@@ -38,7 +38,7 @@
  * the NETDEV_RX_WORK consumer drains in one scheduling interval.
  */
 
-#define ESP_HOSTED_WLAN_RX_QUOTA 8
+#define ESP_HOSTED_WLAN_RX_QUOTA 32
 #define ESP_HOSTED_WLAN_TX_QUOTA 1
 
 /****************************************************************************
