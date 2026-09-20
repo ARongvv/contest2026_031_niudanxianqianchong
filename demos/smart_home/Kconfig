@@ -180,6 +180,85 @@ endif
 
 endif
 
+config SMART_HOME_KWS
+    bool "Resident KWS wake-word service (wake_large int8)"
+    depends on ESP32P4_FUNCTION_EV_BOARD_AUDIO_ES8311
+    depends on TFLITEMICRO
+    default n
+    help
+      Offline always-on wake-word detection with the wake_large int8
+      ds_cnn_s3 model (37,408 bytes).  The ESP32-P4 has no ESP-NN
+      backend, so TFLite Micro reference kernels are used.  A resident
+      service consumes the shared capture service, keeps a 2.5 s PCM
+      ring, computes the 124x40x3 feature front-end and reports wake
+      hits through a callback with threshold voting and cooldown.
+      NOTE: the feature front-end constants are provisional until they
+      are verified value-by-value against the training pipeline; treat
+      on-device wake rates as unvalidated until then.
+
+if SMART_HOME_KWS
+
+config SMART_HOME_KWS_ARENA_SIZE
+    int "KWS tensor arena size"
+    default 196608
+    range 65536 524288
+    help
+      PSRAM buffer reserved for TFLite Micro tensors of wake_large.
+      The service reports the actual arena use after AllocateTensors.
+
+config SMART_HOME_KWS_WORKER_STACKSIZE
+    int "KWS inference worker stack size"
+    default 12288
+    range 8192 32768
+
+config SMART_HOME_KWS_INTERVAL_MS
+    int "KWS inference interval in ms"
+    default 500
+    range 100 2000
+    help
+      How often the 2.5 s sliding window is re-evaluated.  Start
+      conservative; tighten only after kws_smoke reports the real
+      reference-kernel Invoke latency on the target.
+
+config SMART_HOME_KWS_THRESHOLD
+    int "KWS wake threshold in per-mille"
+    default 750
+    range 1 1000
+    help
+      Starting point from the offline threshold sweep (0.75); real-room
+      false-wake tuning must be done on the device.
+
+config SMART_HOME_KWS_COOLDOWN_MS
+    int "KWS wake cooldown in ms"
+    default 3000
+    range 500 30000
+
+endif
+
+config SMART_HOME_KWS_SMOKE
+    bool "KWS model smoke/benchmark command"
+    depends on TFLITEMICRO
+    default n
+    help
+      Build the kws_smoke NSH command.  It validates the TFLite model,
+      operator registration, tensor contract and arena use, then
+      benchmarks Invoke() with a deterministic int8 feature buffer.
+      It opens no audio device and runs no recognition.
+
+if SMART_HOME_KWS_SMOKE
+
+config SMART_HOME_KWS_SMOKE_ARENA_SIZE
+    int "KWS smoke tensor arena size"
+    default 196608
+    range 65536 524288
+
+config SMART_HOME_KWS_SMOKE_STACKSIZE
+    int "KWS smoke command stack size"
+    default 12288
+    range 8192 32768
+
+endif
+
 config SMART_HOME_DEMO_OFFLINE_UI
     bool "Offline regular LVGL UI bring-up"
     depends on SMART_HOME_DEMO_UI_LVGL

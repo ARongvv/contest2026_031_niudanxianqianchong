@@ -68,6 +68,25 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
   ifneq ($(CONFIG_SMART_HOME_VOICE_ASR),)
     CSRCS   += src/voice/smart_home_asr.c
   endif
+  # KWS：C++ 推理封装与模型（TFLite Micro reference kernels）
+  ifneq ($(CONFIG_SMART_HOME_KWS)$(CONFIG_SMART_HOME_KWS_SMOKE),)
+  CXXEXT   := .cc
+  CXXSRCS += src/voice/kws/model.cc
+  CXXSRCS += src/voice/kws/kws_infer.cc
+  TFLM_ROOT := $(APPDIR)/mlearning/tflite-micro
+  CFLAGS   += ${INCDIR_PREFIX}$(TFLM_ROOT)
+  CFLAGS   += ${INCDIR_PREFIX}$(APPDIR)/math/gemmlowp/gemmlowp
+  CFLAGS   += ${INCDIR_PREFIX}$(APPDIR)/math/kissfft/kissfft
+  CFLAGS   += ${INCDIR_PREFIX}$(APPDIR)/math/ruy/ruy
+  CXXFLAGS += ${INCDIR_PREFIX}$(TFLM_ROOT)
+  CXXFLAGS += ${INCDIR_PREFIX}$(APPDIR)/math/gemmlowp/gemmlowp
+  CXXFLAGS += ${INCDIR_PREFIX}$(APPDIR)/math/kissfft/kissfft
+  CXXFLAGS += ${INCDIR_PREFIX}$(APPDIR)/math/ruy/ruy
+  endif
+  ifneq ($(CONFIG_SMART_HOME_KWS),)
+    CSRCS   += src/voice/smart_home_kws_frontend.c
+    CSRCS   += src/voice/smart_home_kws_service.c
+  endif
   ifneq ($(CONFIG_SMART_HOME_DEMO_UI_LVGL),)
     CSRCS   += src/ui/lvgl/smart_home_lvgl.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_agent.c
@@ -106,6 +125,13 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
   PROGNAME  += asr_smoke
   PRIORITY  += $(CONFIG_SMART_HOME_DEMO_PRIORITY)
   STACKSIZE += $(CONFIG_SMART_HOME_ASR_SMOKE_STACKSIZE)
+  endif
+
+  ifneq ($(CONFIG_SMART_HOME_KWS_SMOKE),)
+  MAINSRC   += src/voice/kws_smoke_main.cc
+  PROGNAME  += kws_smoke
+  PRIORITY  += $(CONFIG_SMART_HOME_DEMO_PRIORITY)
+  STACKSIZE += $(CONFIG_SMART_HOME_KWS_SMOKE_STACKSIZE)
   endif
 
   CFLAGS += ${INCDIR_PREFIX}$(CURDIR)/src
