@@ -1736,6 +1736,18 @@ static void miloco_sheet_build(smart_home_lvgl_t *ui, const char *did)
     lv_obj_add_event_cb(btn, miloco_sheet_close, LV_EVENT_CLICKED, ui);
     y = 56;
 
+    if (dev->control_count == 0) {
+        /* spec 拉取中或失败（服务侧每轮重试，见 spec_attempt_take）：
+         * 给出明确占位而不是空白抽屉。 */
+        label = smart_home_lvgl_label_create(
+            sheet, "暂无可控项：设备规格拉取中或失败，将自动重试。",
+            SMART_HOME_UI_COLOR_TEXT_MUTED, 12);
+        lv_obj_set_width(label, lv_pct(100));
+        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+        lv_obj_set_pos(label, 0, y);
+        return;
+    }
+
     for (k = 0; k < dev->control_count && k <
          SMART_HOME_MILOCO_MAX_CONTROLS; k++) {
         const smart_home_miloco_control_t *ctrl = &dev->controls[k];
@@ -1897,7 +1909,7 @@ static lv_obj_t *create_miloco_card(smart_home_lvgl_t *ui,
     smart_home_lvgl_card_style(card);
     smart_home_lvgl_set_bg(card, SMART_HOME_UI_COLOR_SURFACE_SOFT);
 
-    if (device->control_count > 0) {
+    {
         const char *stable_did = g_miloco_card_dids[0];
 
         if (g_miloco_card_did_count < SMART_HOME_MILOCO_MAX_DEVICES) {
@@ -1907,12 +1919,12 @@ static lv_obj_t *create_miloco_card(smart_home_lvgl_t *ui,
                      sizeof(g_miloco_card_dids[0]), "%.23s", device->did);
             g_miloco_card_did_count++;
         }
+        /* 无论有无 controls 都可点击：controls 为空的设备抽屉里显示
+         * "暂无可控项"占位（spec 拉取中/失败），而不是永远点不动。 */
         lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_user_data(card, (void *)stable_did);
         lv_obj_add_event_cb(card, miloco_card_click_cb, LV_EVENT_CLICKED,
                             ui);
-    } else {
-        lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
     }
 
     content = lv_obj_create(card);
@@ -2056,7 +2068,11 @@ static void rebuild_device_cards(smart_home_lvgl_t *ui)
 
     lv_obj_clean(ui->panel_grid);
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
-    miloco_sheet_close_impl(ui);
+    /* 抽屉挂在 screen_panel 上，lv_obj_clean(panel_grid) 删不到它；
+     * 这里绝不能显式关抽屉——worker 轮询触发的全网格重建会把用户
+     * 刚打开的抽屉立即杀掉（表现为二级菜单弹不出/一闪而过）。
+     * 抽屉生命周期由 miloco_timer_cb 的 sheet_refresh 全权管理：
+     * 设备消失时 build 找不到 did 自然关闭。 */
     /* 米家桥接模式下设备页只呈现真实设备（米家 + Node）；本地虚拟
      * 设备不上屏，仅保留给 Agent 本地工具与场景使用。 */
     for (slot = 0; slot < SMART_HOME_MAX_DEVICES; slot++) {

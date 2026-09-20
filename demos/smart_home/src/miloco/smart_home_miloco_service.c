@@ -410,12 +410,47 @@ static int parse_device_list(smart_home_miloco_t *service, const char *body,
         }
     }
 
-    lock_state(service);
-    memcpy(service->devices, parsed, count * sizeof(parsed[0]));
-    service->device_count = count;
-    service->reachable = true;
-    service->revision++;
-    unlock_state(service);
+    /* 真变才 revision++：列表内容不变时（绝大多数轮询）不打扰 UI——
+     * 原先每 5 秒无条件 bump，触发全网格 lv_obj_clean 重建（白闪、
+     * 滚动位置重置）并配合 UI 刷新顺序杀掉打开中的控制抽屉。
+     * controls 内容与状态值的变化由 parse_device_spec /
+     * refresh_device_status 各自 bump，此处只比列表级字段。 */
+    {
+        size_t i;
+        int changed = service->device_count != count || !service->reachable;
+
+        if (!changed)
+          {
+            for (i = 0; i < count; i++)
+              {
+                const smart_home_miloco_device_t *old =
+                    &service->devices[i];
+
+                if (strcmp(old->did, parsed[i].did) != 0 ||
+                    strcmp(old->name, parsed[i].name) != 0 ||
+                    strcmp(old->room, parsed[i].room) != 0 ||
+                    old->online != parsed[i].online ||
+                    old->category != parsed[i].category ||
+                    old->controllable != parsed[i].controllable ||
+                    old->power_on != parsed[i].power_on ||
+                    old->control_count != parsed[i].control_count)
+                  {
+                    changed = 1;
+                    break;
+                  }
+              }
+          }
+
+        lock_state(service);
+        memcpy(service->devices, parsed, count * sizeof(parsed[0]));
+        service->device_count = count;
+        service->reachable = true;
+        if (changed)
+          {
+            service->revision++;
+          }
+        unlock_state(service);
+    }
     return AGENT_OK;
 }
 
