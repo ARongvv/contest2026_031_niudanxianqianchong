@@ -73,7 +73,8 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
   CXXEXT   := .cc
   CXXSRCS += src/voice/kws/model.cc
   CXXSRCS += src/voice/kws/kws_infer.cc
-  TFLM_ROOT := $(APPDIR)/mlearning/tflite-micro
+  # tflite-micro 实际源码在双层目录（repo 清单嵌套，同 mbedtls/libcxx 模式）
+  TFLM_ROOT := $(APPDIR)/mlearning/tflite-micro/tflite-micro
   CFLAGS   += ${INCDIR_PREFIX}$(TFLM_ROOT)
   CFLAGS   += ${INCDIR_PREFIX}$(APPDIR)/math/gemmlowp/gemmlowp
   CFLAGS   += ${INCDIR_PREFIX}$(APPDIR)/math/kissfft/kissfft
