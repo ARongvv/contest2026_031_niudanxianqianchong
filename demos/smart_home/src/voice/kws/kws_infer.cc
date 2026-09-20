@@ -102,10 +102,10 @@ extern "C" int kws_infer_init(void *arena, size_t arena_size)
     }
 
   /* placement new 到静态存储：避免函数局部动态初始化的 guard 依赖。 */
-  static alignas(8) uint8_t
+  alignas(8) static uint8_t
       interpreter_storage[sizeof(tflite::MicroInterpreter)];
   g_interpreter = new (interpreter_storage)
-      tflite::MicroInterpreter(model, resolver, (void *)aligned, usable);
+      tflite::MicroInterpreter(model, resolver, (uint8_t *)aligned, usable);
 
   if (g_interpreter->AllocateTensors() != kTfLiteOk)
     {
