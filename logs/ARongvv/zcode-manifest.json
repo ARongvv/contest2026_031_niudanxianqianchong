@@ -1,0 +1,33 @@
+{
+  "note": "zcode sessions not yet in official tool enum; merge into manifest.json once organizers allow it",
+  "schema_version": "1.0",
+  "team_id": "contest2026_031_niudanxianqianchong",
+  "github_login": "ARongvv",
+  "sessions": [
+    {
+      "session_id": "0848d6be-1f19-46b0-9cb9-9b39884d11e9",
+      "tool": "zcode",
+      "started_at": "2026-09-20T04:33:38.602Z",
+      "last_event_at": "2026-09-20T05:22:31.925Z",
+      "event_count": 436,
+      "raw_event_count": 107,
+      "file_path": "logs/ARongvv/2026-09-20/zcode__0848d6be-1f19-46b0-9cb9-9b39884d11e9.jsonl",
+      "collection_mode": "cli",
+      "health": "ok",
+      "model": "GLM-5.3"
+    },
+    {
+      "session_id": "15c28e14-450d-4772-9a31-d07180c511ad",
+      "tool": "zcode",
+      "started_at": "2026-09-20T03:52:52.054Z",
+      "last_event_at": "2026-09-20T05:22:27.126Z",
+      "event_count": 448,
+      "raw_event_count": 107,
+      "file_path": "logs/ARongvv/2026-09-20/zcode__15c28e14-450d-4772-9a31-d07180c511ad.jsonl",
+      "collection_mode": "cli",
+      "health": "ok",
+      "model": "GLM-5.3"
+    }
+  ],
+  "updated_at": "2026-09-20T05:22:32.246Z"
+}
