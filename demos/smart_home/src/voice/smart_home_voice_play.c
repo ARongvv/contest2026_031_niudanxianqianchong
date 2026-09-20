@@ -159,9 +159,13 @@ int voice_play_init(void)
       return 0;
     }
 
+  printf("[voice] init: entry\n");
+
   /* 预热配置缓存，播报开关立即可查询。 */
   smart_home_tts_config_t config;
   smart_home_tts_config_load(&config);
+  printf("[voice] init: config loaded (enabled=%d backend=%s)\n",
+         config.enabled, config.backend_id);
 
   g_voice_stop_requested = false;
   g_voice_queue = NULL;
@@ -181,6 +185,7 @@ int voice_play_init(void)
 
   g_voice_worker_stack = (void *)STACK_ALIGN_UP(
       (uintptr_t)g_voice_worker_stack_alloc);
+  printf("[voice] init: stack=%p\n", g_voice_worker_stack);
 
   ret = pthread_attr_init(&attr);
   if (ret == 0)
@@ -220,6 +225,7 @@ int voice_play_init(void)
   pthread_mutex_lock(&g_voice_mutex);
   g_voice_started = true;
   pthread_mutex_unlock(&g_voice_mutex);
+  printf("[voice] init: complete\n");
   return 0;
 }
 

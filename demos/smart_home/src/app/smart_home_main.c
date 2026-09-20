@@ -138,9 +138,11 @@ int main(int argc, char *argv[])
 
 #ifdef CONFIG_SMART_HOME_VOICE_TTS
     /* 播报服务与 UI 并行启动；初始化失败只损失语音播报，不阻断主流程。 */
+    printf("[main] voice_play_init begin\n");
     if (voice_play_init() != 0) {
         fprintf(stderr, "voice_play_init failed; announcements disabled\n");
     }
+    printf("[main] voice_play_init done\n");
 #endif
 
 #if defined(CONFIG_SMART_HOME_DEMO_UI_QUICKAPP)
