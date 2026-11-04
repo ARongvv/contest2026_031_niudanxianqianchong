@@ -13,6 +13,10 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
   CSRCS     += src/agent/smart_home_agent.c
   CSRCS     += src/agent/smart_home_agent_backend.c
   CSRCS     += src/agent/smart_home_session.c
+  ifneq ($(CONFIG_SMART_HOME_USER_MEMORY),)
+    CSRCS   += src/memory/smart_home_user_memory.c
+    CSRCS   += src/tools/smart_home_user_memory_tools.c
+  endif
   ifneq ($(CONFIG_FEATURE_SYSTEM_SMARTHOME),)
     CSRCS   += src/quickapp/smart_home_quickapp_provider.c
     CSRCS   += src/quickapp/smart_home_quickapp_ipc_server.c

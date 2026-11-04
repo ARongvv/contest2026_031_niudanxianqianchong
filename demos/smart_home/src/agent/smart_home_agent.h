@@ -5,6 +5,9 @@
 #include "../skills/smart_home_skill_loader.h"
 #include "smart_home_agent_backend.h"
 #include "smart_home_tool_metadata.h"
+#ifdef CONFIG_SMART_HOME_USER_MEMORY
+#include "../memory/smart_home_user_memory.h"
+#endif
 #ifdef CONFIG_FEATURE_SYSTEM_SMARTHOME
 #include "../quickapp/smart_home_quickapp_provider.h"
 #include "../quickapp/smart_home_quickapp_ipc_server.h"
@@ -53,6 +56,9 @@ typedef struct smart_home_agent_run_service smart_home_agent_run_service_t;
 
 typedef struct smart_home_agent_app {
     agent_t *agent;
+#ifdef CONFIG_SMART_HOME_USER_MEMORY
+    smart_home_user_memory_t *user_memory;
+#endif
     smart_home_agent_backend_t *backend;
     smart_home_state_t device_state;
     smart_home_device_service_t device_service;

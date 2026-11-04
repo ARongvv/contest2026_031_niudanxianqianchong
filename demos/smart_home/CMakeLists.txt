@@ -30,6 +30,10 @@ if(CONFIG_SMART_HOME_DEMO)
     src/tools/smart_home_device_inventory.c
     src/ui/smart_home_ui.c
   )
+  if(CONFIG_SMART_HOME_USER_MEMORY)
+    list(APPEND SMART_HOME_SRCS src/memory/smart_home_user_memory.c
+      src/tools/smart_home_user_memory_tools.c)
+  endif()
   if(CONFIG_SMART_HOME_CAMERA_PREVIEW)
     list(APPEND SMART_HOME_SRCS
       src/camera/smart_home_camera_service.c

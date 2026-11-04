@@ -60,6 +60,27 @@ config SMART_HOME_SESSION_PAYLOAD_BYTES
     default 65536
     range 16384 262144
 
+config SMART_HOME_USER_MEMORY
+    bool "Persist explicit long-term user preferences"
+    default n
+    help
+      Register user_memory (remember/list/forget). Save bounded preferences
+      separately from conversations; inject a reference snapshot each turn.
+
+if SMART_HOME_USER_MEMORY
+
+config SMART_HOME_USER_MEMORY_MAX_ENTRIES
+    int "Maximum saved preferences"
+    default 16
+    range 1 16
+
+config SMART_HOME_USER_MEMORY_CONTEXT_BYTES
+    int "Preference reference snapshot bytes"
+    default 768
+    range 512 2048
+
+endif
+
 config SMART_HOME_SESSION_PERSIST
     bool "Persist conversations and restore chat history"
     select CAGENT_SESSION_JSONL
