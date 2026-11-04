@@ -97,12 +97,9 @@ static int smart_home_selftest_camera(void)
     smart_home_camera_stop();
     return 1;
 }
+#endif
 
-static int smart_home_selftest_camera_tool(const char *action)
-{
-    return smart_home_camera_tool_selftest(action);
-}
-#elif defined(CONFIG_SMART_HOME_CAMERA_TOOL)
+#if defined(CONFIG_SMART_HOME_CAMERA_TOOL)
 static int smart_home_selftest_camera_tool(const char *action)
 {
     return smart_home_camera_tool_selftest(action);
