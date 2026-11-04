@@ -52,8 +52,8 @@
 | 端侧 KWS 唤醒（TFLM + `wake_large` 模型，`smart_home_kws`） | ⚠️ `kws_smoke` 单次推理 p50=2.38 s，与模型契约一致；距 20 ms 推理步长的实时要求仍有数量级差距，实时唤醒未验收 |
 | 提醒与闹钟（`smart_home_alarms`） | 最多 8 条持久化倒计时/一次性闹钟，落盘 `/data/smart_home/reminders.json`，到点播本地 PCM；待板测 |
 | MCP / Node 网关 | `smart_home` 默认配置开启（`CONFIG_SMART_HOME_MCP_BRIDGE`、`CONFIG_SMART_HOME_NODE_GATEWAY`） |
-| 智能管家 Skill 体系（7 份技能文档 + `read_skill` 按需加载 + LLM 可见摘要） | 米家控制/设备路由/场景模式/安全/计时/天气/设备控制技能随数据分区部署，模型按需读取，新设备类型零代码接入 |
-| 智能家居工具（米家统一工具 + 本地查询/场景工具） | `miot_device_list`/`miot_device_control` 统一控制真实米家设备；`run_scene` 场景模式经 type_name 语义匹配真实设备（睡眠→夜视自动+人形追踪开）；天气/计时等本地工具经 wttr.in 真实数据 |
+| 智能管家 Skill 体系（8 份技能文档 + `read_skill` 按需加载 + LLM 可见摘要） | 米家控制/设备路由/场景模式/安全/计时/天气/设备控制/用户偏好记忆技能随数据分区部署，模型按需读取，新设备类型零代码接入 |
+| 智能家居工具（米家统一工具 + 本地查询/场景工具 + 用户偏好） | `miot_device_list`/`miot_device_control` 统一控制真实米家设备；`run_scene` 场景模式经 type_name 语义匹配真实设备（睡眠→夜视自动+人形追踪开）；天气/计时等本地工具经 wttr.in 真实数据；`user_memory` 持久化长期偏好（`CONFIG_SMART_HOME_USER_MEMORY`） |
 
 ## 二、选题方向
 
@@ -82,7 +82,7 @@ PSRAM、MIPI-DSI/CSI 高速接口、内置 EMAC、USB-OTG 2.0 HS——属于
 | `scripts/` | — | 驱动软链接、HAL patch 应用、工具链准备、数据镜像打包、宿主回归测试等 |
 | `competition/` | — | 13 份评审证据文档 + 总索引（对齐大赛评分维度） |
 | `docs/` | — | 开发计划 / 硬件适配 / 开发日志 / 开发指南全量文档（唯一事实源） |
-| `logs/` | — | AI Coding 日志（30 天、77 个会话文件，截至 2026-09-20） |
+| `logs/` | — | AI Coding 日志（40 天、100 个会话文件，2026-06-19 ~ 2026-11-04） |
 
 ## 四、运行方式
 
@@ -313,8 +313,9 @@ UP   id=0 x=944 y=133 size=30x30 flags=0x5c
 
 ## 五、AI Coding 使用说明
 
-本作品全程与 AI 结对开发，覆盖以下环节（完整对话日志见 `logs/`，30 天、
-77 个会话文件，codex / claude-code JSONL 格式，含 manifest 索引）：
+本作品全程与 AI 结对开发，覆盖以下环节（完整对话日志见 `logs/`，40 天、
+100 个会话文件，2026-06-19 ~ 2026-11-04，codex / claude-code JSONL 格式，含
+manifest 索引）：
 
 - **方案设计**：Route A 移植架构、DSI/CSI Host 分期方案、C6 ESP-Hosted 分层
   设计等（见 `docs/开发计划/`）。
