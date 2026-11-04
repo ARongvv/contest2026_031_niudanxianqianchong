@@ -1,4 +1,4 @@
-/** V9 Settings shell: six internal categories, summary panels and routes. */
+/** V9 Settings shell: seven internal categories, summary panels and routes. */
 
 #include "smart_home_lvgl_internal.h"
 #include "images/smart_home_icons.h"
@@ -47,11 +47,23 @@ static const char *const g_category_names[V9_SETTINGS_CATEGORIES] = {
 
 typedef struct {
     char name[AGENT_MAX_NAME_BYTES + 1u];
-    char description[128];
+    char description[AGENT_MAX_DESCRIPTION_BYTES + 1u];
     uint16_t group;
     int enabled;
     int allowed;
 } v9_tool_row_t;
+
+#define V9_TOOLS_PER_PAGE 3u
+#define V9_TOOLS_STEP_MS 40u
+
+typedef struct {
+    lv_obj_t *row;
+    lv_obj_t *name;
+    lv_obj_t *meta;
+    lv_obj_t *toggle;
+    v9_tool_row_t tool;
+    int valid;
+} v9_tool_slot_t;
 
 typedef struct {
     lv_obj_t *screen;
@@ -91,10 +103,25 @@ typedef struct {
     lv_obj_t *miloco_service_status;
     lv_timer_t *miloco_save_timer;
 #endif
+    smart_home_lvgl_t *tools_owner;
     lv_obj_t *tools_body;
     lv_obj_t *tools_status;
     v9_tool_row_t *tools;
+    v9_tool_row_t *tools_scratch;
     size_t tool_count;
+    size_t tools_page;
+    size_t tools_cursor;
+    int tools_valid;
+    int tools_requested;
+    int tools_rendering;
+    uint32_t tools_snapshot_ms;
+    uint32_t tools_row_max_ms;
+    lv_timer_t *tools_timer;
+    lv_obj_t *tools_refresh;
+    lv_obj_t *tools_prev;
+    lv_obj_t *tools_next;
+    lv_obj_t *tools_page_label;
+    v9_tool_slot_t tool_slots[V9_TOOLS_PER_PAGE];
     lv_obj_t *model_dd;
     lv_obj_t *model_name;
     lv_obj_t *model_key;
@@ -130,6 +157,7 @@ typedef struct {
 static v9_settings_t g_settings;
 static void health_panel_refresh(smart_home_lvgl_t *ui);
 static void tools_refresh(smart_home_lvgl_t *ui);
+static lv_obj_t *config_modal_begin(const char *title);
 static void services_refresh(smart_home_lvgl_t *ui);
 #ifdef CONFIG_SMART_HOME_MCP_BRIDGE
 static void mcp_poll(smart_home_lvgl_t *ui);
@@ -170,6 +198,8 @@ static void panel_show(int category)
         return;
     }
     g_settings.category = category;
+    if (category != V9_CAT_TOOLS && g_settings.tools_timer)
+        lv_timer_pause(g_settings.tools_timer);
     if (g_settings.keyboard) {
         lv_obj_add_flag(g_settings.keyboard, LV_OBJ_FLAG_HIDDEN);
         lv_keyboard_set_textarea(g_settings.keyboard, NULL);
@@ -199,6 +229,7 @@ static void panel_show(int category)
             }
         }
     }
+    if (category == V9_CAT_TOOLS) tools_refresh(g_settings.tools_owner);
 }
 
 static void category_cb(lv_event_t *event)
@@ -208,7 +239,6 @@ static void category_cb(lv_event_t *event)
 
     if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
         panel_show(index);
-        if (index == V9_CAT_TOOLS) tools_refresh(lv_event_get_user_data(event));
 #ifdef CONFIG_SMART_HOME_NODE_GATEWAY
         if (index == V9_CAT_SERVICES) nodes_refresh(lv_event_get_user_data(event));
 #endif
@@ -406,7 +436,9 @@ void smart_home_lvgl_settings_v9_deinit(smart_home_lvgl_t *ui)
 #ifdef CONFIG_SMART_HOME_KWS
     smart_home_lvgl_wake_settings_deinit(ui);
 #endif
+    if (g_settings.tools_timer) lv_timer_delete(g_settings.tools_timer);
     smart_home_bulk_free(g_settings.tools);
+    smart_home_bulk_free(g_settings.tools_scratch);
     memset(&g_settings, 0, sizeof(g_settings));
 }
 
@@ -539,6 +571,10 @@ static void v9_net_timer_cb(lv_timer_t *timer)
     smart_home_lvgl_wake_settings_poll(ui);
 #endif
     services_refresh(ui);
+    if (g_settings.tools_timer && g_settings.category == V9_CAT_TOOLS &&
+        lv_screen_active() == g_settings.screen &&
+        (g_settings.tools_requested || g_settings.tools_rendering))
+        lv_timer_resume(g_settings.tools_timer);
 #ifdef CONFIG_SMART_HOME_NODE_GATEWAY
     if (g_settings.category == V9_CAT_SERVICES && lv_screen_active() == g_settings.screen)
         nodes_refresh(ui);
@@ -1087,23 +1123,92 @@ static void build_model_panel(smart_home_lvgl_t *ui, lv_obj_t *panel)
     model_load(ui, initial);
 }
 
+static void tools_set_text(lv_obj_t *label, const char *text)
+{
+    if (strcmp(lv_label_get_text(label), text)) lv_label_set_text(label, text);
+}
+
+static const char *tool_permission(const v9_tool_row_t *tool)
+{
+    if (!tool->enabled) return "不可用";
+    if (tool->group != SMART_HOME_TOOL_GROUP_LOCAL) return "接入策略管理";
+    return tool->allowed ? "已允许" : "已关闭";
+}
+
+static void tool_slot_state(v9_tool_slot_t *slot)
+{
+    char text[96];
+    const v9_tool_row_t *tool = &slot->tool;
+    snprintf(text, sizeof(text), "%s · %s · 查看详情",
+        smart_home_tool_source_label(smart_home_tool_source(tool->group, tool->name)),
+        tool_permission(tool));
+    tools_set_text(slot->meta, text);
+    if (tool->enabled && tool->allowed) lv_obj_add_state(slot->toggle, LV_STATE_CHECKED);
+    else lv_obj_remove_state(slot->toggle, LV_STATE_CHECKED);
+    if (!tool->enabled || tool->group != SMART_HOME_TOOL_GROUP_LOCAL)
+        lv_obj_add_state(slot->toggle, LV_STATE_DISABLED);
+    else lv_obj_remove_state(slot->toggle, LV_STATE_DISABLED);
+}
+
 static void tool_switch_cb(lv_event_t *event)
 {
     smart_home_lvgl_t *ui = lv_event_get_user_data(event);
     lv_obj_t *sw = lv_event_get_current_target(event);
-    v9_tool_row_t *tool = lv_obj_get_user_data(sw);
+    v9_tool_slot_t *slot = lv_obj_get_user_data(sw);
     int allowed, ret;
 
-    if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED || !ui || !ui->app || !tool)
+    if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED || !ui || !ui->app ||
+        !slot || !slot->valid) return;
+    lv_event_stop_bubbling(event);
+    if (slot->tool.group != SMART_HOME_TOOL_GROUP_LOCAL || !slot->tool.enabled) {
+        tool_slot_state(slot);
         return;
+    }
     allowed = lv_obj_has_state(sw, LV_STATE_CHECKED);
-    ret = smart_home_agent_app_try_set_local_tool_access(ui->app, tool->name, allowed);
-    if (ret == AGENT_OK) tool->allowed = allowed;
-    else if (tool->allowed) lv_obj_add_state(sw, LV_STATE_CHECKED);
-    else lv_obj_remove_state(sw, LV_STATE_CHECKED);
-    lv_label_set_text(g_settings.tools_status,
-        ret == AGENT_OK ? "权限已更新（本次运行有效）" :
-        ret == AGENT_ERROR_BUSY ? "聊天正在使用工具，请完成后重试" : "权限更新失败");
+    ret = smart_home_agent_app_try_set_local_tool_access(ui->app, slot->tool.name, allowed);
+    if (ret == AGENT_OK) {
+        slot->tool.allowed = allowed;
+        for (size_t i = 0; i < g_settings.tool_count; ++i)
+            if (!strcmp(g_settings.tools[i].name, slot->tool.name))
+                g_settings.tools[i].allowed = allowed;
+    }
+    tool_slot_state(slot);
+    tools_set_text(g_settings.tools_status,
+        ret == AGENT_OK ? "权限已更新 · 本次运行有效" :
+        ret == AGENT_ERROR_BUSY ? "工具正在使用中，请稍后重试" : "权限更新失败");
+}
+
+static void tool_detail_cb(lv_event_t *event)
+{
+    v9_tool_slot_t *slot = lv_event_get_user_data(event);
+    lv_obj_t *panel, *label, *body;
+    char text[128];
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED || !slot || !slot->valid) return;
+    panel = config_modal_begin("工具详情");
+    label = smart_home_lvgl_label_create(panel, slot->tool.name,
+        SMART_HOME_UI_COLOR_TEXT_PRIMARY, 17);
+    lv_obj_set_pos(label, 0, 48);
+    lv_obj_set_width(label, 632);
+    snprintf(text, sizeof(text), "%s · %s",
+        smart_home_tool_source_label(smart_home_tool_source(slot->tool.group, slot->tool.name)),
+        tool_permission(&slot->tool));
+    label = smart_home_lvgl_label_create(panel, text, SMART_HOME_UI_COLOR_TEXT_SECONDARY, 14);
+    lv_obj_set_pos(label, 0, 100);
+    body = lv_obj_create(panel);
+    lv_obj_remove_style_all(body);
+    lv_obj_set_pos(body, 0, 140);
+    lv_obj_set_size(body, 632, 146);
+    lv_obj_set_scroll_dir(body, LV_DIR_VER);
+    label = smart_home_lvgl_label_create(body,
+        slot->tool.description[0] ? slot->tool.description : "暂无工具说明",
+        SMART_HOME_UI_COLOR_TEXT_PRIMARY, 16);
+    lv_obj_set_width(label, 612);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    label = smart_home_lvgl_label_create(panel,
+        slot->tool.group == SMART_HOME_TOOL_GROUP_LOCAL ?
+        "关闭后，本次运行将无法调用此工具。" : "此工具的权限由接入服务管理。",
+        SMART_HOME_UI_COLOR_TEXT_MUTED, 13);
+    lv_obj_set_pos(label, 0, 302);
 }
 
 typedef struct { v9_tool_row_t *rows; size_t count; } v9_tool_snapshot_t;
@@ -1122,57 +1227,155 @@ static int tools_collect(const smart_home_tool_info_t *tool, void *user_data)
     return AGENT_OK;
 }
 
+static size_t tools_pages(void)
+{
+    return g_settings.tool_count ?
+        (g_settings.tool_count + V9_TOOLS_PER_PAGE - 1u) / V9_TOOLS_PER_PAGE : 1u;
+}
+
+static void tools_navigation(void)
+{
+    char text[48];
+    snprintf(text, sizeof(text), "%u / %u", (unsigned)g_settings.tools_page + 1u,
+             (unsigned)tools_pages());
+    tools_set_text(g_settings.tools_page_label, text);
+    if (!g_settings.tools_page || g_settings.tools_rendering)
+        lv_obj_add_state(g_settings.tools_prev, LV_STATE_DISABLED);
+    else lv_obj_remove_state(g_settings.tools_prev, LV_STATE_DISABLED);
+    if (g_settings.tools_page + 1u >= tools_pages() || g_settings.tools_rendering)
+        lv_obj_add_state(g_settings.tools_next, LV_STATE_DISABLED);
+    else lv_obj_remove_state(g_settings.tools_next, LV_STATE_DISABLED);
+}
+
+static void tools_render_begin(void)
+{
+    g_settings.tools_cursor = 0;
+    g_settings.tools_rendering = 1;
+    g_settings.tools_row_max_ms = 0;
+    tools_navigation();
+    /* Hide only stale slots. Unchanged cards retain their objects and labels. */
+    for (size_t i = 0; i < V9_TOOLS_PER_PAGE; ++i) {
+        v9_tool_slot_t *slot = &g_settings.tool_slots[i];
+        size_t index = g_settings.tools_page * V9_TOOLS_PER_PAGE + i;
+        if (index >= g_settings.tool_count || !slot->valid ||
+            strcmp(slot->tool.name, g_settings.tools[index].name)) {
+            slot->valid = 0;
+            lv_obj_add_flag(slot->row, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
+static void tools_summary(void)
+{
+    char text[96];
+    if (!g_settings.tool_count) {
+        tools_set_text(g_settings.tools_status, "暂无可用工具 · 可稍后刷新");
+        return;
+    }
+    snprintf(text, sizeof(text), "%u 项工具 · 权限调整本次运行有效",
+             (unsigned)g_settings.tool_count);
+    tools_set_text(g_settings.tools_status, text);
+}
+
+/* Each timer turn either copies a small registry snapshot or binds one card.
+ * Registry access is a trylock; LVGL objects stay on the UI owner thread. */
+static void tools_timer_cb(lv_timer_t *timer)
+{
+    smart_home_lvgl_t *ui = lv_timer_get_user_data(timer);
+    if (g_settings.category != V9_CAT_TOOLS || lv_screen_active() != g_settings.screen) {
+        lv_timer_pause(timer);
+        return;
+    }
+    if (g_settings.tools_requested) {
+        uint32_t started = lv_tick_get();
+        v9_tool_snapshot_t snapshot = {0};
+        int ret;
+        g_settings.tools_requested = 0;
+        if (!g_settings.tools) g_settings.tools = smart_home_bulk_alloc(
+            AGENT_MAX_TOOLS * sizeof(*g_settings.tools));
+        if (!g_settings.tools_scratch) g_settings.tools_scratch = smart_home_bulk_alloc(
+            AGENT_MAX_TOOLS * sizeof(*g_settings.tools_scratch));
+        if (!g_settings.tools || !g_settings.tools_scratch) {
+            tools_set_text(g_settings.tools_status, "内存不足，请稍后重试");
+            ret = AGENT_ERROR_NOMEM;
+        } else {
+            memset(g_settings.tools_scratch, 0,
+                   AGENT_MAX_TOOLS * sizeof(*g_settings.tools_scratch));
+            snapshot.rows = g_settings.tools_scratch;
+            ret = smart_home_agent_app_try_enumerate_tools(ui->app, tools_collect, &snapshot);
+            if (ret != AGENT_OK) tools_set_text(g_settings.tools_status,
+                ret == AGENT_ERROR_BUSY ? "工具正在使用中，请稍后刷新" : "工具目录读取失败");
+        }
+        g_settings.tools_snapshot_ms = lv_tick_elaps(started);
+        lv_obj_remove_state(g_settings.tools_refresh, LV_STATE_DISABLED);
+        if (ret == AGENT_OK) {
+            int changed = !g_settings.tools_valid || snapshot.count != g_settings.tool_count ||
+                memcmp(g_settings.tools, snapshot.rows, snapshot.count * sizeof(*snapshot.rows));
+            if (changed) {
+                memcpy(g_settings.tools, snapshot.rows, snapshot.count * sizeof(*snapshot.rows));
+                g_settings.tool_count = snapshot.count;
+                g_settings.tools_valid = 1;
+                if (g_settings.tools_page >= tools_pages())
+                    g_settings.tools_page = tools_pages() - 1u;
+                tools_render_begin();
+            }
+            tools_summary();
+        }
+        if (!g_settings.tools_rendering) lv_timer_pause(timer);
+        return;
+    }
+    if (g_settings.tools_rendering) {
+        size_t index = g_settings.tools_page * V9_TOOLS_PER_PAGE + g_settings.tools_cursor;
+        v9_tool_slot_t *slot = &g_settings.tool_slots[g_settings.tools_cursor];
+        uint32_t started = lv_tick_get();
+        if (index < g_settings.tool_count) {
+            slot->tool = g_settings.tools[index];
+            slot->valid = 1;
+            tools_set_text(slot->name, slot->tool.name);
+            tool_slot_state(slot);
+            lv_obj_remove_flag(slot->row, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            slot->valid = 0;
+            lv_obj_add_flag(slot->row, LV_OBJ_FLAG_HIDDEN);
+        }
+        uint32_t elapsed = lv_tick_elaps(started);
+        if (elapsed > g_settings.tools_row_max_ms) g_settings.tools_row_max_ms = elapsed;
+        if (++g_settings.tools_cursor == V9_TOOLS_PER_PAGE) {
+            g_settings.tools_rendering = 0;
+            tools_navigation();
+            printf("[v9-tools] count=%u page=%u snapshot_ms=%lu row_max_ms=%lu\n",
+                (unsigned)g_settings.tool_count, (unsigned)g_settings.tools_page + 1u,
+                (unsigned long)g_settings.tools_snapshot_ms,
+                (unsigned long)g_settings.tools_row_max_ms);
+            lv_timer_pause(timer);
+        }
+    } else lv_timer_pause(timer);
+}
+
+static void tools_schedule(smart_home_lvgl_t *ui)
+{
+    if (!g_settings.tools_timer) {
+        g_settings.tools_timer = lv_timer_create(tools_timer_cb, V9_TOOLS_STEP_MS, ui);
+        if (!g_settings.tools_timer) {
+            g_settings.tools_requested = g_settings.tools_rendering = 0;
+            tools_set_text(g_settings.tools_status, "内存不足，请稍后重试");
+            lv_obj_remove_state(g_settings.tools_refresh, LV_STATE_DISABLED);
+            tools_navigation();
+        }
+    } else {
+        lv_timer_set_user_data(g_settings.tools_timer, ui);
+        lv_timer_reset(g_settings.tools_timer);
+        lv_timer_resume(g_settings.tools_timer);
+    }
+}
+
 static void tools_refresh(smart_home_lvgl_t *ui)
 {
-    v9_tool_snapshot_t snapshot = {0};
-    int ret;
     if (!ui || !ui->app || !g_settings.tools_body) return;
-    snapshot.rows = smart_home_bulk_alloc(AGENT_MAX_TOOLS * sizeof(*snapshot.rows));
-    if (!snapshot.rows) {
-        lv_label_set_text(g_settings.tools_status, "内存不足");
-        return;
-    }
-    ret = smart_home_agent_app_try_enumerate_tools(ui->app, tools_collect, &snapshot);
-    if (ret != AGENT_OK) {
-        smart_home_bulk_free(snapshot.rows);
-        lv_label_set_text(g_settings.tools_status, ret == AGENT_ERROR_BUSY ?
-            "聊天正在使用工具，请完成后刷新" : "工具目录读取失败");
-        return;
-    }
-    lv_obj_clean(g_settings.tools_body);
-    smart_home_bulk_free(g_settings.tools);
-    g_settings.tools = snapshot.rows;
-    g_settings.tool_count = snapshot.count;
-    for (size_t i = 0; i < snapshot.count; i++) {
-        v9_tool_row_t *tool = &g_settings.tools[i];
-        lv_obj_t *row = lv_obj_create(g_settings.tools_body);
-        lv_obj_remove_style_all(row);
-        lv_obj_set_size(row, lv_pct(100), 76);
-        lv_obj_t *label = smart_home_lvgl_label_create(row, tool->name,
-            SMART_HOME_UI_COLOR_TEXT_PRIMARY, 15);
-        lv_obj_set_pos(label, 0, 0);
-        lv_obj_set_width(label, 600);
-        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
-        char text[192];
-        snprintf(text, sizeof(text), "%s · %s · %s",
-            smart_home_tool_source_label(smart_home_tool_source(tool->group, tool->name)),
-            tool->enabled ? "可用" : "不可用", tool->description);
-        label = smart_home_lvgl_label_create(row, text, SMART_HOME_UI_COLOR_TEXT_MUTED, 12);
-        lv_obj_set_pos(label, 0, 26);
-        lv_obj_set_width(label, 600);
-        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-        lv_obj_t *sw = lv_switch_create(row);
-        lv_obj_set_size(sw, 50, 28);
-        lv_obj_align(sw, LV_ALIGN_TOP_RIGHT, 0, 2);
-        if (tool->enabled && tool->allowed) lv_obj_add_state(sw, LV_STATE_CHECKED);
-        if (tool->group != SMART_HOME_TOOL_GROUP_LOCAL || !tool->enabled)
-            lv_obj_add_state(sw, LV_STATE_DISABLED);
-        lv_obj_set_user_data(sw, tool);
-        lv_obj_add_event_cb(sw, tool_switch_cb, LV_EVENT_VALUE_CHANGED, ui);
-    }
-    char text[96];
-    snprintf(text, sizeof(text), "%u 项工具；Node / MCP 权限由接入策略管理", (unsigned)snapshot.count);
-    lv_label_set_text(g_settings.tools_status, text);
+    g_settings.tools_requested = 1;
+    if (!g_settings.tools_valid) tools_set_text(g_settings.tools_status, "正在读取工具目录…");
+    lv_obj_add_state(g_settings.tools_refresh, LV_STATE_DISABLED);
+    tools_schedule(ui);
 }
 
 static void tools_refresh_cb(lv_event_t *event)
@@ -1181,25 +1384,94 @@ static void tools_refresh_cb(lv_event_t *event)
         tools_refresh(lv_event_get_user_data(event));
 }
 
+static void tools_page_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+    int next = lv_event_get_current_target(event) == g_settings.tools_next;
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED || g_settings.tools_rendering ||
+        (!next && !g_settings.tools_page) ||
+        (next && g_settings.tools_page + 1u >= tools_pages())) return;
+    if (next) ++g_settings.tools_page;
+    else --g_settings.tools_page;
+    tools_render_begin();
+    tools_schedule(ui);
+}
+
+static lv_obj_t *tools_button(lv_obj_t *panel, const char *text, int x, int y,
+                               int width, lv_event_cb_t callback, smart_home_lvgl_t *ui)
+{
+    lv_obj_t *button = lv_button_create(panel);
+    lv_obj_remove_style_all(button);
+    lv_obj_set_pos(button, x, y);
+    lv_obj_set_size(button, width, 34);
+    lv_obj_set_style_radius(button, 10, 0);
+    smart_home_lvgl_set_bg(button, SMART_HOME_UI_COLOR_SURFACE_ON);
+    smart_home_lvgl_press_feedback(button);
+    lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, ui);
+    lv_obj_t *label = smart_home_lvgl_label_create(button, text,
+        SMART_HOME_UI_COLOR_TEXT_PRIMARY, 14);
+    lv_obj_clear_flag(label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_center(label);
+    return button;
+}
+
 static void build_tools_panel(smart_home_lvgl_t *ui, lv_obj_t *panel)
 {
+    g_settings.tools_owner = ui;
     panel_title(panel, "工具权限");
+    lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
     g_settings.tools_status = smart_home_lvgl_label_create(panel,
-        "点击刷新读取完整工具目录", SMART_HOME_UI_COLOR_TEXT_MUTED, 12);
-    lv_obj_set_pos(g_settings.tools_status, 0, 42);
-    lv_obj_t *button = lv_button_create(panel);
-    lv_obj_set_size(button, 128, 36);
-    lv_obj_align(button, LV_ALIGN_TOP_RIGHT, 0, 0);
-    lv_obj_add_event_cb(button, tools_refresh_cb, LV_EVENT_CLICKED, ui);
-    lv_obj_t *label = smart_home_lvgl_label_create(button, "刷新工具目录",
-        SMART_HOME_UI_COLOR_TEXT_PRIMARY, 13);
-    lv_obj_center(label);
+        "按来源管理工具 · 点击卡片查看说明", SMART_HOME_UI_COLOR_TEXT_MUTED, 13);
+    lv_obj_set_pos(g_settings.tools_status, 0, 40);
+    g_settings.tools_refresh = tools_button(panel, "刷新目录", 604, 0, 100,
+                                             tools_refresh_cb, ui);
     g_settings.tools_body = lv_obj_create(panel);
     lv_obj_remove_style_all(g_settings.tools_body);
-    lv_obj_set_size(g_settings.tools_body, lv_pct(100), LV_SIZE_CONTENT);
-    lv_obj_set_pos(g_settings.tools_body, 0, 78);
-    lv_obj_set_flex_flow(g_settings.tools_body, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(g_settings.tools_body, 8, 0);
+    lv_obj_set_pos(g_settings.tools_body, 0, 76);
+    lv_obj_set_size(g_settings.tools_body, 704, 234);
+    lv_obj_clear_flag(g_settings.tools_body, LV_OBJ_FLAG_SCROLLABLE);
+    for (size_t i = 0; i < V9_TOOLS_PER_PAGE; ++i) {
+        v9_tool_slot_t *slot = &g_settings.tool_slots[i];
+        slot->row = lv_obj_create(g_settings.tools_body);
+        lv_obj_remove_style_all(slot->row);
+        lv_obj_set_pos(slot->row, 0, (int)i * 80);
+        lv_obj_set_size(slot->row, 704, 74);
+        lv_obj_set_style_radius(slot->row, 12, 0);
+        smart_home_lvgl_set_bg(slot->row, SMART_HOME_UI_COLOR_SURFACE_SOFT);
+        lv_obj_clear_flag(slot->row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(slot->row, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
+        smart_home_lvgl_press_feedback(slot->row);
+        lv_obj_add_event_cb(slot->row, tool_detail_cb, LV_EVENT_CLICKED, slot);
+        slot->name = smart_home_lvgl_label_create(slot->row, "",
+            SMART_HOME_UI_COLOR_TEXT_PRIMARY, 17);
+        lv_obj_set_pos(slot->name, 16, 9);
+        lv_obj_set_width(slot->name, 570);
+        lv_label_set_long_mode(slot->name, LV_LABEL_LONG_DOT);
+        slot->meta = smart_home_lvgl_label_create(slot->row, "",
+            SMART_HOME_UI_COLOR_TEXT_MUTED, 13);
+        lv_obj_set_pos(slot->meta, 16, 40);
+        lv_obj_set_width(slot->meta, 570);
+        lv_label_set_long_mode(slot->meta, LV_LABEL_LONG_DOT);
+        slot->toggle = lv_switch_create(slot->row);
+        lv_obj_set_size(slot->toggle, 50, 28);
+        lv_obj_align(slot->toggle, LV_ALIGN_RIGHT_MID, -16, 0);
+        lv_obj_set_style_bg_color(slot->toggle, SMART_HOME_UI_COLOR_PRIMARY,
+                                  LV_PART_INDICATOR | LV_STATE_CHECKED);
+        lv_obj_clear_flag(slot->toggle, LV_OBJ_FLAG_EVENT_BUBBLE);
+        lv_obj_set_user_data(slot->toggle, slot);
+        lv_obj_add_event_cb(slot->toggle, tool_switch_cb, LV_EVENT_VALUE_CHANGED, ui);
+    }
+    lv_obj_t *label = smart_home_lvgl_label_create(panel, "点击卡片查看说明",
+        SMART_HOME_UI_COLOR_TEXT_MUTED, 13);
+    lv_obj_set_pos(label, 0, 337);
+    g_settings.tools_prev = tools_button(panel, "上一页", 352, 326, 96, tools_page_cb, ui);
+    g_settings.tools_next = tools_button(panel, "下一页", 608, 326, 96, tools_page_cb, ui);
+    g_settings.tools_page_label = smart_home_lvgl_label_create(panel, "1 / 1",
+        SMART_HOME_UI_COLOR_TEXT_SECONDARY, 14);
+    lv_obj_set_pos(g_settings.tools_page_label, 468, 335);
+    lv_obj_set_width(g_settings.tools_page_label, 120);
+    lv_obj_set_style_text_align(g_settings.tools_page_label, LV_TEXT_ALIGN_CENTER, 0);
+    tools_navigation();
 }
 
 static void services_stop_cb(lv_event_t *event)

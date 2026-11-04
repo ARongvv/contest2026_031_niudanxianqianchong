@@ -436,7 +436,28 @@ int smart_home_agent_app_apply_model_config(smart_home_agent_app_t *app,
 
 int smart_home_agent_app_try_enumerate_tools(const smart_home_agent_app_t *app,
                                              smart_home_tool_visit_fn visitor, void *user)
-{ (void)app; (void)visitor; (void)user; return AGENT_OK; }
+{
+    (void)app;
+    static const struct { const char *name, *description; uint16_t group; } fixtures[] = {
+        {"get_home_status", "查询家庭演示设备的当前状态。", SMART_HOME_TOOL_GROUP_LOCAL},
+        {"miot_device_list", "查询米家设备、来源及可用控制能力。", SMART_HOME_TOOL_GROUP_LOCAL},
+        {"board_camera", "查看本机摄像头状态，按指令采集画面。", SMART_HOME_TOOL_GROUP_LOCAL},
+        {"set_light", "调整演示灯光的开关与亮度。", SMART_HOME_TOOL_GROUP_LOCAL},
+        {"set_timer", "设置本机倒计时提醒。", SMART_HOME_TOOL_GROUP_LOCAL},
+        {"read_skill", "查询当前可用的操作说明。", SMART_HOME_TOOL_GROUP_LOCAL},
+        {"node_device", "调用局域网节点提供的设备服务。", SMART_HOME_TOOL_GROUP_NODE},
+        {"mcp_weather", "使用已接入的 MCP 服务查询天气。", SMART_HOME_TOOL_GROUP_MCP},
+        {"mcp_search", "使用已接入的 MCP 服务搜索信息。", SMART_HOME_TOOL_GROUP_MCP},
+    };
+    for (size_t i = 0; i < sizeof(fixtures) / sizeof(fixtures[0]); ++i) {
+        smart_home_tool_info_t tool = {.name = fixtures[i].name,
+            .description = fixtures[i].description, .group_id = fixtures[i].group,
+            .enabled = 1, .access_allowed = 1};
+        int ret = visitor(&tool, user);
+        if (ret != AGENT_OK) return ret;
+    }
+    return AGENT_OK;
+}
 int smart_home_agent_app_try_set_local_tool_access(smart_home_agent_app_t *app,
                                                   const char *name, int allowed)
 { return smart_home_agent_app_set_local_tool_access(app, name, allowed); }
@@ -768,11 +789,37 @@ static void capture_v9_settings_categories(smart_home_lvgl_t *ui)
     };
     int i;
 
-    if (!getenv(keys[0])) return;
     for (i = 0; i < 7; i++) {
+        if (!getenv(keys[i])) continue;
+        lv_screen_load(ui->screen_settings_v9);
         if (smart_home_lvgl_v9_settings_select_category(i) != i) return;
+        if (i == 4) {
+            for (int step = 0; step < 6; ++step) {
+                lv_tick_inc(45);
+                lv_timer_handler();
+            }
+        }
         lv_obj_update_layout(ui->screen_settings_v9);
         capture_screen(ui->screen_settings_v9, keys[i]);
+        if (i == 4 && getenv("SMART_HOME_V9_TOOLS_DETAIL_CAPTURE")) {
+            lv_obj_t *tool = find_v9_label(ui->screen_settings_v9, "get_home_status");
+            assert(tool);
+            lv_obj_send_event(lv_obj_get_parent(tool), LV_EVENT_CLICKED, NULL);
+            capture_screen(ui->screen_settings_v9, "SMART_HOME_V9_TOOLS_DETAIL_CAPTURE");
+            lv_obj_t *title = find_v9_label(ui->screen_settings_v9, "工具详情");
+            assert(title);
+            lv_obj_send_event(lv_obj_get_parent(lv_obj_get_parent(title)), LV_EVENT_CLICKED, NULL);
+        }
+        if (i == 4 && getenv("SMART_HOME_V9_TOOLS_PAGE_CAPTURE")) {
+            lv_obj_t *next = find_v9_label(ui->screen_settings_v9, "下一页");
+            assert(next);
+            lv_obj_send_event(lv_obj_get_parent(next), LV_EVENT_CLICKED, NULL);
+            for (int step = 0; step < 4; ++step) {
+                lv_tick_inc(45);
+                lv_timer_handler();
+            }
+            capture_screen(ui->screen_settings_v9, "SMART_HOME_V9_TOOLS_PAGE_CAPTURE");
+        }
     }
     (void)smart_home_lvgl_v9_settings_select_category(0);
 }
