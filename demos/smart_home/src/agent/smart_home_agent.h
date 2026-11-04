@@ -114,6 +114,12 @@ int smart_home_agent_app_enumerate_tools(
     const smart_home_agent_app_t *app,
     smart_home_tool_visit_fn callback,
     void *user_data);
+/** UI 查询与权限变更：锁被聊天任务占用时立即返回 BUSY。 */
+int smart_home_agent_app_try_enumerate_tools(
+    const smart_home_agent_app_t *app, smart_home_tool_visit_fn callback,
+    void *user_data);
+int smart_home_agent_app_try_set_local_tool_access(
+    smart_home_agent_app_t *app, const char *tool_name, int allowed);
 /** 设置本地工具的用户访问策略；拒绝时工具不会执行，但仍向模型声明。 */
 int smart_home_agent_app_set_local_tool_access(smart_home_agent_app_t *app,
                                                const char *tool_name,

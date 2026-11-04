@@ -5,6 +5,7 @@
 #include "../../config/smart_home_backends.h"
 #include "../../config/smart_home_secrets.h"
 #include "../../net/smart_home_network.h"
+#include "../../smart_home_memory.h"
 #ifdef CONFIG_SMART_HOME_MCP_BRIDGE
 #include "../../addons/smart_home_mcp_bridge.h"
 #endif
@@ -45,6 +46,14 @@ static const char *const g_category_names[V9_SETTINGS_CATEGORIES] = {
 #define V9_CAT_HEALTH    6
 
 typedef struct {
+    char name[AGENT_MAX_NAME_BYTES + 1u];
+    char description[128];
+    uint16_t group;
+    int enabled;
+    int allowed;
+} v9_tool_row_t;
+
+typedef struct {
     lv_obj_t *screen;
     lv_obj_t *panel[V9_SETTINGS_CATEGORIES];
     lv_obj_t *button[V9_SETTINGS_CATEGORIES];
@@ -57,10 +66,16 @@ typedef struct {
     lv_obj_t *mcp_auth;
     lv_obj_t *mcp_protocol;
     lv_obj_t *mcp_status;
+    lv_obj_t *mcp_service_status;
+    lv_obj_t *mcp_apply;
+    lv_obj_t *mcp_discover;
+    smart_home_mcp_state_t mcp_observed_state;
+    int mcp_state_valid;
 #endif
 #ifdef CONFIG_SMART_HOME_NODE_GATEWAY
     lv_obj_t *node_port;
     lv_obj_t *node_status;
+    lv_obj_t *node_service_status;
 #endif
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
     lv_obj_t *miloco_host;
@@ -70,6 +85,10 @@ typedef struct {
     lv_obj_t *miloco_service_status;
     lv_timer_t *miloco_save_timer;
 #endif
+    lv_obj_t *tools_body;
+    lv_obj_t *tools_status;
+    v9_tool_row_t *tools;
+    size_t tool_count;
     lv_obj_t *model_dd;
     lv_obj_t *model_name;
     lv_obj_t *model_key;
@@ -104,6 +123,17 @@ typedef struct {
 
 static v9_settings_t g_settings;
 static void health_panel_refresh(smart_home_lvgl_t *ui);
+static void tools_refresh(smart_home_lvgl_t *ui);
+static void services_refresh(smart_home_lvgl_t *ui);
+#ifdef CONFIG_SMART_HOME_MCP_BRIDGE
+static void mcp_poll(smart_home_lvgl_t *ui);
+static struct {
+    pthread_t thread;
+    smart_home_lvgl_t *owner;
+    int active, ready, result;
+    smart_home_mcp_runtime_config_t config;
+} g_mcp;
+#endif
 
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
 static void miloco_service_status_refresh(smart_home_lvgl_t *ui)
@@ -169,6 +199,7 @@ static void category_cb(lv_event_t *event)
 
     if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
         panel_show(index);
+        if (index == V9_CAT_TOOLS) tools_refresh(lv_event_get_user_data(event));
     }
 }
 
@@ -193,55 +224,6 @@ static void panel_title(lv_obj_t *panel, const char *text)
     lv_obj_set_pos(label, 0, 0);
 }
 
-static void panel_row(lv_obj_t *panel, int y, const char *name,
-                      const char *value)
-{
-    lv_obj_t *label = smart_home_lvgl_label_create(
-        panel, name, SMART_HOME_UI_COLOR_TEXT_PRIMARY, 15);
-    lv_obj_t *value_label;
-    lv_obj_t *line;
-
-    lv_obj_set_pos(label, 0, y);
-    value_label = smart_home_lvgl_label_create(
-        panel, value, SMART_HOME_UI_COLOR_TEXT_SECONDARY, 15);
-    lv_obj_align(value_label, LV_ALIGN_TOP_RIGHT, 0, y);
-
-    line = lv_obj_create(panel);
-    lv_obj_remove_style_all(line);
-    lv_obj_set_size(line, lv_pct(100), 1);
-    lv_obj_set_pos(line, 0, y + 36);
-    lv_obj_set_style_bg_color(line, SMART_HOME_UI_COLOR_BORDER, 0);
-    lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
-}
-
-static void route_cb(lv_event_t *event)
-{
-    lv_obj_t *target = lv_event_get_user_data(event);
-
-    if (lv_event_get_code(event) == LV_EVENT_CLICKED && target) {
-        lv_scr_load(target);
-    }
-}
-
-static void panel_button(lv_obj_t *panel, const char *text, lv_obj_t *target)
-{
-    lv_obj_t *button = lv_button_create(panel);
-    lv_obj_t *label;
-
-    lv_obj_remove_style_all(button);
-    lv_obj_set_size(button, 180, 40);
-    lv_obj_align(button, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-    lv_obj_set_style_radius(button, 10, 0);
-    lv_obj_set_style_bg_color(button, SMART_HOME_UI_COLOR_SURFACE_ON, 0);
-    lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
-    smart_home_lvgl_press_feedback(button);
-    lv_obj_add_event_cb(button, route_cb, LV_EVENT_CLICKED, target);
-
-    label = smart_home_lvgl_label_create(button, text,
-                                         SMART_HOME_UI_COLOR_TEXT_PRIMARY, 14);
-    lv_obj_center(label);
-}
-
 static void display_unavailable(lv_obj_t *panel, const char *icon_name,
                                 const char *title, int y)
 {
@@ -264,13 +246,12 @@ static void display_unavailable(lv_obj_t *panel, const char *icon_name,
     lv_obj_clear_flag(track, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 }
 
-static void build_display_panel(lv_obj_t *panel, lv_obj_t *settings_target)
+static void build_display_panel(lv_obj_t *panel)
 {
     lv_obj_t *label;
     lv_obj_t *sw;
     const char *choices[] = {"1分钟", "5分钟", "永不"};
 
-    (void)settings_target;
     display_unavailable(panel, "asset:sun", "屏幕亮度", 0);
     display_unavailable(panel, "asset:volume", "播报音量", 102);
     label = smart_home_lvgl_label_create(panel, "自动进入屏保",
@@ -404,6 +385,16 @@ void smart_home_lvgl_settings_v9_deinit(smart_home_lvgl_t *ui)
     /* 语音任务持有面板控件指针，必须在 g_settings 清零前收掉。 */
     smart_home_lvgl_voice_settings_deinit(ui);
 #endif
+#ifdef CONFIG_SMART_HOME_MCP_BRIDGE
+    if (g_mcp.owner == ui) {
+        if (g_mcp.active) pthread_join(g_mcp.thread, NULL);
+        memset(&g_mcp, 0, sizeof(g_mcp));
+    }
+#endif
+#ifdef CONFIG_SMART_HOME_KWS
+    smart_home_lvgl_wake_settings_deinit(ui);
+#endif
+    smart_home_bulk_free(g_settings.tools);
     memset(&g_settings, 0, sizeof(g_settings));
 }
 
@@ -529,6 +520,13 @@ static void v9_net_timer_cb(lv_timer_t *timer)
         }
         health_panel_refresh(ui);
     }
+#ifdef CONFIG_SMART_HOME_MCP_BRIDGE
+    mcp_poll(ui);
+#endif
+#ifdef CONFIG_SMART_HOME_KWS
+    smart_home_lvgl_wake_settings_poll(ui);
+#endif
+    services_refresh(ui);
     v9_net_status_refresh(ui);
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
     miloco_service_status_refresh(ui);
@@ -1077,64 +1075,115 @@ static void tool_switch_cb(lv_event_t *event)
 {
     smart_home_lvgl_t *ui = lv_event_get_user_data(event);
     lv_obj_t *sw = lv_event_get_current_target(event);
-    const char *name = lv_obj_get_user_data(sw);
+    v9_tool_row_t *tool = lv_obj_get_user_data(sw);
+    int allowed, ret;
 
-    if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED || !ui || !ui->app ||
-        !name) {
+    if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED || !ui || !ui->app || !tool)
+        return;
+    allowed = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    ret = smart_home_agent_app_try_set_local_tool_access(ui->app, tool->name, allowed);
+    if (ret == AGENT_OK) tool->allowed = allowed;
+    else if (tool->allowed) lv_obj_add_state(sw, LV_STATE_CHECKED);
+    else lv_obj_remove_state(sw, LV_STATE_CHECKED);
+    lv_label_set_text(g_settings.tools_status,
+        ret == AGENT_OK ? "权限已更新（本次运行有效）" :
+        ret == AGENT_ERROR_BUSY ? "聊天正在使用工具，请完成后重试" : "权限更新失败");
+}
+
+typedef struct { v9_tool_row_t *rows; size_t count; } v9_tool_snapshot_t;
+
+static int tools_collect(const smart_home_tool_info_t *tool, void *user_data)
+{
+    v9_tool_snapshot_t *snapshot = user_data;
+    v9_tool_row_t *row;
+    if (snapshot->count >= AGENT_MAX_TOOLS) return AGENT_ERROR_CAPACITY;
+    row = &snapshot->rows[snapshot->count++];
+    snprintf(row->name, sizeof(row->name), "%s", tool->name);
+    snprintf(row->description, sizeof(row->description), "%s", tool->description);
+    row->group = tool->group_id;
+    row->enabled = tool->enabled;
+    row->allowed = tool->access_allowed;
+    return AGENT_OK;
+}
+
+static void tools_refresh(smart_home_lvgl_t *ui)
+{
+    v9_tool_snapshot_t snapshot = {0};
+    int ret;
+    if (!ui || !ui->app || !g_settings.tools_body) return;
+    snapshot.rows = smart_home_bulk_alloc(AGENT_MAX_TOOLS * sizeof(*snapshot.rows));
+    if (!snapshot.rows) {
+        lv_label_set_text(g_settings.tools_status, "内存不足");
         return;
     }
-    (void)smart_home_agent_app_set_local_tool_access(
-        ui->app, name, lv_obj_has_state(sw, LV_STATE_CHECKED) ? 1 : 0);
+    ret = smart_home_agent_app_try_enumerate_tools(ui->app, tools_collect, &snapshot);
+    if (ret != AGENT_OK) {
+        smart_home_bulk_free(snapshot.rows);
+        lv_label_set_text(g_settings.tools_status, ret == AGENT_ERROR_BUSY ?
+            "聊天正在使用工具，请完成后刷新" : "工具目录读取失败");
+        return;
+    }
+    lv_obj_clean(g_settings.tools_body);
+    smart_home_bulk_free(g_settings.tools);
+    g_settings.tools = snapshot.rows;
+    g_settings.tool_count = snapshot.count;
+    for (size_t i = 0; i < snapshot.count; i++) {
+        v9_tool_row_t *tool = &g_settings.tools[i];
+        lv_obj_t *row = lv_obj_create(g_settings.tools_body);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, lv_pct(100), 76);
+        lv_obj_t *label = smart_home_lvgl_label_create(row, tool->name,
+            SMART_HOME_UI_COLOR_TEXT_PRIMARY, 15);
+        lv_obj_set_pos(label, 0, 0);
+        lv_obj_set_width(label, 600);
+        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+        char text[192];
+        snprintf(text, sizeof(text), "%s · %s · %s",
+            smart_home_tool_source_label(smart_home_tool_source(tool->group, tool->name)),
+            tool->enabled ? "可用" : "不可用", tool->description);
+        label = smart_home_lvgl_label_create(row, text, SMART_HOME_UI_COLOR_TEXT_MUTED, 12);
+        lv_obj_set_pos(label, 0, 26);
+        lv_obj_set_width(label, 600);
+        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+        lv_obj_t *sw = lv_switch_create(row);
+        lv_obj_set_size(sw, 50, 28);
+        lv_obj_align(sw, LV_ALIGN_TOP_RIGHT, 0, 2);
+        if (tool->enabled && tool->allowed) lv_obj_add_state(sw, LV_STATE_CHECKED);
+        if (tool->group != SMART_HOME_TOOL_GROUP_LOCAL || !tool->enabled)
+            lv_obj_add_state(sw, LV_STATE_DISABLED);
+        lv_obj_set_user_data(sw, tool);
+        lv_obj_add_event_cb(sw, tool_switch_cb, LV_EVENT_VALUE_CHANGED, ui);
+    }
+    char text[96];
+    snprintf(text, sizeof(text), "%u 项工具；Node / MCP 权限由接入策略管理", (unsigned)snapshot.count);
+    lv_label_set_text(g_settings.tools_status, text);
+}
+
+static void tools_refresh_cb(lv_event_t *event)
+{
+    if (lv_event_get_code(event) == LV_EVENT_CLICKED)
+        tools_refresh(lv_event_get_user_data(event));
 }
 
 static void build_tools_panel(smart_home_lvgl_t *ui, lv_obj_t *panel)
 {
-    size_t count = ui && ui->app ? ui->app->local_tool_access_count : 0;
-    int y = 56;
-
     panel_title(panel, "工具权限");
-    if (!ui || !ui->app) {
-        panel_row(panel, y, "工具目录", "服务未初始化");
-        return;
-    }
-    if (count == 0) {
-        panel_row(panel, y, "本地工具", "尚未加载工具目录");
-    }
-    for (size_t i = 0; i < count && i < 6; i++) {
-        smart_home_local_tool_access_t *tool =
-            &ui->app->local_tool_access[i];
-        char description[64];
-        snprintf(description, sizeof(description), "%s · 本次运行有效",
-            smart_home_tool_source_label(smart_home_tool_source(SMART_HOME_TOOL_GROUP_LOCAL, tool->name)));
-        lv_obj_t *name = smart_home_lvgl_label_create(
-            panel, tool->name, SMART_HOME_UI_COLOR_TEXT_PRIMARY, 17);
-        lv_obj_t *sub = smart_home_lvgl_label_create(
-            panel, description,
-            SMART_HOME_UI_COLOR_TEXT_MUTED, 12);
-        lv_obj_t *sw = lv_switch_create(panel);
-
-        lv_obj_set_pos(name, 0, y);
-        lv_obj_set_pos(sub, 0, y + 22);
-        lv_obj_set_size(sw, 50, 28);
-        lv_obj_align(sw, LV_ALIGN_TOP_RIGHT, 0, y + 2);
-        lv_obj_set_style_bg_color(sw, lv_color_hex(0xCCD6D6), LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_MAIN);
-        lv_obj_set_style_radius(sw, 14, LV_PART_MAIN);
-        lv_obj_set_style_bg_color(sw, SMART_HOME_UI_COLOR_PRIMARY,
-                                  LV_PART_MAIN | LV_STATE_CHECKED);
-        lv_obj_set_style_bg_opa(sw, LV_OPA_TRANSP, LV_PART_INDICATOR);
-        lv_obj_set_style_bg_color(sw, lv_color_white(), LV_PART_KNOB);
-        lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_KNOB);
-        lv_obj_set_style_border_width(sw, 0, LV_PART_KNOB);
-        lv_obj_set_style_radius(sw, 12, LV_PART_KNOB);
-        lv_obj_set_style_pad_all(sw, 2, LV_PART_KNOB);
-        lv_obj_set_style_shadow_width(sw, 0, LV_PART_KNOB);
-        if (tool->allowed) lv_obj_add_state(sw, LV_STATE_CHECKED);
-        lv_obj_set_user_data(sw, tool->name);
-        lv_obj_add_event_cb(sw, tool_switch_cb, LV_EVENT_VALUE_CHANGED, ui);
-        y += 54;
-    }
-    panel_button(panel, "打开完整工具页", ui->screen_tools);
+    g_settings.tools_status = smart_home_lvgl_label_create(panel,
+        "点击刷新读取完整工具目录", SMART_HOME_UI_COLOR_TEXT_MUTED, 12);
+    lv_obj_set_pos(g_settings.tools_status, 0, 42);
+    lv_obj_t *button = lv_button_create(panel);
+    lv_obj_set_size(button, 128, 36);
+    lv_obj_align(button, LV_ALIGN_TOP_RIGHT, 0, 0);
+    lv_obj_add_event_cb(button, tools_refresh_cb, LV_EVENT_CLICKED, ui);
+    lv_obj_t *label = smart_home_lvgl_label_create(button, "刷新工具目录",
+        SMART_HOME_UI_COLOR_TEXT_PRIMARY, 13);
+    lv_obj_center(label);
+    g_settings.tools_body = lv_obj_create(panel);
+    lv_obj_remove_style_all(g_settings.tools_body);
+    lv_obj_set_size(g_settings.tools_body, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_pos(g_settings.tools_body, 0, 78);
+    lv_obj_set_flex_flow(g_settings.tools_body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(g_settings.tools_body, 8, 0);
 }
 
 static void services_stop_cb(lv_event_t *event)
@@ -1153,6 +1202,15 @@ static void config_modal_close(void)
         lv_timer_delete(g_settings.miloco_save_timer);
         g_settings.miloco_save_timer = NULL;
     }
+#endif
+#ifdef CONFIG_SMART_HOME_MCP_BRIDGE
+    g_settings.mcp_status = NULL;
+    g_settings.mcp_apply = NULL;
+    g_settings.mcp_discover = NULL;
+    g_settings.mcp_state_valid = 0;
+#endif
+#ifdef CONFIG_SMART_HOME_NODE_GATEWAY
+    g_settings.node_status = NULL;
 #endif
     /* 弹窗里的输入框是遮罩的子对象，随遮罩一起销毁；键盘只存裸指针，
      * LVGL 不会在 textarea 删除时自动解绑。不在删除前先解绑，之后任何
@@ -1376,6 +1434,56 @@ static void miloco_config_open(smart_home_lvgl_t *ui)
 }
 #endif /* CONFIG_SMART_HOME_MILOCO_BRIDGE */
 #ifdef CONFIG_SMART_HOME_MCP_BRIDGE
+static void *mcp_apply_worker(void *argument)
+{
+    smart_home_lvgl_t *ui = argument;
+    smart_home_mcp_bridge_t *bridge = ui->app->mcp_bridge;
+    int ret = AGENT_OK;
+    if (!bridge) {
+        ret = smart_home_mcp_bridge_start(&bridge, ui->app->agent, &ui->app->agent_mutex);
+        if (ret == AGENT_OK) ui->app->mcp_bridge = bridge;
+    }
+    if (ret == AGENT_OK)
+        ret = smart_home_mcp_bridge_reconfigure(bridge, &g_mcp.config);
+    memset(&g_mcp.config, 0, sizeof(g_mcp.config));
+    pthread_mutex_lock(&ui->pending_mutex);
+    g_mcp.result = ret;
+    g_mcp.ready = 1;
+    pthread_mutex_unlock(&ui->pending_mutex);
+    return NULL;
+}
+
+static void mcp_poll(smart_home_lvgl_t *ui)
+{
+    int ready;
+    pthread_mutex_lock(&ui->pending_mutex);
+    ready = g_mcp.ready;
+    g_mcp.ready = 0;
+    pthread_mutex_unlock(&ui->pending_mutex);
+    if (!ready) return;
+    pthread_join(g_mcp.thread, NULL);
+    g_mcp.active = 0;
+    ui->app->system_status.mcp_bridge_status = g_mcp.result;
+    if (g_settings.mcp_apply) lv_obj_remove_state(g_settings.mcp_apply, LV_STATE_DISABLED);
+    if (g_settings.mcp_status) lv_label_set_text(g_settings.mcp_status,
+        g_mcp.result == AGENT_OK ? "配置已应用，可点击发现工具（本次运行有效）" :
+        g_mcp.result == AGENT_ERROR_BUSY ? "发现进行中，请稍后重试" :
+        "配置应用失败，请检查 mcp_bridge.json、工具白名单与凭据");
+}
+
+static void mcp_discover_cb(lv_event_t *event)
+{
+    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED || !ui || !ui->app || g_mcp.active)
+        return;
+    if (!ui->app->mcp_bridge) {
+        lv_label_set_text(g_settings.mcp_status, "请先部署有效的 mcp_bridge.json 并应用配置");
+        return;
+    }
+    int ret = smart_home_mcp_bridge_request_discover(ui->app->mcp_bridge);
+    lv_label_set_text(g_settings.mcp_status, ret == AGENT_OK ? "正在发现工具…" : "发现请求失败，请稍后重试");
+}
+
 static void mcp_apply_cb(lv_event_t *event)
 {
     smart_home_lvgl_t *ui = lv_event_get_user_data(event);
@@ -1386,7 +1494,7 @@ static void mcp_apply_cb(lv_event_t *event)
     const char *port_text;
 
     if (lv_event_get_code(event) != LV_EVENT_CLICKED || !ui || !ui->app ||
-        !ui->app->mcp_bridge || !g_settings.mcp_server) {
+        g_mcp.active || !g_settings.mcp_server) {
         return;
     }
     memset(&config, 0, sizeof(config));
@@ -1407,14 +1515,26 @@ static void mcp_apply_cb(lv_event_t *event)
     }
     config.port = (uint16_t)port;
     config.use_tls = lv_dropdown_get_selected(g_settings.mcp_protocol) == 0;
-    ret = smart_home_mcp_bridge_reconfigure(ui->app->mcp_bridge, &config);
+    g_mcp.owner = ui;
+    g_mcp.config = config;
     memset(&config, 0, sizeof(config));
-    if (g_settings.mcp_status) {
-        lv_label_set_text(g_settings.mcp_status,
-                          ret == AGENT_OK ? "配置已应用，请重新发现工具" :
-                          ret == AGENT_ERROR_BUSY ? "发现进行中，请稍后重试" :
-                                                    "配置应用失败");
+    g_mcp.ready = 0;
+    g_mcp.active = 1;
+    pthread_attr_t attr;
+    ret = pthread_attr_init(&attr);
+    if (ret == 0) {
+        ret = pthread_attr_setstacksize(&attr, 16384u);
+        if (ret == 0) ret = pthread_create(&g_mcp.thread, &attr, mcp_apply_worker, ui);
+        pthread_attr_destroy(&attr);
     }
+    if (ret != 0) {
+        g_mcp.active = 0;
+        memset(&g_mcp.config, 0, sizeof(g_mcp.config));
+        lv_label_set_text(g_settings.mcp_status, "无法创建配置任务");
+        return;
+    }
+    if (g_settings.mcp_apply) lv_obj_add_state(g_settings.mcp_apply, LV_STATE_DISABLED);
+    lv_label_set_text(g_settings.mcp_status, "正在应用配置…");
 }
 
 static void mcp_config_open(smart_home_lvgl_t *ui)
@@ -1451,9 +1571,33 @@ static void mcp_config_open(smart_home_lvgl_t *ui)
     lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
     smart_home_lvgl_press_feedback(button);
     lv_obj_add_event_cb(button, mcp_apply_cb, LV_EVENT_CLICKED, ui);
+    g_settings.mcp_apply = button;
     label = smart_home_lvgl_label_create(button, "应用配置",
                                          SMART_HOME_UI_COLOR_TEXT_PRIMARY, 13);
     lv_obj_center(label);
+    button = lv_button_create(panel);
+    lv_obj_set_size(button, 160, 36);
+    lv_obj_set_pos(button, 180, 336);
+    lv_obj_add_event_cb(button, mcp_discover_cb, LV_EVENT_CLICKED, ui);
+    g_settings.mcp_discover = button;
+    label = smart_home_lvgl_label_create(button, "发现 / 重试",
+        SMART_HOME_UI_COLOR_TEXT_PRIMARY, 13);
+    lv_obj_center(label);
+    smart_home_mcp_runtime_config_t current;
+    if (!g_mcp.active && ui && ui->app && ui->app->mcp_bridge &&
+        smart_home_mcp_bridge_get_config(ui->app->mcp_bridge, &current) == AGENT_OK) {
+        char port[8];
+        snprintf(port, sizeof(port), "%u", (unsigned)current.port);
+        lv_textarea_set_text(g_settings.mcp_server, current.server_id);
+        lv_textarea_set_text(g_settings.mcp_host, current.host);
+        lv_textarea_set_text(g_settings.mcp_port, port);
+        lv_textarea_set_text(g_settings.mcp_path, current.path);
+        lv_textarea_set_text(g_settings.mcp_auth, current.authorization);
+        lv_dropdown_set_selected(g_settings.mcp_protocol, current.use_tls ? 0 : 1);
+        memset(&current, 0, sizeof(current));
+    }
+    if (g_mcp.active) lv_obj_add_state(g_settings.mcp_apply, LV_STATE_DISABLED);
+
 }
 #endif
 
@@ -1597,6 +1741,12 @@ static void service_row(lv_obj_t *panel, smart_home_lvgl_t *ui,
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
     if (index == 0) g_settings.miloco_service_status = label;
 #endif
+#ifdef CONFIG_SMART_HOME_MCP_BRIDGE
+    if (index == 1) g_settings.mcp_service_status = label;
+#endif
+#ifdef CONFIG_SMART_HOME_NODE_GATEWAY
+    if (index == 2) g_settings.node_service_status = label;
+#endif
     lv_obj_center(label);
 
     button = lv_button_create(panel);
@@ -1621,6 +1771,46 @@ static void service_row(lv_obj_t *panel, smart_home_lvgl_t *ui,
     lv_obj_set_pos(line, 0, y + 63);
     lv_obj_set_style_bg_color(line, SMART_HOME_UI_COLOR_BORDER, 0);
     lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
+}
+
+static void services_refresh(smart_home_lvgl_t *ui)
+{
+    if (!ui || !ui->app) return;
+#ifdef CONFIG_SMART_HOME_MCP_BRIDGE
+    const char *text = "未配置 / 初始化失败";
+    smart_home_mcp_state_t state = SMART_HOME_MCP_STATE_IDLE;
+    if (g_mcp.active) text = "正在应用配置";
+    else if (ui->app->mcp_bridge &&
+        smart_home_mcp_bridge_get_state(ui->app->mcp_bridge, &state, NULL) == AGENT_OK) {
+        switch (state) {
+        case SMART_HOME_MCP_STATE_IDLE: text = "等待发现工具"; break;
+        case SMART_HOME_MCP_STATE_CONNECTING: text = "正在发现工具"; break;
+        case SMART_HOME_MCP_STATE_READY: text = "工具已就绪"; break;
+        default: text = "发现失败，可重试"; break;
+        }
+        if (g_settings.mcp_discover) {
+            if (state == SMART_HOME_MCP_STATE_CONNECTING)
+                lv_obj_add_state(g_settings.mcp_discover, LV_STATE_DISABLED);
+            else lv_obj_remove_state(g_settings.mcp_discover, LV_STATE_DISABLED);
+        }
+    }
+    if (g_settings.mcp_service_status &&
+        strcmp(lv_label_get_text(g_settings.mcp_service_status), text))
+        lv_label_set_text(g_settings.mcp_service_status, text);
+    if (g_settings.mcp_status && !g_mcp.active && ui->app->mcp_bridge &&
+        (!g_settings.mcp_state_valid || g_settings.mcp_observed_state != state)) {
+        g_settings.mcp_state_valid = 1;
+        g_settings.mcp_observed_state = state;
+        if (state == SMART_HOME_MCP_STATE_READY || state == SMART_HOME_MCP_STATE_FAILED)
+            lv_label_set_text(g_settings.mcp_status, text);
+    }
+#endif
+#ifdef CONFIG_SMART_HOME_NODE_GATEWAY
+    const char *node = ui->app->node_gateway ? "监听中" : "未开启";
+    if (g_settings.node_service_status &&
+        strcmp(lv_label_get_text(g_settings.node_service_status), node))
+        lv_label_set_text(g_settings.node_service_status, node);
+#endif
 }
 
 static void build_services_panel(smart_home_lvgl_t *ui, lv_obj_t *panel)
@@ -2103,7 +2293,7 @@ void smart_home_lvgl_build_settings_screen_v9(smart_home_lvgl_t *ui)
         lv_obj_set_pos(button, 11, 8 + i * 51);
         lv_obj_set_style_radius(button, 12, 0);
         lv_obj_set_user_data(button, (void *)(intptr_t)i);
-        lv_obj_add_event_cb(button, category_cb, LV_EVENT_CLICKED, NULL);
+        lv_obj_add_event_cb(button, category_cb, LV_EVENT_CLICKED, ui);
         smart_home_lvgl_press_feedback(button);
         g_settings.button[i] = button;
 
@@ -2127,7 +2317,7 @@ void smart_home_lvgl_build_settings_screen_v9(smart_home_lvgl_t *ui)
     g_settings.panel[5] = make_panel(right);
     g_settings.panel[6] = make_panel(right);
 
-    build_display_panel(g_settings.panel[0], ui->screen_settings);
+    build_display_panel(g_settings.panel[0]);
     build_network_panel(ui, g_settings.panel[1]);
     build_model_panel(ui, g_settings.panel[2]);
     build_tools_panel(ui, g_settings.panel[4]);
@@ -2150,6 +2340,8 @@ void smart_home_lvgl_build_settings_screen_v9(smart_home_lvgl_t *ui)
 #if defined(CONFIG_SMART_HOME_VOICE_ASR) || defined(CONFIG_SMART_HOME_VOICE_TTS)
     smart_home_lvgl_build_voice_settings(ui, g_settings.panel[V9_CAT_VOICE],
                                          g_settings.keyboard);
+#elif defined(CONFIG_SMART_HOME_KWS)
+    smart_home_lvgl_build_wake_settings(ui, g_settings.panel[V9_CAT_VOICE]);
 #else
     panel_title(g_settings.panel[V9_CAT_VOICE], "语音服务");
     lv_obj_t *voice_hint = smart_home_lvgl_label_create(
@@ -2170,6 +2362,7 @@ void smart_home_lvgl_build_settings_screen_v9(smart_home_lvgl_t *ui)
     }
     ui->v9_network_timer = lv_timer_create(v9_net_timer_cb, 250, ui);
 
+    services_refresh(ui);
     panel_show(V9_CAT_DISPLAY);
     smart_home_lvgl_build_nav_bar(screen, ui);
     smart_home_lvgl_update_clock(ui);

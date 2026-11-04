@@ -114,6 +114,12 @@ int smart_home_lvgl_v9_select_room(int index);
 void smart_home_lvgl_build_settings_screen_v9(smart_home_lvgl_t *ui);
 void smart_home_lvgl_settings_v9_deinit(smart_home_lvgl_t *ui);
 
+#ifdef CONFIG_SMART_HOME_KWS
+void smart_home_lvgl_build_wake_settings(smart_home_lvgl_t *ui, lv_obj_t *panel);
+void smart_home_lvgl_wake_settings_poll(smart_home_lvgl_t *ui);
+void smart_home_lvgl_wake_settings_deinit(smart_home_lvgl_t *ui);
+#endif
+
 /* 语音服务独立面板（ASR/TTS 端点与独立密钥）。
  * 只在 CONFIG_SMART_HOME_VOICE_ASR 或 CONFIG_SMART_HOME_VOICE_TTS 打开时编译。 */
 #if defined(CONFIG_SMART_HOME_VOICE_ASR) || defined(CONFIG_SMART_HOME_VOICE_TTS)
@@ -149,7 +155,6 @@ lv_obj_t *page_card(lv_obj_t *screen, int x, int y, int w, int h);
 void page_heading(lv_obj_t *screen, const char *title);
 void page_icon_badge(lv_obj_t *card, const char *icon, lv_color_t bg);
 #endif
-void smart_home_lvgl_build_more_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_network_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_refresh_network_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_refresh_home(smart_home_lvgl_t *ui);
@@ -167,15 +172,6 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_chat_screen(smart_home_lvgl_t *ui);
 int smart_home_lvgl_chat_restore(smart_home_lvgl_t *ui);
 const char *smart_home_lvgl_tool_display_name(const char *name);
-void smart_home_lvgl_build_settings_screen(smart_home_lvgl_t *ui);
-/* 服务管理独立屏（更多页第二行卡片入口）。 */
-void smart_home_lvgl_build_model_screen(smart_home_lvgl_t *ui);
-void smart_home_lvgl_build_tools_screen(smart_home_lvgl_t *ui);
-void smart_home_lvgl_build_mcp_screen(smart_home_lvgl_t *ui);
-void smart_home_lvgl_build_node_screen(smart_home_lvgl_t *ui);
-void smart_home_lvgl_refresh_tool_directory(smart_home_lvgl_t *ui);
-void smart_home_lvgl_settings_deinit(void);
-
 void smart_home_lvgl_chat_send_text(smart_home_lvgl_t *ui, const char *text);
 int smart_home_lvgl_chat_clear(smart_home_lvgl_t *ui);
 #ifdef CONFIG_SMART_HOME_VOICE_ASR

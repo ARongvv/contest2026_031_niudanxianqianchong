@@ -58,7 +58,8 @@ def main():
                     app / "src/ui/lvgl/smart_home_lvgl_agent.c",
                     app / "src/ui/lvgl/smart_home_lvgl_chat.c",
                     app / "src/ui/lvgl/smart_home_lvgl_history.c",
-                    app / "src/ui/lvgl/smart_home_lvgl_settings.c",
+                    app / "src/ui/lvgl/smart_home_lvgl_settings_v9.c",
+                    app / "src/ui/lvgl/smart_home_lvgl_wake_settings.c",
                     app / "src/app/smart_home_main.c",
                     app / "src/smart_home_memory.c"]
         native_includes = [repo.parent / "nuttx/include", repo.parent / "apps/include",

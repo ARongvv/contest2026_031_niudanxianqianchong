@@ -60,13 +60,6 @@ if(SMART_HOME_TEST_NODE_GATEWAY)
   target_include_directories(panel_check PRIVATE "${REPO}/packages/cagent_addons/include")
 endif()
 
-add_executable(settings_check test_settings.c)
-foreach(property COMPILE_DEFINITIONS INCLUDE_DIRECTORIES COMPILE_OPTIONS LINK_OPTIONS LINK_LIBRARIES)
-  get_target_property(value panel_check ${property})
-  set_target_properties(settings_check PROPERTIES ${property} "${value}")
-endforeach()
-add_test(NAME settings_check COMMAND settings_check)
-
 add_executable(settings_v9_check test_settings_v9.c
   "${UI}/smart_home_lvgl_style.c"
   "${UI}/icons/smart_home_lvgl_png_icons.c" ${ICONS})
@@ -206,7 +199,7 @@ foreach(property COMPILE_DEFINITIONS INCLUDE_DIRECTORIES COMPILE_OPTIONS LINK_OP
   set_target_properties(voice_settings_check PROPERTIES ${property} "${value}")
 endforeach()
 target_compile_definitions(voice_settings_check PRIVATE CONFIG_SMART_HOME_MCP_BRIDGE=1
-  CONFIG_SMART_HOME_VOICE_ASR=1 CONFIG_SMART_HOME_VOICE_TTS=1)
+  CONFIG_SMART_HOME_VOICE_ASR=1 CONFIG_SMART_HOME_VOICE_TTS=1 CONFIG_SMART_HOME_KWS=1)
 add_test(NAME voice_settings_check COMMAND voice_settings_check)
 set_tests_properties(voice_settings_check PROPERTIES TIMEOUT 20)
 
@@ -235,3 +228,14 @@ endforeach()
 target_compile_definitions(reminder_popup_check PRIVATE CONFIG_SMART_HOME_REMINDERS=1 CONFIG_SMART_HOME_REMINDER_RING=1)
 add_test(NAME reminder_popup_check COMMAND reminder_popup_check)
 set_tests_properties(reminder_popup_check PROPERTIES TIMEOUT 15)
+
+add_executable(wake_settings_check test_wake_settings.c
+  "${UI}/smart_home_lvgl_style.c"
+  "${UI}/icons/smart_home_lvgl_png_icons.c" ${ICONS})
+foreach(property COMPILE_DEFINITIONS INCLUDE_DIRECTORIES COMPILE_OPTIONS LINK_OPTIONS LINK_LIBRARIES)
+  get_target_property(value panel_check ${property})
+  set_target_properties(wake_settings_check PROPERTIES ${property} "${value}")
+endforeach()
+target_compile_definitions(wake_settings_check PRIVATE CONFIG_SMART_HOME_MCP_BRIDGE=1 CONFIG_SMART_HOME_KWS=1)
+add_test(NAME wake_settings_check COMMAND wake_settings_check)
+set_tests_properties(wake_settings_check PROPERTIES TIMEOUT 15)

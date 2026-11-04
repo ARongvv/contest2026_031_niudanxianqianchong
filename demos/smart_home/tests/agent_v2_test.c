@@ -429,6 +429,10 @@ static void serialization(void)
     assert(pthread_create(&change, NULL, apply_thread, &app) == 0);
     while (!atomic_load(&applying)) sched_yield();
     assert(pthread_mutex_trylock(&app.agent_mutex) == EBUSY);
+    size_t count = 0;
+    assert(smart_home_agent_app_try_enumerate_tools(&app, visit_tool, &count) == AGENT_ERROR_BUSY);
+    assert(count == 0);
+    assert(smart_home_agent_app_try_set_local_tool_access(&app, "set_light", 0) == AGENT_ERROR_BUSY);
     assert(!atomic_load(&applied));
     pthread_mutex_lock(&gate_mutex);
     block_http = 0;

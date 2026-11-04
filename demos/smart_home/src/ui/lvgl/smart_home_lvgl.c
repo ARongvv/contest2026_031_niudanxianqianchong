@@ -63,14 +63,8 @@ static const char *v9_perf_scene(smart_home_lvgl_t *ui)
     if (active == ui->screen_panel) return "panel";
     if (active == ui->screen_security) return "security";
     if (active == ui->screen_network) return "network";
-    if (active == ui->screen_settings) return "settings-legacy";
     if (active == ui->screen_miloco) return "miloco";
     if (smart_home_lvgl_miloco_bind_is_open(ui)) return "miloco-bind";
-    if (active == ui->screen_model) return "model";
-    if (active == ui->screen_tools) return "tools";
-    if (active == ui->screen_mcp) return "mcp";
-    if (active == ui->screen_node) return "node";
-    if (active == ui->screen_more) return "more";
     return "other";
 }
 #endif
@@ -90,11 +84,6 @@ static const struct smart_home_deferred_build_s g_deferred_builds[] = {
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
     { "miloco", smart_home_lvgl_build_miloco_screen },
 #endif
-    { "settings-legacy", smart_home_lvgl_build_settings_screen },
-    { "model", smart_home_lvgl_build_model_screen },
-    { "tools", smart_home_lvgl_build_tools_screen },
-    { "mcp", smart_home_lvgl_build_mcp_screen },
-    { "node", smart_home_lvgl_build_node_screen },
 };
 
 static uint8_t g_deferred_index;
@@ -160,9 +149,6 @@ smart_home_lvgl_t *smart_home_lvgl_init(smart_home_agent_app_t *app)
     /* V9 camera preview is an on-demand popup. Do not allocate the old
      * security page and its second RGB565 preview buffer at startup. */
 
-    /* 旧“更多”页在 V9 三栏导航下已无入口，不再急切构建；
-     * smart_home_lvgl_build_more_screen 仍保留给 Host 回归与后续懒构建。 */
-
     smart_home_lvgl_log_build_stage("chat", "begin");
     smart_home_lvgl_build_chat_screen(ui);
     (void)smart_home_lvgl_chat_restore(ui);
@@ -172,9 +158,7 @@ smart_home_lvgl_t *smart_home_lvgl_init(smart_home_agent_app_t *app)
     smart_home_lvgl_build_settings_screen_v9(ui);
     smart_home_lvgl_log_build_stage("settings", "done");
 
-    /* 其余页面（网络、米家、旧设置、模型、工具、MCP、节点）在首帧之后
-     * 由 smart_home_lvgl_build_deferred() 逐个补建：它们只在用户点进
-     * 对应入口时才需要，启动阶段构建会让首帧白等约 3.5 秒。 */
+    /* 兼容网络与米家页面在首帧后构建，设置和服务统一由 V9 管理。 */
     smart_home_lvgl_defer_remaining(ui);
 
 #ifdef CONFIG_SMART_HOME_KWS
@@ -229,7 +213,6 @@ void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
     }
     (void)smart_home_agent_app_set_observer(ui->app, NULL, NULL);
     smart_home_lvgl_discard_pending(ui);
-    smart_home_lvgl_settings_deinit();
     if (ui->network_status_timer) {
         lv_timer_delete(ui->network_status_timer);
         ui->network_status_timer = NULL;
@@ -279,17 +262,11 @@ void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
     if (ui->screen_security) {
         lv_obj_del(ui->screen_security);
     }
-    if (ui->screen_more) {
-        lv_obj_del(ui->screen_more);
-    }
     if (ui->screen_network) {
         lv_obj_del(ui->screen_network);
     }
     if (ui->screen_chat) {
         lv_obj_del(ui->screen_chat);
-    }
-    if (ui->screen_settings) {
-        lv_obj_del(ui->screen_settings);
     }
     if (ui->screen_settings_v9) {
         lv_obj_del(ui->screen_settings_v9);

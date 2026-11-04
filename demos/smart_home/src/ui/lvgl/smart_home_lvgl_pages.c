@@ -19,17 +19,6 @@
 #include <string.h>
 #include <stdint.h>
 
-enum page_action_e {
-    PAGE_ACTION_AGENT = 1,
-    PAGE_ACTION_SETTINGS,
-    PAGE_ACTION_NETWORK,
-    PAGE_ACTION_MILOCO,
-    PAGE_ACTION_MODEL,     /* 模型服务独立屏 */
-    PAGE_ACTION_TOOLS,     /* 工具与权限独立屏 */
-    PAGE_ACTION_MCP,       /* MCP 服务独立屏 */
-    PAGE_ACTION_NODE,      /* Node 服务独立屏 */
-};
-
 /* DHCP and DNS use substantially more stack than the 2 KiB pthread default.
  * Reserve this reusable stack from the bulk/PSRAM heap just as the Agent
  * worker does; the connection worker is always serialized. */
@@ -44,17 +33,6 @@ lv_obj_t *page_card(lv_obj_t *screen, int x, int y, int w, int h)
     lv_obj_set_size(card, w, h);
     smart_home_lvgl_card_style(card);
     return card;
-}
-
-static void page_title(lv_obj_t *card, const char *title, const char *body)
-{
-    lv_obj_t *label = smart_home_lvgl_label_create(card, title,
-                                                    SMART_HOME_UI_COLOR_TEXT_PRIMARY,
-                                                    20);
-    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 54);
-    label = smart_home_lvgl_label_create(card, body,
-                                         SMART_HOME_UI_COLOR_TEXT_SECONDARY, 14);
-    lv_obj_align(label, LV_ALIGN_BOTTOM_LEFT, 0, 0);
 }
 
 void page_heading(lv_obj_t *screen, const char *text)
@@ -104,44 +82,6 @@ static lv_obj_t *page_outline_button(lv_obj_t *parent, const char *text,
                                          13);
     lv_obj_center(label);
     return button;
-}
-
-static void page_click_cb(lv_event_t *event)
-{
-    smart_home_lvgl_t *ui = lv_event_get_user_data(event);
-    int action = (int)(intptr_t)lv_obj_get_user_data(
-        lv_event_get_current_target(event));
-
-    if (lv_event_get_code(event) != LV_EVENT_CLICKED || !ui) {
-        return;
-    }
-    if (action == PAGE_ACTION_AGENT) {
-        smart_home_lvgl_load_tab(ui, SMART_HOME_TAB_CHAT);
-    } else if (action == PAGE_ACTION_SETTINGS && ui->screen_settings) {
-        lv_scr_load_anim(ui->screen_settings, LV_SCR_LOAD_ANIM_MOVE_LEFT,
-                         180, 0, false);
-    } else if (action == PAGE_ACTION_MODEL && ui->screen_model) {
-        lv_scr_load_anim(ui->screen_model, LV_SCR_LOAD_ANIM_MOVE_LEFT,
-                         180, 0, false);
-    } else if (action == PAGE_ACTION_TOOLS && ui->screen_tools) {
-        smart_home_lvgl_refresh_tool_directory(ui);
-        lv_scr_load_anim(ui->screen_tools, LV_SCR_LOAD_ANIM_MOVE_LEFT,
-                         180, 0, false);
-    } else if (action == PAGE_ACTION_MCP && ui->screen_mcp) {
-        lv_scr_load_anim(ui->screen_mcp, LV_SCR_LOAD_ANIM_MOVE_LEFT,
-                         180, 0, false);
-    } else if (action == PAGE_ACTION_NODE && ui->screen_node) {
-        lv_scr_load_anim(ui->screen_node, LV_SCR_LOAD_ANIM_MOVE_LEFT,
-                         180, 0, false);
-    } else if (action == PAGE_ACTION_NETWORK && ui->screen_network) {
-        smart_home_lvgl_refresh_network_screen(ui);
-        lv_scr_load_anim(ui->screen_network, LV_SCR_LOAD_ANIM_MOVE_LEFT,
-                         180, 0, false);
-    } else if (action == PAGE_ACTION_MILOCO && ui->screen_miloco) {
-        smart_home_lvgl_refresh_miloco_screen(ui);
-        lv_scr_load_anim(ui->screen_miloco, LV_SCR_LOAD_ANIM_MOVE_LEFT,
-                         180, 0, false);
-    }
 }
 
 #ifdef CONFIG_SMART_HOME_CAMERA_PREVIEW
@@ -281,15 +221,6 @@ void smart_home_lvgl_security_camera_stop(smart_home_lvgl_t *ui)
 #endif
 }
 
-static void page_action(lv_obj_t *card, smart_home_lvgl_t *ui,
-                        enum page_action_e action)
-{
-    lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_user_data(card, (void *)(intptr_t)action);
-    smart_home_lvgl_press_feedback(card);
-    lv_obj_add_event_cb(card, page_click_cb, LV_EVENT_CLICKED, ui);
-}
-
 lv_obj_t *page_screen(smart_home_lvgl_t *ui)
 {
     lv_obj_t *screen = lv_obj_create(NULL);
@@ -419,83 +350,6 @@ void smart_home_lvgl_build_security_screen(smart_home_lvgl_t *ui)
     label = smart_home_lvgl_label_create(card, "模拟一条 AI 提醒 ›",
                                          SMART_HOME_UI_COLOR_WARNING, 14);
     lv_obj_align(label, LV_ALIGN_BOTTOM_LEFT, 0, 0);
-    smart_home_lvgl_build_nav_bar(screen, ui);
-}
-
-void smart_home_lvgl_build_more_screen(smart_home_lvgl_t *ui)
-{
-    lv_obj_t *screen;
-    lv_obj_t *card;
-    int x = smart_home_lvgl_pad_x();
-    int y = SMART_HOME_TOPBAR_H + 78;
-    int gap = 14;
-    int w = (smart_home_lvgl_content_w() - gap * 3) / 4;
-    int col = 0;
-    int row = 0;
-#define MORE_CARD_X() (x + (w + gap) * col)
-#define MORE_CARD_Y() (y + 154 * row)
-
-    if (!ui) return;
-    screen = page_screen(ui);
-    ui->screen_more = screen;
-    page_heading(screen, "更多");
-    /* 2×4 网格：第一行产品入口，第二行服务管理。位置由 col/row
-     * 递增计算，每行满 4 张自动换行。 */
-    card = page_card(screen, MORE_CARD_X(), MORE_CARD_Y(), w, 140);
-    col++;
-    page_icon_badge(card, ICON_NAV_CHAT, lv_color_hex(0xF1F4FF));
-    page_title(card, "智能管家", "家庭问答与受控执行");
-    page_action(card, ui, PAGE_ACTION_AGENT);
-#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
-    card = page_card(screen, MORE_CARD_X(), MORE_CARD_Y(), w, 140);
-    col++;
-    page_icon_badge(card, ICON_MIJIA, lv_color_hex(0xFFF8F4));
-    page_title(card, "米家网关", "Miloco 服务器与设备");
-    page_action(card, ui, PAGE_ACTION_MILOCO);
-#endif
-    card = page_card(screen, MORE_CARD_X(), MORE_CARD_Y(), w, 140);
-    col++;
-    page_icon_badge(card, ICON_STATUS_WIFI, lv_color_hex(0xEAF7F1));
-    page_title(card, "网络设置", "连接家庭 Wi-Fi");
-    page_action(card, ui, PAGE_ACTION_NETWORK);
-
-    /* 第二行：服务管理。 */
-    col = 0;
-    row = 1;
-    card = page_card(screen, MORE_CARD_X(), MORE_CARD_Y(), w, 140);
-    col++;
-    page_icon_badge(card, ICON_SETTING_AI, lv_color_hex(0xF1F4FF));
-    page_title(card, "模型服务", "模型后端与密钥");
-    page_action(card, ui, PAGE_ACTION_MODEL);
-
-    card = page_card(screen, MORE_CARD_X(), MORE_CARD_Y(), w, 140);
-    col++;
-    page_icon_badge(card, ICON_TOOL, lv_color_hex(0xFFF6EA));
-    page_title(card, "工具与权限", "智能管家工具目录");
-    page_action(card, ui, PAGE_ACTION_TOOLS);
-
-    card = page_card(screen, MORE_CARD_X(), MORE_CARD_Y(), w, 140);
-    col++;
-    page_icon_badge(card, ICON_SERVICE_MCP, lv_color_hex(0xF2F5FF));
-    page_title(card, "MCP 服务", "标准 MCP 工具桥");
-    page_action(card, ui, PAGE_ACTION_MCP);
-
-    card = page_card(screen, MORE_CARD_X(), MORE_CARD_Y(), w, 140);
-    col++;
-    page_icon_badge(card, ICON_NAV_DEVICES, lv_color_hex(0xEDF8F3));
-    page_title(card, "Node 服务", "局域网设备网关");
-    page_action(card, ui, PAGE_ACTION_NODE);
-
-    /* 第一行末尾：系统设置（第 4 列，紧接网络设置之后）。
-     * col=3 显式指定——第二行结束时 col 已是 4，不重置会放到屏幕外。 */
-    row = 0;
-    col = 3;
-    card = page_card(screen, MORE_CARD_X(), MORE_CARD_Y(), w, 140);
-    page_icon_badge(card, ICON_NAV_SETTINGS, lv_color_hex(0xEDF8F3));
-    page_title(card, "系统设置", "系统健康与语音");
-    page_action(card, ui, PAGE_ACTION_SETTINGS);
-#undef MORE_CARD_X
-#undef MORE_CARD_Y
     smart_home_lvgl_build_nav_bar(screen, ui);
 }
 

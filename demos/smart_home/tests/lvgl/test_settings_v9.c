@@ -174,6 +174,53 @@ int smart_home_mcp_bridge_reconfigure(smart_home_mcp_bridge_t *bridge,
     return AGENT_OK;
 }
 
+static smart_home_mcp_state_t fake_mcp_state;
+static int discover_calls;
+static int fake_tools_busy;
+int smart_home_mcp_bridge_start(smart_home_mcp_bridge_t **out, agent_t *agent,
+                                 pthread_mutex_t *mutex)
+{ (void)agent; (void)mutex; *out = (smart_home_mcp_bridge_t *)out; return AGENT_OK; }
+int smart_home_mcp_bridge_get_config(smart_home_mcp_bridge_t *bridge,
+                                     smart_home_mcp_runtime_config_t *config)
+{ (void)bridge; (void)config; return AGENT_ERROR_NOT_FOUND; }
+int smart_home_mcp_bridge_get_state(smart_home_mcp_bridge_t *bridge,
+                                    smart_home_mcp_state_t *state, int *error)
+{ (void)bridge; if (error) *error = 0; *state = fake_mcp_state; return AGENT_OK; }
+int smart_home_mcp_bridge_request_discover(smart_home_mcp_bridge_t *bridge)
+{ assert(bridge); discover_calls++; fake_mcp_state = SMART_HOME_MCP_STATE_CONNECTING; return AGENT_OK; }
+int smart_home_agent_app_try_enumerate_tools(const smart_home_agent_app_t *app,
+                                             smart_home_tool_visit_fn visitor, void *user)
+{
+    (void)app;
+    if (fake_tools_busy) return AGENT_ERROR_BUSY;
+    for (int i = 0; i < 9; i++) {
+        char name[32];
+        snprintf(name, sizeof(name), "tool%d", i);
+        smart_home_tool_info_t tool = {.name = name, .description = "测试工具",
+            .enabled = 1, .access_allowed = 1,
+            .group_id = i == 8 ? SMART_HOME_TOOL_GROUP_MCP : SMART_HOME_TOOL_GROUP_LOCAL};
+        int ret = visitor(&tool, user);
+        if (ret != AGENT_OK) return ret;
+    }
+    return AGENT_OK;
+}
+int smart_home_agent_app_try_set_local_tool_access(smart_home_agent_app_t *app,
+                                                  const char *name, int allowed)
+{ (void)app; (void)name; (void)allowed; return fake_tools_busy ? AGENT_ERROR_BUSY : AGENT_OK; }
+static void wait_mcp(smart_home_lvgl_t *ui)
+{
+    for (int i = 0; i < 3000; i++) {
+        int ready;
+        pthread_mutex_lock(&ui->pending_mutex);
+        ready = g_mcp.ready;
+        pthread_mutex_unlock(&ui->pending_mutex);
+        if (ready) { mcp_poll(ui); return; }
+        const struct timespec pause = {.tv_nsec = 1000000};
+        nanosleep(&pause, NULL);
+    }
+    assert(!"MCP apply timeout");
+}
+
 static void flush(lv_display_t *display, const lv_area_t *area, uint8_t *pixels)
 { (void)area; (void)pixels; lv_display_flush_ready(display); }
 
@@ -344,12 +391,14 @@ int main(void)
     lv_textarea_set_text(g_settings.mcp_auth, "Bearer test-token");
     lv_obj_t *apply = lv_button_create(screen);
     click(apply, mcp_apply_cb, ui);
+    wait_mcp(ui);
     assert(mcp_calls == 1 && applied_mcp.use_tls && applied_mcp.port == 443);
     lv_refr_now(NULL);
     snapshot(pixels, "SMART_HOME_MCP_SHOT");
     lv_dropdown_set_selected(g_settings.mcp_protocol, 1);
     lv_textarea_set_text(g_settings.mcp_port, "80");
     lv_obj_send_event(apply, LV_EVENT_CLICKED, NULL);
+    wait_mcp(ui);
     assert(mcp_calls == 2 && !applied_mcp.use_tls && applied_mcp.port == 80);
     const char *bad_ports[] = {"65537", "0", "abc", "443x", "9999999999999999999999"};
     for (size_t i = 0; i < sizeof(bad_ports) / sizeof(bad_ports[0]); i++) {
@@ -357,6 +406,31 @@ int main(void)
         lv_obj_send_event(apply, LV_EVENT_CLICKED, NULL);
         assert(mcp_calls == 2);
     }
+    lv_obj_send_event(g_settings.mcp_discover, LV_EVENT_CLICKED, NULL);
+    assert(discover_calls == 1);
+    services_refresh(ui);
+    assert(lv_obj_has_state(g_settings.mcp_discover, LV_STATE_DISABLED));
+    fake_mcp_state = SMART_HOME_MCP_STATE_READY;
+    services_refresh(ui);
+    assert(!strcmp(lv_label_get_text(g_settings.mcp_service_status), "工具已就绪"));
+    assert(!lv_obj_has_state(g_settings.mcp_discover, LV_STATE_DISABLED));
+    build_tools_panel(ui, screen);
+    lv_obj_t *refresh = lv_obj_get_child(screen, lv_obj_get_child_count(screen) - 2);
+    lv_obj_send_event(refresh, LV_EVENT_CLICKED, NULL);
+    assert(g_settings.tool_count == 9 && lv_obj_get_child_count(g_settings.tools_body) == 9);
+    assert(!strcmp(g_settings.tools[8].name, "tool8"));
+    lv_obj_t *remote_row = lv_obj_get_child(g_settings.tools_body, 8);
+    assert(lv_obj_has_state(lv_obj_get_child(remote_row, 2), LV_STATE_DISABLED));
+    fake_tools_busy = 1;
+    lv_obj_t *tool_switch = lv_obj_get_child(lv_obj_get_child(g_settings.tools_body, 0), 2);
+    lv_obj_remove_state(tool_switch, LV_STATE_CHECKED);
+    lv_obj_send_event(tool_switch, LV_EVENT_VALUE_CHANGED, NULL);
+    assert(lv_obj_has_state(tool_switch, LV_STATE_CHECKED));
+    lv_obj_send_event(refresh, LV_EVENT_CLICKED, NULL);
+    assert(g_settings.tool_count == 9);
+    fake_tools_busy = 0;
+    puts("PASS: MCP discovery and live state, complete tool enumeration and busy rollback");
+
     puts("PASS: explicit MCP TLS, HTTP, port validation and masked credentials");
 
     /* 弹窗遮罩运行期才建，永远排在构建期就存在的键盘之后。输入框聚焦时必须

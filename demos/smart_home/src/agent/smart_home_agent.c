@@ -902,17 +902,33 @@ static int enumerate_tools_locked(const smart_home_agent_app_t *app,
     return agent_tool_enumerate(app->agent, visit_tool, &visit);
 }
 
-int smart_home_agent_app_enumerate_tools(const smart_home_agent_app_t *app,
-                                         smart_home_tool_visit_fn callback,
-                                         void *user_data)
+static int enumerate_tools(const smart_home_agent_app_t *app,
+                           smart_home_tool_visit_fn callback,
+                           void *user_data, int wait)
 {
     int ret;
     if (!app || !callback) return AGENT_ERROR_INVALID;
     if (!app->agent_mutex_initialized) return AGENT_ERROR_STATE;
-    pthread_mutex_lock((pthread_mutex_t *)&app->agent_mutex);
+    if (wait) pthread_mutex_lock((pthread_mutex_t *)&app->agent_mutex);
+    else if (pthread_mutex_trylock((pthread_mutex_t *)&app->agent_mutex) != 0)
+        return AGENT_ERROR_BUSY;
     ret = app->agent ? enumerate_tools_locked(app, callback, user_data) : AGENT_ERROR_STATE;
     pthread_mutex_unlock((pthread_mutex_t *)&app->agent_mutex);
     return ret;
+}
+
+int smart_home_agent_app_enumerate_tools(const smart_home_agent_app_t *app,
+                                         smart_home_tool_visit_fn callback,
+                                         void *user_data)
+{
+    return enumerate_tools(app, callback, user_data, 1);
+}
+
+int smart_home_agent_app_try_enumerate_tools(const smart_home_agent_app_t *app,
+                                             smart_home_tool_visit_fn callback,
+                                             void *user_data)
+{
+    return enumerate_tools(app, callback, user_data, 0);
 }
 
 typedef struct {
@@ -935,9 +951,8 @@ static int match_local_tool(const smart_home_tool_info_t *tool, void *user_data)
     return AGENT_OK;
 }
 
-int smart_home_agent_app_set_local_tool_access(smart_home_agent_app_t *app,
-                                               const char *tool_name,
-                                               int allowed)
+static int set_local_tool_access(smart_home_agent_app_t *app,
+                                 const char *tool_name, int allowed, int wait)
 {
     local_tool_match_t match = {
         .name = tool_name,
@@ -954,7 +969,9 @@ int smart_home_agent_app_set_local_tool_access(smart_home_agent_app_t *app,
     }
 
     if (!app->agent_mutex_initialized) return AGENT_ERROR_STATE;
-    pthread_mutex_lock(&app->agent_mutex);
+    if (wait) pthread_mutex_lock(&app->agent_mutex);
+    else if (pthread_mutex_trylock(&app->agent_mutex) != 0)
+        return AGENT_ERROR_BUSY;
     ret = enumerate_tools_locked(app, match_local_tool, &match);
     if (ret == AGENT_OK && !match.is_local) {
         ret = AGENT_ERROR_NOT_SUPPORTED;
@@ -993,6 +1010,18 @@ int smart_home_agent_app_set_local_tool_access(smart_home_agent_app_t *app,
     }
     pthread_mutex_unlock(&app->agent_mutex);
     return ret;
+}
+
+int smart_home_agent_app_set_local_tool_access(smart_home_agent_app_t *app,
+                                               const char *tool_name, int allowed)
+{
+    return set_local_tool_access(app, tool_name, allowed, 1);
+}
+
+int smart_home_agent_app_try_set_local_tool_access(smart_home_agent_app_t *app,
+                                                   const char *tool_name, int allowed)
+{
+    return set_local_tool_access(app, tool_name, allowed, 0);
 }
 
 int smart_home_agent_app_local_tool_access_allowed(

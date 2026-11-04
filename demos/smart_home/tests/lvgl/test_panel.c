@@ -766,6 +766,13 @@ int smart_home_agent_app_apply_model_config(smart_home_agent_app_t *app,
                                             const smart_home_model_config_t *c)
 { (void)app; (void)c; return AGENT_OK; }
 
+int smart_home_agent_app_try_enumerate_tools(const smart_home_agent_app_t *app,
+                                             smart_home_tool_visit_fn visitor, void *user)
+{ (void)app; (void)visitor; (void)user; return AGENT_OK; }
+int smart_home_agent_app_try_set_local_tool_access(smart_home_agent_app_t *app,
+                                                  const char *name, int allowed)
+{ return smart_home_agent_app_set_local_tool_access(app, name, allowed); }
+
 int smart_home_agent_app_set_local_tool_access(smart_home_agent_app_t *app,
                                                const char *tool_name,
                                                int allowed)

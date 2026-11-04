@@ -5,8 +5,8 @@
  * LVGL is owned exclusively by the UI thread. Agent workers enqueue plain C
  * payloads; the UI loop drains them before updating LVGL widgets.
  *
- * Product screens: Home / Devices / Scenes / Security / More.  Chat and
- * Settings remain secondary native surfaces opened from Home or More.
+ * Product screens: Home / Chat / Settings. Device, camera and service
+ * controls are integrated into V9 pages and dialogs.
  *
  * Usage:
  *   smart_home_lvgl_t *ui = smart_home_lvgl_init(&app);
@@ -88,10 +88,8 @@ typedef struct {
     lv_obj_t *screen_home;
     lv_obj_t *screen_panel;    /* Devices page, legacy member name */
     lv_obj_t *screen_security;
-    lv_obj_t *screen_more;
     lv_obj_t *screen_network;
     lv_obj_t *screen_chat;
-    lv_obj_t *screen_settings;
     lv_obj_t *screen_settings_v9;
 
 #ifdef CONFIG_SMART_HOME_CAMERA_PREVIEW
@@ -205,49 +203,6 @@ typedef struct {
     void     *asr_worker_stack_alloc;
     void     *asr_worker_stack;
 #endif
-
-    /* Settings screen widgets */
-    lv_obj_t *settings_page;
-    lv_obj_t *settings_keyboard;
-    lv_obj_t *settings_model_api_body;
-    lv_obj_t *settings_tool_directory_body;
-    lv_obj_t *settings_system_status_body;
-    lv_obj_t *settings_system_status_toggle;
-    /* 服务管理独立屏（更多页卡片入口）：模型服务/工具与权限/MCP/Node */
-    lv_obj_t *screen_model;
-    lv_obj_t *model_keyboard;
-    lv_obj_t *screen_tools;
-    lv_obj_t *screen_mcp;
-    lv_obj_t *screen_node;
-    lv_obj_t *settings_model_api_toggle;
-    lv_obj_t *settings_tool_directory_toggle;
-    lv_obj_t *settings_backend_dd;
-    lv_obj_t *settings_host_input;
-    lv_obj_t *settings_path_input;
-    lv_obj_t *settings_port_input;
-    lv_obj_t *settings_model_input;
-    lv_obj_t *settings_api_key_input;
-    lv_obj_t *settings_timeout_input;
-    lv_obj_t *settings_max_tokens_input;
-    lv_obj_t *settings_status_label;
-    lv_obj_t *settings_mcp_discover_btn;
-
-#if defined(CONFIG_SMART_HOME_VOICE_TTS) || defined(CONFIG_SMART_HOME_VOICE_ASR) || \
-    defined(CONFIG_SMART_HOME_KWS)
-    lv_obj_t *settings_voice_body;
-    lv_obj_t *settings_voice_toggle;
-#endif
-#ifdef CONFIG_SMART_HOME_VOICE_TTS
-    lv_obj_t *settings_voice_switch;
-    lv_obj_t *settings_voice_status_label;
-#endif
-#ifdef CONFIG_SMART_HOME_VOICE_ASR
-    lv_obj_t *settings_asr_switch;
-#endif
-#ifdef CONFIG_SMART_HOME_KWS
-    lv_obj_t *settings_kws_switch;
-#endif
-
 
     /* More / network setup: credentials are kept out of settings.json. */
     lv_obj_t *network_ssid_input;
