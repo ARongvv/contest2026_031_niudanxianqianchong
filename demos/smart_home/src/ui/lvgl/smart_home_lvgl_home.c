@@ -480,12 +480,8 @@ static void home_action_cb(lv_event_t *event)
          * 一切就绪 → 设备页。 */
         if (!ui->app || !ui->app->miloco ||
             !smart_home_miloco_reachable(ui->app->miloco)) {
-            if (ui->screen_miloco) {
-                smart_home_lvgl_refresh_miloco_screen(ui);
-                lv_scr_load_anim(ui->screen_miloco, LV_SCR_LOAD_ANIM_MOVE_LEFT,
-                                 180, 0, false);
-                break;
-            }
+            smart_home_lvgl_open_service_settings(ui);
+            break;
         } else if (!smart_home_miloco_bound(ui->app->miloco)) {
             smart_home_lvgl_open_miloco_bind(ui);
             break;

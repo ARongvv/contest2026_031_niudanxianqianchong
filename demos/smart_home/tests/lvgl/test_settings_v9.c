@@ -221,6 +221,27 @@ static void wait_mcp(smart_home_lvgl_t *ui)
     assert(!"MCP apply timeout");
 }
 
+#ifdef CONFIG_SMART_HOME_NODE_GATEWAY
+static caddons_node_info_t fake_nodes[2];
+static size_t fake_node_count;
+static uint32_t fake_node_revision;
+static uint16_t fake_node_port = 18790;
+size_t smart_home_node_gateway_list(const smart_home_node_gateway_t *gateway,
+    caddons_node_info_t *nodes, size_t capacity, uint32_t *revision)
+{
+    if (revision) *revision = fake_node_revision;
+    size_t count = gateway ? fake_node_count : 0;
+    if (nodes) { count = count < capacity ? count : capacity; memcpy(nodes, fake_nodes, count * sizeof(*nodes)); }
+    return count;
+}
+uint16_t smart_home_node_gateway_port(const smart_home_node_gateway_t *gateway)
+{ return gateway ? fake_node_port : 0; }
+int smart_home_node_gateway_start_with_port(smart_home_node_gateway_t **out,
+    agent_t *agent, pthread_mutex_t *mutex, uint16_t port)
+{ (void)agent; (void)mutex; *out = (smart_home_node_gateway_t *)out; fake_node_port = port; return AGENT_OK; }
+void smart_home_node_gateway_stop(smart_home_node_gateway_t **gateway) { *gateway = NULL; }
+#endif
+
 static void flush(lv_display_t *display, const lv_area_t *area, uint8_t *pixels)
 { (void)area; (void)pixels; lv_display_flush_ready(display); }
 
@@ -586,6 +607,39 @@ int main(void)
     v9_net_timer_cb(ui->v9_network_timer);
     assert(!strcmp(lv_label_get_text(g_settings.model_status), "配置保存或应用失败"));
     puts("PASS: async model apply, UI heartbeat, duplicate rejection and failure feedback");
+
+#ifdef CONFIG_SMART_HOME_NODE_GATEWAY
+    node_config_open(ui);
+    lv_textarea_set_text(g_settings.node_port, "19000x");
+    lv_obj_t *toggle = lv_obj_get_child(lv_obj_get_child(g_settings.config_modal, 0), -1);
+    lv_obj_send_event(toggle, LV_EVENT_CLICKED, NULL);
+    assert(!app.node_gateway);
+    lv_textarea_set_text(g_settings.node_port, "19000");
+    lv_obj_send_event(toggle, LV_EVENT_CLICKED, NULL);
+    assert(app.node_gateway && fake_node_port == 19000);
+    assert(!strcmp(lv_label_get_text(g_settings.node_service_status), "监听中"));
+    config_modal_close();
+    node_config_open(ui);
+    assert(!strcmp(lv_textarea_get_text(g_settings.node_port), "19000"));
+    fake_node_count = 1;
+    strcpy(fake_nodes[0].node_id, "node-test");
+    strcpy(fake_nodes[0].display_name, "测试节点");
+    fake_nodes[0].online = true;
+    fake_nodes[0].command_count = 1;
+    strcpy(fake_nodes[0].commands[0], "get_status");
+    fake_node_revision++;
+    nodes_refresh(ui);
+    assert(lv_obj_get_child_count(g_settings.nodes_body) == 2);
+    assert(strstr(lv_label_get_text(lv_obj_get_child(g_settings.nodes_body, 0)), "在线"));
+    assert(strstr(lv_label_get_text(lv_obj_get_child(g_settings.nodes_body, 1)), "get_status"));
+    toggle = lv_obj_get_child(lv_obj_get_child(g_settings.config_modal, 0), -1);
+    lv_obj_send_event(toggle, LV_EVENT_CLICKED, NULL);
+    assert(!app.node_gateway);
+    assert(!strcmp(lv_label_get_text(g_settings.node_service_status), "未开启"));
+    assert(strstr(lv_label_get_text(lv_obj_get_child(g_settings.nodes_body, 0)), "未开启"));
+    config_modal_close();
+    puts("PASS: Node live metadata, start/stop state, strict port validation and actual port refill");
+#endif
 
     /* Teardown must join both pending services before ui/mutex destruction. */
     memset(gates, 0, sizeof(gates));

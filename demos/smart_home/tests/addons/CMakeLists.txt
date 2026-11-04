@@ -29,3 +29,14 @@ target_compile_options(mcp_reconfigure_check PRIVATE -Wall -Wextra -Werror=impli
 target_link_libraries(mcp_reconfigure_check PRIVATE cagent_addons pthread)
 enable_testing()
 add_test(NAME mcp_reconfigure_check COMMAND mcp_reconfigure_check)
+
+add_library(node_adapter_compile OBJECT "${REPO}/demos/smart_home/src/addons/smart_home_node_gateway.c")
+target_link_libraries(node_adapter_compile PRIVATE cagent_addons)
+target_include_directories(node_adapter_compile PRIVATE
+  "${REPO}/demos/smart_home/tests/lvgl/include" "${CADDONS_CJSON_DIR}")
+target_compile_definitions(node_adapter_compile PRIVATE
+  CONFIG_SMART_HOME_NODE_GATEWAY_SECRETS_PATH="/unconfigured/secrets.json"
+  CONFIG_SMART_HOME_NODE_GATEWAY_BIND_HOST="127.0.0.1"
+  CONFIG_SMART_HOME_NODE_GATEWAY_PORT=18790
+  CONFIG_SMART_HOME_NODE_GATEWAY_WORKER_STACKSIZE=8192)
+target_compile_options(node_adapter_compile PRIVATE -Wall -Wextra -Werror=implicit-function-declaration)

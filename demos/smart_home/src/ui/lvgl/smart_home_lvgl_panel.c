@@ -1,3 +1,4 @@
+#ifdef SMART_HOME_LVGL_LEGACY_TESTS
 /**
  * smart_home LVGL panel screen.
  */
@@ -2620,6 +2621,7 @@ static lv_obj_t *create_sensor_entry(lv_obj_t *row,
     return entry;
 }
 
+#ifdef SMART_HOME_LVGL_LEGACY_TESTS
 void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
 {
     lv_obj_t *screen;
@@ -2787,3 +2789,7 @@ void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui)
     ui->remote_node_timer = lv_timer_create(remote_node_timer_cb, 500, ui);
 #endif
 }
+
+#endif /* SMART_HOME_LVGL_LEGACY_TESTS */
+
+#endif /* host-only legacy controls fixture */

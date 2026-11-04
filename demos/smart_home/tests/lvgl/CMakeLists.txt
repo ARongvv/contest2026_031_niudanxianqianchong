@@ -33,7 +33,7 @@ add_executable(panel_check test_panel.c "${UI}/smart_home_lvgl_style.c"
 # -DSMART_HOME_TEST_ONBOARDING=OFF 关掉，验证「关掉引导」也能编译。
 option(SMART_HOME_TEST_ONBOARDING "Build the first-run guide in host tests" ON)
 
-target_compile_definitions(panel_check PRIVATE _GNU_SOURCE FAR= CONFIG_SMART_HOME_MILOCO_BRIDGE=1
+target_compile_definitions(panel_check PRIVATE SMART_HOME_LVGL_LEGACY_TESTS=1 _GNU_SOURCE FAR= CONFIG_SMART_HOME_MILOCO_BRIDGE=1
   CONFIG_SMART_HOME_DEMO_DATA_ROOT="${REPO}/demos/smart_home"
   CONFIG_LV_USE_TINY_TTF=1 CONFIG_LV_FONT_MONTSERRAT_12=1
   CONFIG_LV_FONT_MONTSERRAT_14=1 CONFIG_LV_FONT_MONTSERRAT_16=1)
@@ -42,6 +42,7 @@ if(SMART_HOME_TEST_ONBOARDING)
 endif()
 target_include_directories(panel_check PRIVATE include "${UI}"
   "${REPO}/demos/smart_home/src" "${REPO}/packages/cAGENT/include"
+  "${REPO}/packages/cagent_addons/include"
   "${OPENVELA_ROOT}/apps/graphics/lvgl"
   "${OPENVELA_ROOT}/apps/netutils/cjson/cJSON")
 target_compile_options(panel_check PRIVATE -Wall -Wextra
@@ -53,9 +54,6 @@ add_test(NAME panel_check COMMAND panel_check)
 
 option(SMART_HOME_TEST_NODE_GATEWAY "Also test optional Node cards" OFF)
 if(SMART_HOME_TEST_NODE_GATEWAY)
-  if(NOT EXISTS "${REPO}/packages/cAGENT/include/cagent/types.h")
-    message(FATAL_ERROR "Node addons still use the V1 cAGENT API. Use SMART_HOME_TEST_NODE_GATEWAY=OFF for this V2 integration; addon migration is separate.")
-  endif()
   target_compile_definitions(panel_check PRIVATE CONFIG_SMART_HOME_NODE_GATEWAY=1 CONFIG_SMART_HOME_NODE_GATEWAY_PORT=18790)
   target_include_directories(panel_check PRIVATE "${REPO}/packages/cagent_addons/include")
 endif()
@@ -67,7 +65,8 @@ foreach(property COMPILE_DEFINITIONS INCLUDE_DIRECTORIES COMPILE_OPTIONS LINK_OP
   get_target_property(value panel_check ${property})
   set_target_properties(settings_v9_check PROPERTIES ${property} "${value}")
 endforeach()
-target_compile_definitions(settings_v9_check PRIVATE CONFIG_SMART_HOME_MCP_BRIDGE=1)
+target_compile_definitions(settings_v9_check PRIVATE CONFIG_SMART_HOME_MCP_BRIDGE=1
+  CONFIG_SMART_HOME_NODE_GATEWAY=1 CONFIG_SMART_HOME_NODE_GATEWAY_PORT=18790)
 add_test(NAME settings_v9_check COMMAND settings_v9_check)
 set_tests_properties(settings_v9_check PROPERTIES TIMEOUT 15)
 
@@ -239,3 +238,18 @@ endforeach()
 target_compile_definitions(wake_settings_check PRIVATE CONFIG_SMART_HOME_MCP_BRIDGE=1 CONFIG_SMART_HOME_KWS=1)
 add_test(NAME wake_settings_check COMMAND wake_settings_check)
 set_tests_properties(wake_settings_check PROPERTIES TIMEOUT 15)
+
+# Compile the Node-only V9 feature combination independently of MCP.
+add_library(node_only_settings_compile OBJECT "${UI}/smart_home_lvgl_settings_v9.c")
+foreach(property COMPILE_DEFINITIONS INCLUDE_DIRECTORIES COMPILE_OPTIONS LINK_LIBRARIES)
+  get_target_property(value panel_check ${property})
+  set_target_properties(node_only_settings_compile PROPERTIES ${property} "${value}")
+endforeach()
+target_compile_definitions(node_only_settings_compile PRIVATE CONFIG_SMART_HOME_NODE_GATEWAY=1 CONFIG_SMART_HOME_NODE_GATEWAY_PORT=18790)
+
+add_executable(device_refresh_check test_device_refresh.c)
+foreach(property COMPILE_DEFINITIONS INCLUDE_DIRECTORIES COMPILE_OPTIONS LINK_OPTIONS LINK_LIBRARIES)
+  get_target_property(value panel_check ${property})
+  set_target_properties(device_refresh_check PROPERTIES ${property} "${value}")
+endforeach()
+add_test(NAME device_refresh_check COMMAND device_refresh_check)

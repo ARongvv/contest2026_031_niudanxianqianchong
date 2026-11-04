@@ -76,6 +76,12 @@ typedef struct {
     lv_obj_t *node_port;
     lv_obj_t *node_status;
     lv_obj_t *node_service_status;
+    lv_obj_t *nodes_body;
+    uint32_t nodes_revision;
+    const smart_home_node_gateway_t *nodes_gateway;
+    size_t nodes_count;
+    int nodes_valid;
+    uint16_t node_last_port;
 #endif
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
     lv_obj_t *miloco_host;
@@ -150,9 +156,12 @@ static void miloco_service_status_refresh(smart_home_lvgl_t *ui)
 }
 #endif
 
-#if defined(CONFIG_SMART_HOME_MCP_BRIDGE) || defined(CONFIG_SMART_HOME_NODE_GATEWAY)
+#ifdef CONFIG_SMART_HOME_MCP_BRIDGE
 static void mcp_config_open(smart_home_lvgl_t *ui);
+#endif
+#ifdef CONFIG_SMART_HOME_NODE_GATEWAY
 static void node_config_open(smart_home_lvgl_t *ui);
+static void nodes_refresh(smart_home_lvgl_t *ui);
 #endif
 
 static void panel_show(int category)
@@ -200,6 +209,9 @@ static void category_cb(lv_event_t *event)
     if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
         panel_show(index);
         if (index == V9_CAT_TOOLS) tools_refresh(lv_event_get_user_data(event));
+#ifdef CONFIG_SMART_HOME_NODE_GATEWAY
+        if (index == V9_CAT_SERVICES) nodes_refresh(lv_event_get_user_data(event));
+#endif
     }
 }
 
@@ -527,6 +539,10 @@ static void v9_net_timer_cb(lv_timer_t *timer)
     smart_home_lvgl_wake_settings_poll(ui);
 #endif
     services_refresh(ui);
+#ifdef CONFIG_SMART_HOME_NODE_GATEWAY
+    if (g_settings.category == V9_CAT_SERVICES && lv_screen_active() == g_settings.screen)
+        nodes_refresh(ui);
+#endif
     v9_net_status_refresh(ui);
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
     miloco_service_status_refresh(ui);
@@ -1277,6 +1293,7 @@ static lv_obj_t *config_modal_begin(const char *title)
     return panel;
 }
 
+#if !defined(CONFIG_SMART_HOME_MILOCO_BRIDGE) || !defined(CONFIG_SMART_HOME_MCP_BRIDGE) || !defined(CONFIG_SMART_HOME_NODE_GATEWAY)
 static void service_unavailable_open(const char *name, const char *option)
 {
     lv_obj_t *panel = config_modal_begin(name);
@@ -1291,6 +1308,8 @@ static void service_unavailable_open(const char *name, const char *option)
     lv_obj_set_width(label, 600);
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
 }
+
+#endif
 
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
 /* 连接米家家庭服务器（v9 33-mi-config）。保存后由 worker 落盘并立即轮询，
@@ -1605,19 +1624,29 @@ static void mcp_config_open(smart_home_lvgl_t *ui)
 static void node_toggle_cb(lv_event_t *event)
 {
     smart_home_lvgl_t *ui = lv_event_get_user_data(event);
-    int port;
+    long port;
+    char *end;
     int ret;
 
     if (lv_event_get_code(event) != LV_EVENT_CLICKED || !ui || !ui->app) {
         return;
     }
-    if (ui->app->node_gateway) {
-        smart_home_node_gateway_stop(&ui->app->node_gateway);
-        lv_label_set_text(g_settings.node_status, "已停止");
+    if (ui->request_inflight) {
+        lv_label_set_text(g_settings.node_status, "请等待当前聊天请求完成后启停网关");
         return;
     }
-    port = atoi(lv_textarea_get_text(g_settings.node_port));
-    if (port <= 0 || port > 65535) {
+    if (ui->app->node_gateway) {
+        smart_home_node_gateway_stop(&ui->app->node_gateway);
+        ui->app->system_status.node_gateway_status = AGENT_ERROR_STATE;
+        lv_label_set_text(g_settings.node_status, "已停止");
+        g_settings.nodes_valid = 0;
+        services_refresh(ui);
+        nodes_refresh(ui);
+        return;
+    }
+    const char *text = lv_textarea_get_text(g_settings.node_port);
+    port = strtol(text, &end, 10);
+    if (end == text || *end != '\0' || port <= 0 || port > 65535) {
         lv_label_set_text(g_settings.node_status, "端口不合法");
         return;
     }
@@ -1625,7 +1654,60 @@ static void node_toggle_cb(lv_event_t *event)
         &ui->app->node_gateway, ui->app->agent, &ui->app->agent_mutex,
         (uint16_t)port);
     lv_label_set_text(g_settings.node_status,
-                      ret == AGENT_OK ? "监听中" : "开启失败");
+                      ret == AGENT_OK ? "监听中（本次运行有效）" :
+                      "开启失败，请检查 secrets.json 中的 node_gateway.shared_token");
+    if (ret == AGENT_OK) g_settings.node_last_port = (uint16_t)port;
+    ui->app->system_status.node_gateway_status = ret;
+    g_settings.nodes_valid = 0;
+    services_refresh(ui);
+    nodes_refresh(ui);
+}
+
+static void nodes_refresh(smart_home_lvgl_t *ui)
+{
+    uint32_t revision = 0;
+    size_t count = 0;
+    caddons_node_info_t *nodes;
+    if (!ui || !ui->app || !g_settings.nodes_body) return;
+    nodes = smart_home_bulk_alloc(CAGENT_ADDONS_MAX_NODES * sizeof(*nodes));
+    if (!nodes) return;
+    if (ui->app->node_gateway)
+        count = smart_home_node_gateway_list(ui->app->node_gateway, nodes,
+                                             CAGENT_ADDONS_MAX_NODES, &revision);
+    if (g_settings.nodes_valid && g_settings.nodes_revision == revision &&
+        g_settings.nodes_gateway == ui->app->node_gateway && g_settings.nodes_count == count) {
+        smart_home_bulk_free(nodes);
+        return;
+    }
+    g_settings.nodes_valid = 1;
+    g_settings.nodes_revision = revision;
+    g_settings.nodes_gateway = ui->app->node_gateway;
+    g_settings.nodes_count = count;
+    lv_obj_clean(g_settings.nodes_body);
+    if (!count) smart_home_lvgl_label_create(g_settings.nodes_body,
+        ui->app->node_gateway ? "等待 Node 节点接入" : "Node 网关未开启",
+        SMART_HOME_UI_COLOR_TEXT_MUTED, 14);
+    for (size_t i = 0; i < count && i < CAGENT_ADDONS_MAX_NODES; i++) {
+        char text[384];
+        snprintf(text, sizeof(text), "%s · %s\nID: %s",
+            nodes[i].display_name[0] ? nodes[i].display_name : nodes[i].node_id,
+            nodes[i].online ? "在线" : "离线", nodes[i].node_id);
+        lv_obj_t *label = smart_home_lvgl_label_create(g_settings.nodes_body, text,
+            SMART_HOME_UI_COLOR_TEXT_PRIMARY, 14);
+        lv_obj_set_width(label, 680);
+        size_t used = (size_t)snprintf(text, sizeof(text), "可用命令：");
+        for (size_t j = 0; j < nodes[i].command_count && j < CAGENT_ADDONS_MAX_NODE_COMMANDS; j++) {
+            int written = snprintf(text + used, sizeof(text) - used, "%s%s",
+                j ? "、" : "", nodes[i].commands[j]);
+            if (written < 0 || (size_t)written >= sizeof(text) - used) break;
+            used += (size_t)written;
+        }
+        label = smart_home_lvgl_label_create(g_settings.nodes_body, text,
+            SMART_HOME_UI_COLOR_TEXT_SECONDARY, 13);
+        lv_obj_set_width(label, 680);
+        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    }
+    smart_home_bulk_free(nodes);
 }
 
 static void node_config_open(smart_home_lvgl_t *ui)
@@ -1641,8 +1723,10 @@ static void node_config_open(smart_home_lvgl_t *ui)
         panel, ui && ui->app && ui->app->node_gateway ? "监听中" : "未开启",
         SMART_HOME_UI_COLOR_TEXT_SECONDARY, 14);
     lv_obj_set_pos(g_settings.node_status, 0, 130);
-    snprintf(buffer, sizeof(buffer), "%d",
-             (int)CONFIG_SMART_HOME_NODE_GATEWAY_PORT);
+    uint16_t port = ui && ui->app && ui->app->node_gateway ?
+        smart_home_node_gateway_port(ui->app->node_gateway) : g_settings.node_last_port;
+    if (!port) port = CONFIG_SMART_HOME_NODE_GATEWAY_PORT;
+    snprintf(buffer, sizeof(buffer), "%u", (unsigned)port);
     lv_textarea_set_text(g_settings.node_port, buffer);
 
     button = lv_button_create(panel);
@@ -1868,6 +1952,19 @@ static void build_services_panel(smart_home_lvgl_t *ui, lv_obj_t *panel)
         lv_obj_set_width(label, 670);
         lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
     }
+#ifdef CONFIG_SMART_HOME_NODE_GATEWAY
+    lv_obj_t *heading = smart_home_lvgl_label_create(panel, "Node 节点与命令",
+        SMART_HOME_UI_COLOR_TEXT_PRIMARY, 18);
+    lv_obj_set_pos(heading, 0, 370);
+    g_settings.nodes_body = lv_obj_create(panel);
+    lv_obj_remove_style_all(g_settings.nodes_body);
+    lv_obj_set_pos(g_settings.nodes_body, 0, 410);
+    lv_obj_set_size(g_settings.nodes_body, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(g_settings.nodes_body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(g_settings.nodes_body, 12, 0);
+    nodes_refresh(ui);
+#endif
+
 }
 
 static void health_service_row(lv_obj_t *panel, int y,
@@ -2380,4 +2477,13 @@ int smart_home_lvgl_v9_settings_select_category(int index)
     }
     panel_show(index);
     return index;
+}
+
+void smart_home_lvgl_open_service_settings(smart_home_lvgl_t *ui)
+{
+    smart_home_lvgl_load_tab(ui, SMART_HOME_TAB_SETTINGS);
+    panel_show(V9_CAT_SERVICES);
+#ifdef CONFIG_SMART_HOME_NODE_GATEWAY
+    nodes_refresh(ui);
+#endif
 }

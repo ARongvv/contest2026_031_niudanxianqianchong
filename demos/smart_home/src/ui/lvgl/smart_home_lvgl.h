@@ -87,26 +87,9 @@ typedef struct {
     lv_obj_t *screen_screensaver;
     lv_obj_t *screen_home;
     lv_obj_t *screen_panel;    /* Devices page, legacy member name */
-    lv_obj_t *screen_security;
-    lv_obj_t *screen_network;
     lv_obj_t *screen_chat;
     lv_obj_t *screen_settings_v9;
-
-#ifdef CONFIG_SMART_HOME_CAMERA_PREVIEW
-    /* Security-camera preview. The RGB565 image memory belongs to the UI;
-     * camera_service copies into it, never hands LVGL a DMA buffer. */
-    lv_obj_t *security_camera_preview;
-    lv_obj_t *security_camera_status;
-    lv_obj_t *security_camera_metrics;
-    lv_obj_t *security_camera_switch;
-    lv_timer_t *security_camera_timer;
-    uint8_t *security_camera_buffer;
-    lv_image_dsc_t security_camera_image;
-    uint32_t security_camera_sequence;
-#endif
-
-    /* Shared five-item nav bar (recreated per product screen). */
-    int      active_tab;
+    int active_tab;
 
     /* Panel: device cards */
     lv_obj_t *panel_grid;
@@ -204,11 +187,6 @@ typedef struct {
     void     *asr_worker_stack;
 #endif
 
-    /* More / network setup: credentials are kept out of settings.json. */
-    lv_obj_t *network_ssid_input;
-    lv_obj_t *network_password_input;
-    lv_obj_t *network_status_label;
-    lv_obj_t *network_keyboard;
     lv_obj_t *topbar_wifi_icons[16];
     /* 顶栏摄像头状态图标（安防页开关联动：off 显 camera-off，
      * 开启显 camera），与 wifi 图标同款跨屏刷新模式。 */
@@ -217,7 +195,6 @@ typedef struct {
     int topbar_clock_count;
     int topbar_camera_icon_count;
     int topbar_camera_on;
-    lv_timer_t *network_status_timer;
     lv_obj_t *home_miloco_sub_label;
     lv_obj_t *home_weather_temp_label;
     lv_obj_t *home_weather_condition_label;
@@ -250,19 +227,7 @@ typedef struct {
     lv_obj_t *bind_head_dot;
     lv_obj_t *bind_check_button;
     lv_timer_t *bind_timer;
-    lv_obj_t *screen_miloco;
-    lv_obj_t *miloco_host_input;
-    lv_obj_t *miloco_port_input;
-    lv_obj_t *miloco_token_input;
-    lv_obj_t *miloco_status_label;
-    lv_obj_t *miloco_keyboard;
 #endif
-    pthread_t network_worker;
-    void *network_worker_stack_alloc;
-    void *network_worker_stack;
-    int network_worker_active;
-    int network_result_ready;
-    int network_result;
     int topbar_wifi_icon_count;
     /* Device state (shared, NOT owned) */
     smart_home_state_t *device_state;

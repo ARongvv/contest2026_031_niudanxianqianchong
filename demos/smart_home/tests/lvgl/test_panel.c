@@ -89,6 +89,12 @@ size_t smart_home_miloco_list(const smart_home_miloco_t *service,
 }
 
 #ifdef CONFIG_SMART_HOME_NODE_GATEWAY
+uint16_t smart_home_node_gateway_port(const smart_home_node_gateway_t *gateway)
+{ return gateway ? 18790 : 0; }
+int smart_home_node_gateway_start_with_port(smart_home_node_gateway_t **out,
+    agent_t *agent, pthread_mutex_t *mutex, uint16_t port)
+{ (void)agent; (void)mutex; (void)port; *out = (smart_home_node_gateway_t *)out; return AGENT_OK; }
+void smart_home_node_gateway_stop(smart_home_node_gateway_t **gateway) { *gateway = NULL; }
 static caddons_node_info_t node_snapshot[CAGENT_ADDONS_MAX_NODES];
 static size_t node_count;
 size_t smart_home_node_gateway_list(const smart_home_node_gateway_t *gateway,
