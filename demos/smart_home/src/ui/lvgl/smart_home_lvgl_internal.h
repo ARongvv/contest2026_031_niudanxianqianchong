@@ -211,3 +211,9 @@ int smart_home_lvgl_submit_agent_job(smart_home_lvgl_t *ui, const char *text);
 #ifdef __cplusplus
 }
 #endif
+
+#ifdef CONFIG_SMART_HOME_REMINDERS
+void smart_home_lvgl_reminder_init(smart_home_lvgl_t *ui);
+void smart_home_lvgl_reminder_poll(smart_home_lvgl_t *ui);
+void smart_home_lvgl_reminder_deinit(smart_home_lvgl_t *ui);
+#endif

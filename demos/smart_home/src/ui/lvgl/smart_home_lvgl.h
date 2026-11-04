@@ -74,6 +74,15 @@ typedef struct {
 #endif
 
 typedef struct {
+#ifdef CONFIG_SMART_HOME_REMINDERS
+    lv_obj_t *reminder_popup;
+    lv_obj_t *reminder_status;
+    lv_obj_t *reminder_button;
+    lv_timer_t *reminder_timer;
+    int reminder_id;
+    int reminder_ack_pending;
+    uint32_t reminder_ack_tick;
+#endif
     /* Screens */
     lv_obj_t *screen_screensaver;
     lv_obj_t *screen_home;

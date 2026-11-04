@@ -182,6 +182,9 @@ smart_home_lvgl_t *smart_home_lvgl_init(smart_home_agent_app_t *app)
      * TTS 播报期间自动暂停推理。 */
     smart_home_lvgl_voice_session_start(ui);
 #endif
+#ifdef CONFIG_SMART_HOME_REMINDERS
+    smart_home_lvgl_reminder_init(ui);
+#endif
     return ui;
 }
 
@@ -211,6 +214,9 @@ void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
         return;
     }
 
+#ifdef CONFIG_SMART_HOME_REMINDERS
+    smart_home_lvgl_reminder_deinit(ui);
+#endif
     smart_home_lvgl_camera_dialog_close();
     smart_home_lvgl_settings_v9_deinit(ui);
     if (ui->agent_worker_active) {

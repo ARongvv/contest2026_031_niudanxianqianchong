@@ -56,12 +56,18 @@ if(CONFIG_SMART_HOME_DEMO)
     )
   endif()
 
+  if(CONFIG_SMART_HOME_REMINDERS)
+    list(APPEND SMART_HOME_SRCS src/reminder/smart_home_reminder.c
+      src/reminder/smart_home_reminder_tools.c src/ui/lvgl/smart_home_lvgl_reminder.c)
+  endif()
+  if(CONFIG_SMART_HOME_VOICE_TTS OR CONFIG_SMART_HOME_REMINDER_RING)
+    list(APPEND SMART_HOME_SRCS src/voice/smart_home_voice_play.c
+      src/voice/smart_home_voice_player.c)
+  endif()
   if(CONFIG_SMART_HOME_VOICE_TTS)
     list(APPEND SMART_HOME_SRCS
       src/voice/smart_home_tts.c
-      src/voice/smart_home_voice_resample.c
-      src/voice/smart_home_voice_play.c
-      src/voice/smart_home_voice_player.c)
+      src/voice/smart_home_voice_resample.c)
   endif()
 
   if(CONFIG_SMART_HOME_DEMO_UI_LVGL)

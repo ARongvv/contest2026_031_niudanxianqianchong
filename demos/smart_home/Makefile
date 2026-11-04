@@ -67,11 +67,18 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
     CSRCS   += third_party/qrcodegen/qrcodegen.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_miloco_bind.c
   endif
-  ifneq ($(CONFIG_SMART_HOME_VOICE_TTS),)
+  ifneq ($(CONFIG_SMART_HOME_REMINDERS),)
+    CSRCS   += src/reminder/smart_home_reminder.c
+    CSRCS   += src/reminder/smart_home_reminder_tools.c
+    CSRCS   += src/ui/lvgl/smart_home_lvgl_reminder.c
+  endif
+  ifneq ($(CONFIG_SMART_HOME_VOICE_TTS)$(CONFIG_SMART_HOME_REMINDER_RING),)
     CSRCS   += src/voice/smart_home_voice_player.c
+    CSRCS   += src/voice/smart_home_voice_play.c
+  endif
+  ifneq ($(CONFIG_SMART_HOME_VOICE_TTS),)
     CSRCS   += src/voice/smart_home_tts.c
     CSRCS   += src/voice/smart_home_voice_resample.c
-    CSRCS   += src/voice/smart_home_voice_play.c
   endif
   # 采集服务由 ASR / KWS / VAD 共用（未定义的开关在本条中为空）
   ifneq ($(CONFIG_SMART_HOME_VOICE_ASR)$(CONFIG_SMART_HOME_KWS)$(CONFIG_SMART_HOME_VAD),)

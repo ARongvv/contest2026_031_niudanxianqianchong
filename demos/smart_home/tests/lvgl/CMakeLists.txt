@@ -225,3 +225,13 @@ foreach(service ASR TTS)
   add_test(NAME ${target} COMMAND ${target})
   set_tests_properties(${target} PROPERTIES TIMEOUT 20)
 endforeach()
+
+add_executable(reminder_popup_check test_reminder.c
+  "${UI}/smart_home_lvgl_reminder.c" "${UI}/smart_home_lvgl_style.c")
+foreach(property COMPILE_DEFINITIONS INCLUDE_DIRECTORIES COMPILE_OPTIONS LINK_OPTIONS LINK_LIBRARIES)
+  get_target_property(value panel_check ${property})
+  set_target_properties(reminder_popup_check PROPERTIES ${property} "${value}")
+endforeach()
+target_compile_definitions(reminder_popup_check PRIVATE CONFIG_SMART_HOME_REMINDERS=1 CONFIG_SMART_HOME_REMINDER_RING=1)
+add_test(NAME reminder_popup_check COMMAND reminder_popup_check)
+set_tests_properties(reminder_popup_check PROPERTIES TIMEOUT 15)
