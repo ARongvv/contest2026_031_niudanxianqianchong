@@ -32,6 +32,7 @@
 #endif
 
 #include <stdio.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
@@ -80,7 +81,8 @@ static int smart_home_selftest_camera(void)
             status.state == SMART_HOME_CAMERA_RUNNING &&
             status.preview_sequence > 0)
         {
-            printf("smart_home_selftest: camera PASS preview=%u capture=%u\n",
+            printf("smart_home_selftest: camera PASS preview=%" PRIu32
+                   " capture=%" PRIu32 "\n",
                    status.preview_sequence, status.capture_sequence);
             smart_home_camera_stop();
             return 0;
@@ -90,7 +92,7 @@ static int smart_home_selftest_camera(void)
     }
 
     smart_home_camera_get_status(&status);
-    printf("smart_home_selftest: camera FAIL state=%d err=%d preview=%u\n",
+    printf("smart_home_selftest: camera FAIL state=%d err=%d preview=%" PRIu32 "\n",
            status.state, status.last_error, status.preview_sequence);
     smart_home_camera_stop();
     return 1;
