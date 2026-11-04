@@ -23,6 +23,15 @@ P4 对象检查在当前非 SmartHome 配置下缺少导出的 `netutils/cJSON.h
 
 验证：LVGL 回归 21/21（含不创建旧设备页的刷新路径）、Node-only 设置对象编译、Node 适配器对象编译，以及 UI 桥接 ASan/UBSan 回归。节点服务使用替身，不代表实际 WebSocket 接入验收。
 
+## 阶段三：删除旧首页和设备页
+
+- 删除旧首页 `smart_home_lvgl_home.c`、旧设备页 `smart_home_lvgl_panel.c`，公共顶栏、天气与时钟迁入 `smart_home_lvgl_shell.c`。
+- 删除旧页面状态字段、导航编号、构建声明、测试专用编译开关和屏保隐藏兼容标签。
+- 删除旧设备页测试，保留 V9 卡片、场景、房间、设置、扫码与摄像头回归；天气和跨日时钟改为直接验证 V9 页面。
+- 保留独立的静态首页硬件诊断程序；它不属于 SmartHome 产品导航。
+
+验证：LVGL 主机回归 21/21，UI 桥接 ASan/UBSan 通过；本次未构建或烧录 SmartHome 固件。
+
 ## 板端验证
 
 使用 SmartHome 固件逐项验证：MCP 配置与发现／重试；工具完整列表与权限；Node 启停、端口及节点列表；ASR/TTS/KWS 配置与停止播报；首页设备控制和扫码授权。

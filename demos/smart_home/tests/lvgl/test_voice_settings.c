@@ -32,7 +32,7 @@ static int fast_create(pthread_t *thread, const pthread_attr_t *attr,
     return 0;
 }
 #define pthread_create fast_create
-#define main legacy_settings_main
+#define main settings_fixture_main
 #define SMART_HOME_TEST_HAS_MILOCO_STUBS
 #define SMART_HOME_TEST_HAS_VOICE_SECRET_STUB
 #include "test_settings_v9.c"

@@ -92,26 +92,17 @@ enum {
     SMART_HOME_TAB_HOME = 0,
     SMART_HOME_TAB_CHAT,
     SMART_HOME_TAB_SETTINGS,
-    /* Compatibility IDs redirect to V9 home, camera dialog or settings. */
-    SMART_HOME_TAB_DEVICES,
-    SMART_HOME_TAB_SECURITY,
-    SMART_HOME_TAB_MORE,
     SMART_HOME_TAB_COUNT,
 };
-
-#define SMART_HOME_TAB_PANEL SMART_HOME_TAB_DEVICES
 
 lv_obj_t *smart_home_lvgl_build_nav_bar(lv_obj_t *screen,
                                         smart_home_lvgl_t *ui);
 
-void smart_home_lvgl_build_home_screen(smart_home_lvgl_t *ui);
 void smart_home_lvgl_build_home_screen_v9(smart_home_lvgl_t *ui);
-void smart_home_lvgl_open_scene_popup(smart_home_lvgl_t *ui);
 int smart_home_lvgl_v9_visible_card_count(void);
 void smart_home_lvgl_v9_refresh_views(smart_home_lvgl_t *ui);
 int smart_home_lvgl_v9_select_room(int index);
 void smart_home_lvgl_build_settings_screen_v9(smart_home_lvgl_t *ui);
-void smart_home_lvgl_open_service_settings(smart_home_lvgl_t *ui);
 void smart_home_lvgl_settings_v9_deinit(smart_home_lvgl_t *ui);
 
 #ifdef CONFIG_SMART_HOME_KWS
@@ -138,9 +129,6 @@ int smart_home_lvgl_v9_settings_select_category(int index);
 void smart_home_lvgl_build_screensaver_screen(smart_home_lvgl_t *ui);
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
 void smart_home_lvgl_miloco_poll_set_enabled(smart_home_lvgl_t *ui, int enable);
-#ifdef SMART_HOME_LVGL_LEGACY_TESTS
-void smart_home_lvgl_miloco_sheet_refresh(smart_home_lvgl_t *ui);
-#endif
 /* 扫码绑定改为弹窗，叠在当前页面之上；close 幂等。 */
 void smart_home_lvgl_open_miloco_bind(smart_home_lvgl_t *ui);
 void smart_home_lvgl_miloco_bind_close(smart_home_lvgl_t *ui);
@@ -156,9 +144,6 @@ void smart_home_lvgl_build_top_bar(lv_obj_t *screen, smart_home_lvgl_t *ui,
                                    const char *title);
 void smart_home_lvgl_refresh_network_indicators(smart_home_lvgl_t *ui);
 
-#ifdef SMART_HOME_LVGL_LEGACY_TESTS
-void smart_home_lvgl_build_panel_screen(smart_home_lvgl_t *ui);
-#endif
 void smart_home_lvgl_build_chat_screen(smart_home_lvgl_t *ui);
 int smart_home_lvgl_chat_restore(smart_home_lvgl_t *ui);
 const char *smart_home_lvgl_tool_display_name(const char *name);

@@ -121,7 +121,7 @@ ifneq ($(CONFIG_SMART_HOME_DEMO),)
     CSRCS   += src/ui/lvgl/smart_home_lvgl_agent.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_history.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_chat.c
-    CSRCS   += src/ui/lvgl/smart_home_lvgl_home.c
+    CSRCS   += src/ui/lvgl/smart_home_lvgl_shell.c
     CSRCS   += src/ui/lvgl/smart_home_lvgl_home_v9.c
     ifneq ($(CONFIG_SMART_HOME_ONBOARDING),)
       CSRCS += src/ui/lvgl/smart_home_lvgl_onboarding.c

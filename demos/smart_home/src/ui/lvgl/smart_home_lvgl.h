@@ -49,30 +49,6 @@ typedef struct {
     int state; /* -2 unconfirmed, -1 running, 0 failed, 1 result returned */
 } smart_home_lvgl_trace_tool_t;
 
-#ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
-typedef struct {
-    char did[24];
-    lv_obj_t *card;
-    lv_obj_t *name;
-    lv_obj_t *room;
-    lv_obj_t *status;
-    lv_obj_t *power;
-    int category;
-    int controllable;
-    int pending;
-    uint32_t submitted_at;
-} smart_home_lvgl_miloco_card_t;
-#endif
-
-#ifdef CONFIG_SMART_HOME_NODE_GATEWAY
-typedef struct {
-    char id[CAGENT_ADDONS_NODE_ID_SIZE + 1];
-    lv_obj_t *card;
-    lv_obj_t *name;
-    lv_obj_t *commands;
-} smart_home_lvgl_node_card_t;
-#endif
-
 typedef struct {
 #ifdef CONFIG_SMART_HOME_REMINDERS
     lv_obj_t *reminder_popup;
@@ -86,77 +62,9 @@ typedef struct {
     /* Screens */
     lv_obj_t *screen_screensaver;
     lv_obj_t *screen_home;
-    lv_obj_t *screen_panel;    /* Devices page, legacy member name */
     lv_obj_t *screen_chat;
     lv_obj_t *screen_settings_v9;
     int active_tab;
-
-    /* Panel: device cards */
-    lv_obj_t *panel_grid;
-    lv_obj_t *panel_source_dd;
-    lv_obj_t *panel_room_dd;    /* room filter dropdown */
-    lv_obj_t *panel_filter_row;
-    lv_obj_t *panel_sensor_bar;
-    lv_obj_t *panel_title;
-    lv_obj_t *panel_feedback_label;
-    lv_obj_t *panel_add_btn;
-    lv_timer_t *remote_node_timer;
-    uint32_t remote_node_revision;
-#ifdef CONFIG_SMART_HOME_NODE_GATEWAY
-    smart_home_lvgl_node_card_t node_cards[CAGENT_ADDONS_MAX_NODES];
-#endif
-
-    /* Panel: card widgets (indexed by device slot) */
-    lv_obj_t *device_cards[SMART_HOME_MAX_DEVICES];
-    lv_obj_t *env_temp_label;
-    lv_obj_t *env_hum_label;
-    lv_obj_t *env_light_label;
-    lv_obj_t *env_ac_label;
-
-    /* Home summary cards.  Values are updated in place from device state. */
-    lv_obj_t *home_env_label;
-    lv_obj_t *home_ac_label;
-    lv_obj_t *home_status_label;
-    lv_obj_t *scene_popup;      /* home-screen mode picker overlay */
-
-    /* Device control popup (overlay on panel) */
-    lv_obj_t *ctrl_popup;
-    lv_obj_t *ctrl_slider;
-    lv_obj_t *ctrl_switch;
-    lv_obj_t *ctrl_mode_dd;
-    lv_obj_t *ctrl_fan_dd;
-    lv_obj_t *ctrl_room_dd;
-    lv_obj_t *ctrl_title;
-    lv_obj_t *ctrl_value_label;
-    int       ctrl_device_id;
-    int       ctrl_pending_on;
-    int       ctrl_pending_val;
-    int       ctrl_pending_mode;
-    int       ctrl_pending_fan_speed;
-    int       ctrl_pending_room_index;
-
-    /* Device add/edit popup */
-    lv_obj_t *device_popup;
-    lv_obj_t *device_popup_title;
-    lv_obj_t *device_name_input;
-    lv_obj_t *device_room_dd;
-    lv_obj_t *device_type_dd;
-    lv_obj_t *device_keyboard;
-    int       device_edit_id; /* 0 = add */
-
-    /* Room creator popup.  The preset picker adds a persistent room catalog
-     * entry; newly created rooms immediately appear in filters and editors. */
-    lv_obj_t *room_popup;
-    lv_obj_t *room_popup_title;
-    lv_obj_t *room_preset_dd;
-
-    /* Environment simulation popup (sensor values, UI/device owned) */
-    lv_obj_t *env_popup;
-    lv_obj_t *env_slider;
-    lv_obj_t *env_title;
-    lv_obj_t *env_value_label;
-    int       env_pending_type; /* 0=temp, 1=humidity, 2=ambient light */
-    int       env_pending_value;
 
     /* Chat: message list + status hint */
     lv_obj_t *chat_list;
@@ -195,11 +103,9 @@ typedef struct {
     int topbar_clock_count;
     int topbar_camera_icon_count;
     int topbar_camera_on;
-    lv_obj_t *home_miloco_sub_label;
+    lv_obj_t *home_weather_badge;
     lv_obj_t *home_weather_temp_label;
     lv_obj_t *home_weather_condition_label;
-    lv_obj_t *home_weather_city_label;
-    lv_obj_t *home_weather_badge;
     lv_obj_t *home_date_label;
     lv_obj_t *home_time_label;
     lv_timer_t *home_time_timer;
@@ -207,20 +113,11 @@ typedef struct {
     lv_timer_t *v9_network_timer;
     lv_obj_t *screensaver_time_label;
     lv_obj_t *screensaver_date_label;
-    lv_obj_t *screensaver_weather_label;
     lv_obj_t *screensaver_temp_label;
     lv_obj_t *screensaver_condition_label;
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
     lv_timer_t *miloco_timer;
-    uint32_t miloco_revision; /* Last snapshot rendered on the device page. */
     uint32_t miloco_polled_revision;
-    smart_home_lvgl_miloco_card_t miloco_cards[SMART_HOME_MILOCO_MAX_DEVICES];
-    lv_obj_t *miloco_placeholder;
-    void *miloco_sheet_context;
-    lv_obj_t *settings_weather_city_input;
-    lv_obj_t *miloco_sheet;
-    lv_obj_t *miloco_sheet_feedback;
-    char miloco_sheet_did[24];
     lv_obj_t *screen_miloco_bind;   /* 绑定弹窗的遮罩根对象，NULL = 未打开 */
     lv_obj_t *bind_status_label;
     lv_obj_t *bind_head_label;

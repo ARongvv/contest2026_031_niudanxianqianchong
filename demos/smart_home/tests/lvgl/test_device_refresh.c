@@ -3,7 +3,7 @@
 #include <assert.h>
 static uint32_t revision;
 static int refreshes;
-void smart_home_lvgl_refresh_home(smart_home_lvgl_t *ui) { assert(!ui->screen_panel); refreshes++; }
+void smart_home_lvgl_refresh_home(smart_home_lvgl_t *ui) { assert(ui); refreshes++; }
 size_t smart_home_miloco_list(const smart_home_miloco_t *service,
     smart_home_miloco_device_t *devices, size_t capacity, uint32_t *out)
 { (void)service; (void)devices; (void)capacity; if (out) *out = revision; return 0; }

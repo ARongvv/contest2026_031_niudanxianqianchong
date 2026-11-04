@@ -13,10 +13,11 @@ set(LV_CONF_BUILD_DISABLE_THORVG_INTERNAL ON CACHE BOOL "" FORCE)
 add_compile_definitions(LV_KCONFIG_IGNORE)
 add_subdirectory("${OPENVELA_ROOT}/apps/graphics/lvgl/lvgl" lvgl)
 file(GLOB ICONS "${UI}/icons/generated/*.c")
-add_executable(panel_check test_panel.c "${UI}/smart_home_lvgl_style.c"
+add_executable(panel_check test_home_v9.c "${UI}/smart_home_lvgl_style.c"
   "${REPO}/demos/smart_home/src/device/smart_home_device.c"
   "${UI}/smart_home_lvgl_nav.c"
-  "${UI}/smart_home_lvgl_home.c" "${UI}/smart_home_lvgl_home_v9.c"
+  "${UI}/smart_home_lvgl_device_refresh.c"
+  "${UI}/smart_home_lvgl_shell.c" "${UI}/smart_home_lvgl_home_v9.c"
   "${UI}/smart_home_lvgl_onboarding.c"
   "${UI}/smart_home_lvgl_device_dialog.c"
   "${UI}/smart_home_lvgl_room_dialog.c"
@@ -33,7 +34,7 @@ add_executable(panel_check test_panel.c "${UI}/smart_home_lvgl_style.c"
 # -DSMART_HOME_TEST_ONBOARDING=OFF 关掉，验证「关掉引导」也能编译。
 option(SMART_HOME_TEST_ONBOARDING "Build the first-run guide in host tests" ON)
 
-target_compile_definitions(panel_check PRIVATE SMART_HOME_LVGL_LEGACY_TESTS=1 _GNU_SOURCE FAR= CONFIG_SMART_HOME_MILOCO_BRIDGE=1
+target_compile_definitions(panel_check PRIVATE _GNU_SOURCE FAR= CONFIG_SMART_HOME_MILOCO_BRIDGE=1
   CONFIG_SMART_HOME_DEMO_DATA_ROOT="${REPO}/demos/smart_home"
   CONFIG_LV_USE_TINY_TTF=1 CONFIG_LV_FONT_MONTSERRAT_12=1
   CONFIG_LV_FONT_MONTSERRAT_14=1 CONFIG_LV_FONT_MONTSERRAT_16=1)
@@ -52,7 +53,7 @@ target_link_libraries(panel_check PRIVATE lvgl m pthread)
 enable_testing()
 add_test(NAME panel_check COMMAND panel_check)
 
-option(SMART_HOME_TEST_NODE_GATEWAY "Also test optional Node cards" OFF)
+option(SMART_HOME_TEST_NODE_GATEWAY "Also test the Node service list" OFF)
 if(SMART_HOME_TEST_NODE_GATEWAY)
   target_compile_definitions(panel_check PRIVATE CONFIG_SMART_HOME_NODE_GATEWAY=1 CONFIG_SMART_HOME_NODE_GATEWAY_PORT=18790)
   target_include_directories(panel_check PRIVATE "${REPO}/packages/cagent_addons/include")
@@ -178,7 +179,7 @@ add_test(NAME camera_dialog_check COMMAND camera_dialog_check)
 set_tests_properties(camera_dialog_check PROPERTIES TIMEOUT 15)
 
 get_target_property(CAMERA_HOME_SRCS panel_check SOURCES)
-list(REMOVE_ITEM CAMERA_HOME_SRCS test_panel.c)
+list(REMOVE_ITEM CAMERA_HOME_SRCS test_home_v9.c)
 add_executable(camera_home_check test_camera_home.c ${CAMERA_HOME_SRCS}
   "${UI}/smart_home_lvgl_camera_dialog.c")
 foreach(property COMPILE_DEFINITIONS INCLUDE_DIRECTORIES COMPILE_OPTIONS LINK_OPTIONS LINK_LIBRARIES)
@@ -189,7 +190,7 @@ target_compile_definitions(camera_home_check PRIVATE CONFIG_SMART_HOME_CAMERA_PR
 add_test(NAME camera_home_check COMMAND camera_home_check)
 set_tests_properties(camera_home_check PROPERTIES TIMEOUT 15)
 
-# Compile the actual product voice widgets; legacy suites leave these features off.
+# Compile the actual product voice widgets; home tests leave these features off.
 add_executable(voice_settings_check test_voice_settings.c
   "${UI}/smart_home_lvgl_style.c"
   "${UI}/icons/smart_home_lvgl_png_icons.c" ${ICONS})

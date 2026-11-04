@@ -105,8 +105,10 @@ src/
       smart_home_lvgl_agent.c      Agent worker 与 lv_async_call 回写
       smart_home_lvgl_chat.c       对话气泡和工具调用卡片
       smart_home_lvgl_nav.c        底部导航
-      smart_home_lvgl_panel.c      设备面板和控制弹窗
-      smart_home_lvgl_settings.c   设置页
+      smart_home_lvgl_home_v9.c    首页设备卡片和场景
+      smart_home_lvgl_device_dialog.c 设备控制抽屉
+      smart_home_lvgl_shell.c      顶栏、天气和时钟
+      smart_home_lvgl_settings_v9.c   设置页
       smart_home_lvgl_style.c      颜色、卡片样式、可选字体资源
 
   config/

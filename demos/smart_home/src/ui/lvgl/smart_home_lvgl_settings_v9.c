@@ -2478,12 +2478,3 @@ int smart_home_lvgl_v9_settings_select_category(int index)
     panel_show(index);
     return index;
 }
-
-void smart_home_lvgl_open_service_settings(smart_home_lvgl_t *ui)
-{
-    smart_home_lvgl_load_tab(ui, SMART_HOME_TAB_SETTINGS);
-    panel_show(V9_CAT_SERVICES);
-#ifdef CONFIG_SMART_HOME_NODE_GATEWAY
-    nodes_refresh(ui);
-#endif
-}

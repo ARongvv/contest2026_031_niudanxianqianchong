@@ -60,7 +60,6 @@ static const char *v9_perf_scene(smart_home_lvgl_t *ui)
     if (active == ui->screen_chat) return "chat";
     if (active == ui->screen_settings_v9) return "settings";
     if (active == ui->screen_screensaver) return "screensaver";
-    if (active == ui->screen_panel) return "panel";
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
     if (smart_home_lvgl_miloco_bind_is_open(ui)) return "miloco-bind";
 #endif
@@ -154,10 +153,6 @@ void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
     }
     (void)smart_home_agent_app_set_observer(ui->app, NULL, NULL);
     smart_home_lvgl_discard_pending(ui);
-    if (ui->remote_node_timer) {
-        lv_timer_delete(ui->remote_node_timer);
-        ui->remote_node_timer = NULL;
-    }
 #ifdef CONFIG_SMART_HOME_MILOCO_BRIDGE
     if (ui->miloco_timer) {
         lv_timer_delete(ui->miloco_timer);
@@ -167,8 +162,6 @@ void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
         lv_timer_delete(ui->bind_timer);
         ui->bind_timer = NULL;
     }
-    ui->miloco_sheet = NULL;
-    ui->miloco_sheet_did[0] = '\0';
 #endif
     if (ui->home_time_timer) {
         lv_timer_delete(ui->home_time_timer);
@@ -183,9 +176,6 @@ void smart_home_lvgl_deinit(smart_home_lvgl_t *ui)
     }
     if (ui->screen_home) {
         lv_obj_del(ui->screen_home);
-    }
-    if (ui->screen_panel) {
-        lv_obj_del(ui->screen_panel);
     }
     if (ui->screen_chat) {
         lv_obj_del(ui->screen_chat);
